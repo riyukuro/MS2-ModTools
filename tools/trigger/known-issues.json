@@ -1,0 +1,1256 @@
+{
+ "comment": "Known errors in shipped trigger scripts that are wrong under any interpretation of the data. Paths are relative to the trigger/ dir; match is a substring of the finding message.",
+ "entries": [
+  {
+   "code": "bad-transition",
+   "path": "02000066_bf/q10003067.xml",
+   "match": "state '포털비활성화'",
+   "reason": "shipped data: transition target '포털비활성화' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000066_bf/reward.xml",
+   "match": "state '생성조건'",
+   "reason": "shipped data: transition target '생성조건' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000079_bf/eagle.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000109_in/main.xml",
+   "match": "state '일기장스폰'",
+   "reason": "shipped data: transition target '일기장스폰' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000177_bf/wait.xml",
+   "reason": "the <import> of Dungeon_Common/CheckUserCount.xml is commented out, so 'DungeonStart' (the imported library's target) has no state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000179_bf/main.xml",
+   "match": "state '퀘스트조건체크'",
+   "reason": "shipped data: transition target '퀘스트조건체크' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/hack_01.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/hack_02.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/hack_03.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/hack_04.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/mob_05.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/mob_06.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/mob_07.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/mob_08.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000298_bf/mob_09.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000300_bf/main.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000301_bf/main.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000302_bf/main.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000303_bf/machine_01.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000303_bf/machine_02.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000303_bf/machine_03.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000303_bf/machine_04.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000304_bf/mesh.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000304_bf/move.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000317_bf/eagle.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000317_bf/eagle_02.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000346_bf/triggerwater.xml",
+   "match": "state '종료'",
+   "reason": "shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000384_bf/normal.xml",
+   "match": "state 'quest_idle'",
+   "reason": "shipped data: transition target 'quest_idle' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000387_bf/01_playparttimejob.xml",
+   "match": "state 'NpcGroup4205'",
+   "reason": "shipped data: transition target 'NpcGroup4205' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000387_bf/1113_customer.xml",
+   "match": "state 'PickItem_30000661'",
+   "reason": "shipped data: transition target 'PickItem_30000661' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000387_bf/1117_customer.xml",
+   "reason": "shipped data: 96 PickItem_300006xx/300007xx states are referenced but never defined; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000387_bf/3103_customer.xml",
+   "match": "state 'PickItem_30000687'",
+   "reason": "shipped data: transition target 'PickItem_30000687' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000403_bf/move.xml",
+   "match": "state '랜덤블록6'",
+   "reason": "shipped data: transition target '랜덤블록6' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000410_bf/event01.xml",
+   "match": "state '성공이벤트실행'",
+   "reason": "shipped data: transition target '성공이벤트실행' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000410_bf/event01.xml",
+   "match": "state '실패이벤트실행'",
+   "reason": "shipped data: transition target '실패이벤트실행' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000420_bf/barricade.xml",
+   "match": "state '카운트'",
+   "reason": "shipped data: transition target '카운트' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000428_bf/event01.xml",
+   "match": "state '성공이벤트실행'",
+   "reason": "shipped data: transition target '성공이벤트실행' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000428_bf/event01.xml",
+   "match": "state '실패이벤트실행'",
+   "reason": "shipped data: transition target '실패이벤트실행' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000429_bf/event01.xml",
+   "match": "state '성공이벤트실행'",
+   "reason": "shipped data: transition target '성공이벤트실행' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000429_bf/event01.xml",
+   "match": "state '실패이벤트실행'",
+   "reason": "shipped data: transition target '실패이벤트실행' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000432_bf/error.xml",
+   "match": "state 'buff_1'",
+   "reason": "shipped data: transition target 'buff_1' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000443_bf/ai.xml",
+   "match": "state 'QuestEnd_warp'",
+   "reason": "shipped data: transition target 'QuestEnd_warp' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000443_bf/error.xml",
+   "match": "state '끝'",
+   "reason": "shipped data: transition target '끝' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000471_bf/move.xml",
+   "match": "state '랜덤블록6'",
+   "reason": "shipped data: transition target '랜덤블록6' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000486_bf/101_buff.xml",
+   "match": "state 'Move01'",
+   "reason": "shipped data: transition target 'Move01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000498_bf/stage_01.xml",
+   "match": "state '안내02'",
+   "reason": "shipped data: transition target '안내02' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000532_bf/talk.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02000533_bf/main2.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02010055_bf/scene02.xml",
+   "match": "state '카오스레이드'",
+   "reason": "shipped data: transition target '카오스레이드' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020006_bf/1000051_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020006_bf/1000052_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020009_bf/1000051_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020009_bf/1000052_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020027_bf/battle_6.xml",
+   "match": "state '길막삭제'",
+   "reason": "shipped data: transition target '길막삭제' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020031_bf/1000051_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020031_bf/1000052_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020061_bf/battle_1.xml",
+   "match": "state '스폰_1_추가대사'",
+   "reason": "shipped data: transition target '스폰_1_추가대사' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020066_bf/1000051_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020066_bf/1000052_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020097_bf/bossspawn.xml",
+   "match": "state '사다리생성'",
+   "reason": "shipped data: transition target '사다리생성' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020120_bf/bgmchangeskillbreakreset.xml",
+   "match": "state '스킬브레이크신호대기_시간다시셋팅'",
+   "reason": "shipped data: transition target '스킬브레이크신호대기_시간다시셋팅' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020120_bf/bgmchangeskillbreakreset.xml",
+   "match": "state '스킬브레이크신호대기_시간셋팅안함'",
+   "reason": "shipped data: transition target '스킬브레이크신호대기_시간셋팅안함' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020301_bf/3000038_phase_2_interect_08.xml",
+   "match": "state '시작'",
+   "reason": "shipped data: transition target '시작' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020301_bf/3000039_phase_2_interect_09.xml",
+   "match": "state '시작'",
+   "reason": "shipped data: transition target '시작' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020301_bf/300004_phase_3.xml",
+   "match": "state '엘리베이터_대기'",
+   "reason": "shipped data: transition target '엘리베이터_대기' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020301_bf/300005_phase_4.xml",
+   "match": "state '완료'",
+   "reason": "shipped data: transition target '완료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02020301_bf/300006_phase_5.xml",
+   "match": "state '게임_종료'",
+   "reason": "shipped data: transition target '게임_종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02100000_bf/spawn.xml",
+   "match": "state '성공'",
+   "reason": "shipped data: transition target '성공' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "02100009_bf/skill.xml",
+   "match": "state '끝1'",
+   "reason": "shipped data: transition target '끝1' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/cannon_projectile.xml",
+   "match": "state 'Round_06_02'",
+   "reason": "shipped data: transition target 'Round_06_02' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/fog.xml",
+   "match": "state 'Round_01'",
+   "reason": "shipped data: transition target 'Round_01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/normal_projectile.xml",
+   "match": "state 'Round_05'",
+   "reason": "shipped data: transition target 'Round_05' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/normal_projectile.xml",
+   "match": "state 'Round_06'",
+   "reason": "shipped data: transition target 'Round_06' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/normal_projectile_02.xml",
+   "match": "state 'Round_05'",
+   "reason": "shipped data: transition target 'Round_05' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/normal_projectile_02.xml",
+   "match": "state 'Round_06'",
+   "reason": "shipped data: transition target 'Round_06' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile.xml",
+   "match": "state 'Round_02_Ready'",
+   "reason": "shipped data: transition target 'Round_02_Ready' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile.xml",
+   "match": "state 'Round_03_Ready'",
+   "reason": "shipped data: transition target 'Round_03_Ready' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile.xml",
+   "match": "state 'Round_04_Ready'",
+   "reason": "shipped data: transition target 'Round_04_Ready' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile.xml",
+   "match": "state 'Round_05_Ready'",
+   "reason": "shipped data: transition target 'Round_05_Ready' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile_02.xml",
+   "match": "state 'Round_03'",
+   "reason": "shipped data: transition target 'Round_03' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile_03.xml",
+   "match": "state 'Round_02'",
+   "reason": "shipped data: transition target 'Round_02' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "51000003_dg/wave_projectile_05.xml",
+   "match": "state 'Round_03'",
+   "reason": "shipped data: transition target 'Round_03' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000014_qd/collapse_2000.xml",
+   "match": "state '무너짐03'",
+   "reason": "shipped data: transition target '무너짐03' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000050_qd/main_02.xml",
+   "match": "state 'start_02_end'",
+   "reason": "shipped data: transition target 'start_02_end' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000068_qd/tria_seige_movie.xml",
+   "match": "state '지원군등장'",
+   "reason": "shipped data: transition target '지원군등장' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000072_qd/questnpcspawn01.xml",
+   "match": "state 'NpcRemove01'",
+   "reason": "shipped data: transition target 'NpcRemove01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000073_qd/losteve.xml",
+   "match": "state '종료'",
+   "reason": "shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000086_qd/50001540.xml",
+   "match": "state '던전종료'",
+   "reason": "shipped data: transition target '던전종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000091_qd/52000091_trigger.xml",
+   "match": "state '50100570완료가능할때'",
+   "reason": "shipped data: transition target '50100570완료가능할때' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000091_qd/52000091_trigger.xml",
+   "match": "state '52000095로이동'",
+   "reason": "shipped data: transition target '52000095로이동' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000092_qd/52000092_trigger.xml",
+   "match": "state '20002277완료시01'",
+   "reason": "shipped data: transition target '20002277완료시01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000092_qd/52000092_trigger.xml",
+   "match": "state '50100520완료시02'",
+   "reason": "shipped data: transition target '50100520완료시02' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52000107_qd/52000107.xml",
+   "match": "state '아이샤와떠남03'",
+   "reason": "shipped data: transition target '아이샤와떠남03' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010027_qd/main_quest10003101.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010032_qd/main.xml",
+   "match": "state '의식종료_01'",
+   "reason": "shipped data: transition target '의식종료_01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010032_qd/main.xml",
+   "match": "state '의식종료_02'",
+   "reason": "shipped data: transition target '의식종료_02' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010032_qd/main_quest10003078.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010032_qd/main_quest10003079.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010032_qd/main_quest10003095.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52010055_qd/52010055.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52020006_qd/main.xml",
+   "match": "state '세리하와함께전투_연출종료'",
+   "reason": "shipped data: transition target '세리하와함께전투_연출종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52020033_qd/main.xml",
+   "match": "state '전투시작01'",
+   "reason": "shipped data: transition target '전투시작01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52020036_qd/main.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100041_qd/move.xml",
+   "match": "state '랜덤블록6'",
+   "reason": "shipped data: transition target '랜덤블록6' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100102_qd/main.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100103_qd/main.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100105_qd/52100105_03.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100105_qd/52100105_03.xml",
+   "match": "state '컷신1_2'",
+   "reason": "shipped data: transition target '컷신1_2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100110_qd/52100110.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100110_qd/52100110_1.xml",
+   "match": "state ''",
+   "reason": "shipped data: <transition state=\"\"/>; FixClassName turns the blank name into 'State', which is not a state here; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100301_qd/300004_phase_3.xml",
+   "match": "state '엘리베이터_대기'",
+   "reason": "shipped data: transition target '엘리베이터_대기' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100301_qd/300005_phase_4.xml",
+   "match": "state '완료'",
+   "reason": "shipped data: transition target '완료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "52100301_qd/300006_phase_5.xml",
+   "match": "state '게임종료'",
+   "reason": "shipped data: transition target '게임종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7110.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7120.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7130.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7140.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7210.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7220.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7230.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7240.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7310.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7320.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7330.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7340.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7410.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7420.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7430.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000008_me/color_7440.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7110.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7120.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7130.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7140.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7210.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7220.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7230.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7240.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7310.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7320.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7330.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7340.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7410.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7420.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7430.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "61000022_me/color_7440.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "63000024_cs/wakeup01.xml",
+   "match": "state 'MoveToGetWeapon01'",
+   "reason": "shipped data: transition target 'MoveToGetWeapon01' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "65000003_bd/seagull_01.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "65000003_bd/seagull_02.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "65000003_bd/seagull_03.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "65000003_bd/seagull_04.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66000004_gd/seagull_01.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66000004_gd/seagull_02.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66000004_gd/seagull_03.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66000004_gd/seagull_04.xml",
+   "match": "state '종료2'",
+   "reason": "shipped data: transition target '종료2' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7110.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7120.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7130.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7140.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7210.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7220.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7230.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7240.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7310.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7320.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7330.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7340.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7410.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7420.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7430.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "66200001_gd/color_7440.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7110.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7120.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7130.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7140.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7210.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7220.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7230.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7240.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7310.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7320.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7330.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7340.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7410.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7420.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7430.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "84000007_wd/color_7440.xml",
+   "match": "state 'YellowtoRed'",
+   "reason": "shipped data: every color_7xxx copy transitions to 'YellowtoRed', which none defines; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999841/debuffactive.xml",
+   "match": "state '종료'",
+   "reason": "test map (9999xxxx): shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999844/main.xml",
+   "match": "state '다리생성카운트'",
+   "reason": "test map (9999xxxx): shipped data: transition target '다리생성카운트' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999845/field_5.xml",
+   "match": "state 'CableOn_04'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'CableOn_04' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999849/main.xml",
+   "match": "state '두번'",
+   "reason": "test map (9999xxxx): shipped data: transition target '두번' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999874/1000051_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999874/1000052_npctalk.xml",
+   "match": "state 'NPCTalkOff'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'NPCTalkOff' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999905/pvp.xml",
+   "match": "state '보상'",
+   "reason": "test map (9999xxxx): shipped data: transition target '보상' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999905/seagull_01.xml",
+   "match": "state '종료'",
+   "reason": "test map (9999xxxx): shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999905/seagull_02.xml",
+   "match": "state '종료'",
+   "reason": "test map (9999xxxx): shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999905/seagull_03.xml",
+   "match": "state '종료'",
+   "reason": "test map (9999xxxx): shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999905/seagull_04.xml",
+   "match": "state '종료'",
+   "reason": "test map (9999xxxx): shipped data: transition target '종료' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999909/move.xml",
+   "match": "state '랜덤블록6'",
+   "reason": "test map (9999xxxx): shipped data: transition target '랜덤블록6' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999910/wave.xml",
+   "match": "state 'ready'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'ready' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999911/main.xml",
+   "match": "state 'random_start'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'random_start' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999911/wave_projectile.xml",
+   "match": "state 'Round_03'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'Round_03' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999911/wave_projectile.xml",
+   "match": "state 'Round_04'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'Round_04' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999925/main.xml",
+   "match": "state 'EndPlay'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'EndPlay' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999926/main.xml",
+   "match": "state 'LoadingStart'",
+   "reason": "test map (9999xxxx): shipped data: transition target 'LoadingStart' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "bad-transition",
+   "path": "99999950/main.xml",
+   "match": "state '6라운드대기'",
+   "reason": "test map (9999xxxx): shipped data: transition target '6라운드대기' is not a state in this script or its imports; Maple2 server (WIP) currently runs that condition's actions on every tick while it holds and never leaves the state"
+  },
+  {
+   "code": "state-dup",
+   "path": "51000004_dg/51000004_main.xml",
+   "match": "duplicate state '셋둘하나_스킵완료'",
+   "reason": "shipped data defines the same state name twice"
+  },
+  {
+   "code": "state-dup",
+   "path": "51000005_dg/51000005_main.xml",
+   "match": "duplicate state '셋둘하나_스킵완료'",
+   "reason": "shipped data defines the same state name twice"
+  },
+  {
+   "code": "state-dup",
+   "path": "51000006_dg/51000006_main.xml",
+   "match": "duplicate state '셋둘하나_스킵완료'",
+   "reason": "shipped data defines the same state name twice"
+  },
+  {
+   "code": "bad-transition",
+   "path": "dungeon_common/checkusercount.xml",
+   "reason": "library file meant to be imported; the ingest resolves every Dungeon_Common/CheckUserCount.xml import to trigger/50000001_dl/checkusercount.xml instead (archive-order EndsWith fallback), so this copy is never merged into a script; 'DungeonStart' belongs to the importer"
+  }
+ ]
+}

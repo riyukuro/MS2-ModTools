@@ -1,0 +1,18 @@
+# your settings (paths on your machine)
+modtools.toml
+
+# build outputs
+out/
+build/
+bin/
+obj/
+*.tok
+*.dll
+*.exe
+*.pdb
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/

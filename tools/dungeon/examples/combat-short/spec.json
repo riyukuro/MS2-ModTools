@@ -1,0 +1,13 @@
+{
+ "map_id": 52900002,
+ "xblock": "52900002_cd2",
+ "clone_from": 2000312,
+ "names": {"en": "Custom Short Dungeon (test)", "kr": "커스텀 단기 던전 (테스트)"},
+ "instance_field": "clone",
+ "dungeon_room": {
+  "id": 29900002,
+  "clone_from": 20012001,
+  "set": {"maxUserCount": "4"}
+ },
+ "trigger_dir": "trigger"
+}

@@ -1,0 +1,25 @@
+# Copy to modtools.toml (gitignored) and fill in what you have. Every setting can also be an environment variable of
+# the same name, which wins. Relative paths are relative to the repo root. Check with: python3 tools/modtools_config.py
+
+# Needed for build.py
+MS2_CLIENT_DATA = "/path/to/client/Data"      # holds Xml.m2d and Resource/
+MS2_SERVER_DATA = "/path/to/server/data"      # holds Xml.m2d and Server.m2d
+
+# Needed for a new map's .tok (tools/tok). Without them build.py copies the reference map's .tok, with a warning.
+# MS2_TOKBUILD = "build/tokbuild/tokbuild.exe"
+# MS2_CP3D = "/path/to/ContentProcessing3D.dll"
+
+# Only to compile tokbuild
+# MS2_PATHENGINE_SDK = "/path/to/pathengine-sdk"
+# MS2_MSVC_ROOT = "/path/to/msvc-wine"
+
+# Only for the navmesh step: your Maple2 server checkout
+# MS2_SERVER_DIR = "/path/to/Maple2"
+
+# Only for tools/mapedit's SDK checks and tools/run-toolbench.sh
+# MS2_GAMEBRYO_APPDIR = "/path/to/gamebryo/APPDIR"
+
+# Optional
+# MS2_DOTNET_ROOT = "/path/to/dotnet"         # used for m2d and the ingest instead of the dotnet on PATH
+# MS2_OUT = "out"                             # outputs when no -o is given
+# MS2_TRIGGER_CACHE = "out/trigger-cache"

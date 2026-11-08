@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- MS2 .tok ground builder for Gamebryo Toolbench / World Builder (design: tools/tok/PLUGIN.md, usage: tools/tok/README.md).
+     A thin launcher: exports the block (stock XmlBlockExporter), then runs the external extractor (tokgeom) and
+     tokbuild. No PathEngine code or file is in this plugin; all paths are per-user settings, empty by default. -->
+<plugin
+  xmlns="http://www.emergent.net/schemas/plugin-base-schema.xsd"
+  name="MS2 PathEngine ground (.tok)"
+  id="MS2.Tok"
+  version="0.1.0.0"
+  provider="MS2-ModTools"
+  class="MS2.Tok.Plugin">
+
+  <extension point="Emergent.Toolbench.Settings.SettingsSet">
+    <settings>
+      <setting scope="PerUser" id="MS2.Tok.CP3DDll" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>ContentProcessing3D.dll</display-name>
+        <description>Path to your own ContentProcessing3D.dll (from your MapleStory2 client). Nothing is built while this is empty.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.TokbuildExe" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>tokbuild.exe</display-name>
+        <description>Path to tokbuild.exe (tools/tok/builder). Nothing is built while this is empty.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.TokgeomExe" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>Extractor (tokgeom)</display-name>
+        <description>Path to the geometry extractor (tools/tok/extract). Nothing is built while this is empty.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.TokgeomArgs" path="MS2 .tok" property-type="String" visible="true">
+        <value>"{resource}" "{xblock}" "{out}" --project "{project}"</value>
+        <display-name>Extractor arguments</display-name>
+        <description>Extractor command line. {resource} = Resource folder, {xblock} = exported .xblock, {out} = output prefix (.geom/.solids), {project} = project folder, {block} = block name.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.ResourceDir" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>Resource folder</display-name>
+        <description>Model resource folder passed to the extractor as {resource} (for example a client's Data/Resource).</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.ProjectDir" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>Project folder</display-name>
+        <description>Toolbench project folder passed to the extractor as {project}; its loose .nif files take precedence over the client archives. Empty = the block's folder.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.OutputFolder" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>Output folder</display-name>
+        <description>Where &lt;block&gt;.geom/.solids/.tok are written. Empty = the block's export folder.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.TokbuildArgs" path="MS2 .tok" property-type="String" visible="true">
+        <value></value>
+        <display-name>Extra tokbuild arguments</display-name>
+        <description>Appended to the tokbuild build command line (for example --faces "{out}.faces").</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Tok.BuildAfterExport" path="MS2 .tok" property-type="Boolean" visible="true">
+        <value>False</value>
+        <display-name>Build .tok after export</display-name>
+        <description>Also build the .tok whenever a block is exported as .xblock.</description>
+      </setting>
+    </settings>
+  </extension>
+
+  <extension point="Emergent.Toolbench.Workbench.ActionSet">
+    <actionset label="MS2 .tok Actions" visible="true" id="MS2.Tok.Actions">
+      <menuitem id="MS2.Tok.Menu.BuildTok" action="MS2.Tok.BuildTokAction" path="World Builder" priority="45"/>
+      <action label="Build PathEngine ground (.tok)"
+              tooltip="Exports the active block, then runs the extractor and tokbuild"
+              handler="MS2.Tok.BuildTokAction"
+              id="MS2.Tok.BuildTokAction"/>
+    </actionset>
+  </extension>
+
+  <!-- Without a perspective mapping the action set (and its menu item) is not shown. -->
+  <extension point="Emergent.Toolbench.Workbench.PerspectiveMapping">
+    <mapping perspectiveId="Emergent.Toolbench.WorldBuilder.UI.Gamebryo.Perspective">
+      <actionset id="MS2.Tok.Actions"/>
+    </mapping>
+  </extension>
+
+  <extension point="Emergent.Toolbench.Runnable">
+    <runnable id="TokBuild" class="MS2.Tok.TokBuildRunnable" />
+  </extension>
+
+  <requires>
+    <import plugin="Emergent.Toolbench.Settings"/>
+    <import plugin="Emergent.Toolbench.ContentService"/>
+    <import plugin="Emergent.Toolbench.WorldBuilder"/>
+    <import plugin="Emergent.Toolbench.WorldBuilder.UI"/>
+  </requires>
+
+  <runtime>MS2.Tok.dll</runtime>
+</plugin>

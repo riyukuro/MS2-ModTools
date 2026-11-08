@@ -1,0 +1,40 @@
+{
+ "map_id": 52900001,
+ "xblock": "52900001_cd",
+ "clone_from": 52000125,
+ "names": {
+  "en": "Custom Warehouse (test)",
+  "kr": "커스텀 창고 (테스트)"
+ },
+ "map": {
+  "property": {
+   "mapType": "1"
+  },
+  "drop": {
+   "maplevel": "20"
+  },
+  "bgm": {
+   "id": "29"
+  }
+ },
+ "mapxblock": {
+  "clientProperty": {
+   "bgDay": "BG_Indoor_A.dds"
+  }
+ },
+ "instance_field": "clone",
+ "dungeon_room": {
+  "id": 29900001,
+  "clone_from": 20006001,
+  "set": {
+   "dungeonLevel": "30",
+   "rewardExp": "20800",
+   "rewardMeso": "6000",
+   "unionRewardID": "1006",
+   "rewardLimitedDropBoxIds": "20006001",
+   "lobbyFieldID": "50000001",
+   "maxUserCount": "4"
+  }
+ },
+ "trigger_dir": "trigger"
+}

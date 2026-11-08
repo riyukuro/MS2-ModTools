@@ -1,0 +1,32 @@
+{
+ "map_id": 52900010,
+ "xblock": "52900010_nm",
+ "clone_from": 2000312,
+ "names": {"en": "Stone Yard (new map test)", "kr": "돌마당 (새 맵 테스트)"},
+ "instance_field": "clone",
+ "dungeon_room": {
+  "id": 29900010,
+  "clone_from": 20012001,
+  "set": {"maxUserCount": "4"}
+ },
+ "trigger_dir": "trigger",
+ "layout": {
+  "floor": {"model": "he_ground_grass_A01_", "cols": 15, "rows": 15},
+  "perimeter": {"model": "he_ground_rock_A01_", "height": 2},
+  "blocks": [
+   {"model": "he_ground_rock_A02_", "at": [2, 9], "size": [4, 4], "height": 1},
+   {"model": "he_ground_rock_A02_", "at": [3, 10], "size": [2, 2], "height": 1, "level": 4},
+   {"model": "he_floor_brick_A01_", "at": [10, 10], "size": [2, 2], "height": 3},
+   {"model": "he_floor_brick_A01_", "at": [3, 4], "height": 2},
+   {"model": "he_floor_brick_A01_", "at": [11, 4], "height": 2}
+  ],
+  "pc_spawn": {"at": [7, 3], "facing": 0},
+  "portal": {"at": [7, 12], "id": 1, "target_map": 2000001, "target_portal": 2, "facing": 180},
+  "npcs": [
+   {"at": [5, 7], "id": 101, "npc": 21000001},
+   {"at": [7, 8], "id": 102, "npc": 21000001},
+   {"at": [9, 7], "id": 103, "npc": 21000001}
+  ],
+  "triggers": [{"file": "main.xml", "id": 1001}]
+ }
+}

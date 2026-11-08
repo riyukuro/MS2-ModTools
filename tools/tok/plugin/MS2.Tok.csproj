@@ -1,0 +1,30 @@
+<!-- MS2.Tok Toolbench plugin (tools/tok/README.md). Builds with the .NET SDK on Linux or Windows:
+       dotnet build tools/tok/plugin -c Release -p:ToolbenchDir=<Toolbench folder> -o <out>
+     ToolbenchDir is the folder of your own Gamebryo LightSpeed 3.2 Toolbench (the one holding Emergent.Toolbench.dll and
+     Plugins/, e.g. <Gamebryo SDK>/sdk/Win32/Bin/VC90/Shipping). Its assemblies are referenced in place and never copied
+     (Private=false); the output is MS2.Tok.dll + plugin.xml for <Toolbench>/Plugins/MS2.Tok/. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net35</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>MS2.Tok</AssemblyName>
+    <RootNamespace>MS2.Tok</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <Target Name="MS2TokCheckToolbench" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(ToolbenchDir)' == ''" Text="Set ToolbenchDir to your Gamebryo Toolbench folder (the one holding Emergent.Toolbench.dll), e.g. -p:ToolbenchDir=&lt;Gamebryo SDK&gt;/sdk/Win32/Bin/VC90/Shipping" />
+    <Error Condition="'$(ToolbenchDir)' != '' And !Exists('$(ToolbenchDir)/Emergent.Toolbench.dll')" Text="No Emergent.Toolbench.dll in ToolbenchDir=$(ToolbenchDir)" />
+  </Target>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <Reference Include="Emergent.Toolbench"><HintPath>$(ToolbenchDir)/Emergent.Toolbench.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.Actions"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.Actions/Emergent.Toolbench.Actions.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.ContentService"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.ContentService/Emergent.Toolbench.ContentService.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.Settings"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.Settings/Emergent.Toolbench.Settings.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.WorldBuilder"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.WorldBuilder/Emergent.Toolbench.WorldBuilder.dll</HintPath><Private>false</Private></Reference>
+    <None Include="plugin.xml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

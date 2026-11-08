@@ -1,0 +1,3 @@
+lxml        # tools/mapedit
+Pillow      # tools/dungeon/minimap.py
+pefile      # tools/run-toolbench.sh --setup
