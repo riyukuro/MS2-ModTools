@@ -21,7 +21,12 @@ BONE_PALETTE (identity into the modifier's bone list).  At most 4 influences per
 
 Textures: --tex-out writes the glTF base color image as an uncompressed 32-bit DDS (<prefix>_<n>_d.dds) and a flat
 normal map, and points the cloned NiSourceTextures at them.  --keep-tex-names keeps the names nif2gltf stored in the
-material extras (round-trip of a shipped model).
+material extras (round-trip of a shipped model).  Options for --tex-out:
+  --dds dxt5|dxt1   block-compressed DDS (full mip chain) instead of 32-bit; dxt5 keeps alpha
+  --normal-tex      a mesh whose template has a Normal slot gets the material's glTF normalTexture
+                    (<prefix>_<n>_n.dds; --normal-flip-g for OpenGL-convention maps) instead of the flat map
+  --gloss-from-roughness S   the Gloss slot gets (1 - roughness) * S as a grey map (<prefix>_<n>_s.dds), from the
+                    metallicRoughness texture's G channel (or roughnessFactor), instead of the base colour
 """
 import argparse
 import copy
@@ -134,15 +139,47 @@ class GLTF:
 
 # ---------------- DDS writing ----------------
 
-def write_dds(path, img):
-    """Uncompressed A8R8G8B8 DDS with a full mip chain (PIL image in, power-of-two size)."""
+DDS_FMT = 'argb'   # set by main(): argb (A8R8G8B8), dxt1 or dxt5
+
+
+def _dxt_level(img, fmt):
+    """One block-compressed mip level (Pillow's BC1/BC3 encoder); levels under 4x4 are padded to one block."""
     from PIL import Image
+    if img.size[0] < 4 or img.size[1] < 4:
+        pad = Image.new('RGBA', (max(4, img.size[0]), max(4, img.size[1])))
+        pad.paste(img, (0, 0))
+        img = pad
+    bio = io.BytesIO()
+    img.save(bio, 'DDS', pixel_format=fmt.upper())
+    return bio.getvalue()[128:]
+
+
+def write_dds(path, img, fmt=None):
+    """DDS with a full mip chain (PIL image in, power-of-two size): A8R8G8B8, or DXT1/DXT5 (fmt or DDS_FMT)."""
+    from PIL import Image
+    fmt = fmt or DDS_FMT
     img = img.convert('RGBA')
     w, h = img.size
     p2 = lambda v: 1 << max(0, (v - 1).bit_length())  # noqa: E731
     if (w, h) != (p2(w), p2(h)):
         img = img.resize((p2(w), p2(h)), Image.LANCZOS)
         w, h = img.size
+    if fmt in ('dxt1', 'dxt5'):
+        mips, cur = [], img
+        while True:
+            mips.append(_dxt_level(cur, fmt))
+            if cur.size == (1, 1):
+                break
+            cur = cur.resize((max(1, cur.size[0] // 2), max(1, cur.size[1] // 2)), Image.LANCZOS)
+        lin = max(1, (w + 3) // 4) * max(1, (h + 3) // 4) * (8 if fmt == 'dxt1' else 16)
+        hdr = struct.pack('<4sIIIIIII', b'DDS ', 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | 0x80000, h, w, lin, 0,
+                          len(mips))
+        hdr += b'\0' * 44
+        hdr += struct.pack('<II4sIIIII', 32, 0x4, fmt.upper().encode(), 0, 0, 0, 0, 0)
+        hdr += struct.pack('<IIIII', 0x1000 | 0x400000 | 0x8, 0, 0, 0, 0)
+        with open(path, 'wb') as f:
+            f.write(hdr + b''.join(mips))
+        return
     mips = []
     cur = img
     while True:
@@ -274,7 +311,7 @@ def stream_payload(nif, ds, sems, arrays, count):
 
 
 def build(glb_path, tmpl_path, out_path, mesh_template='PA_Panty', tex_out=None, tex_prefix=None,
-          keep_tex_names=False, spec=None, log=print):
+          keep_tex_names=False, spec=None, log=print, normal_tex=False, normal_flip_g=False, gloss_scale=None):
     spec = spec or Spec()
     gl = GLTF(glb_path)
     g = gl.g
@@ -416,6 +453,9 @@ def build(glb_path, tmpl_path, out_path, mesh_template='PA_Panty', tex_out=None,
             stream_payload(nif, ds, sems, arrays, cnt)
         sk = nif.blocks[next(r for r in m['Modifiers'] if r >= 0 and nif.blocks[r]['_type'] == 'NiSkinningMeshModifier')]
         sk['Skeleton Root'] = root
+        # the template's value is the inverse of the template mesh's own transform; the clone's is identity
+        sk['Skeleton Transform'] = {'Rotation': M.mat3_dict(np.eye(3)), 'Translation': M.vec3_dict(np.zeros(3)),
+                                    'Scale': 1.0}
         sk['Bones'] = used
         sk['Num Bones'] = len(used)
         xfs, bounds = [], []
@@ -459,13 +499,33 @@ def build(glb_path, tmpl_path, out_path, mesh_template='PA_Panty', tex_out=None,
             if flat_n is None:
                 flat_n = '%s_flat_n.dds' % tex_prefix
                 write_dds(os.path.join(tex_out, flat_n), Image.new('RGBA', (4, 4), (128, 128, 255, 255)))
-            for slot, fname in (('Base Texture', dn), ('Normal Texture', flat_n)):
+            nn, sn = flat_n, dn
+            if normal_tex and tp.get('Has Normal Texture') and 'normalTexture' in gmat:
+                ni = Image.open(io.BytesIO(gl.image_bytes(g['textures'][gmat['normalTexture']['index']]['source'])))
+                ni = ni.convert('RGB')
+                if normal_flip_g:
+                    r_, g_, b_ = ni.split()
+                    ni = Image.merge('RGB', (r_, g_.point(lambda v: 255 - v), b_))
+                nn = '%s_%d_n.dds' % (tex_prefix, wi)
+                write_dds(os.path.join(tex_out, nn), ni, 'dxt1' if DDS_FMT != 'argb' else None)
+            if gloss_scale is not None and tp.get('Has Gloss Texture'):
+                mr = pbr.get('metallicRoughnessTexture')
+                rf = pbr.get('roughnessFactor', 1.0)
+                if mr:
+                    ri = Image.open(io.BytesIO(gl.image_bytes(g['textures'][mr['index']]['source']))).convert('RGB')
+                    rough = np.asarray(ri, np.float32)[:, :, 1] / 255.0 * rf
+                else:
+                    rough = np.full((4, 4), rf, np.float32)
+                gv = np.clip((1.0 - rough) * gloss_scale * 255.0, 0, 255).astype(np.uint8)
+                sn = '%s_%d_s.dds' % (tex_prefix, wi)
+                write_dds(os.path.join(tex_out, sn), Image.fromarray(gv, 'L').convert('RGB'),
+                          'dxt1' if DDS_FMT != 'argb' else None)
+            for slot, fname in (('Base Texture', dn), ('Normal Texture', nn), ('Gloss Texture', sn)):
                 if tp.get('Has ' + slot):
                     nif.blocks[tp[slot]['Source']]['File Name'] = {'Index': nif.addstr(fname)}
-            for slot in ('Gloss Texture', 'Glow Texture', 'Dark Texture', 'Detail Texture'):
+            for slot in ('Glow Texture', 'Dark Texture', 'Detail Texture'):
                 if tp.get('Has ' + slot):
-                    nif.blocks[tp[slot]['Source']]['File Name'] = {'Index': nif.addstr(flat_n if slot != 'Gloss Texture'
-                                                                                        else dn)}
+                    nif.blocks[tp[slot]['Source']]['File Name'] = {'Index': nif.addstr(flat_n)}
         new_meshes.append(mi)
         log('mesh %-12s %5d verts %5d tris %3d bones  (template %s)' % (nm, len(P), len(I) // 3, len(used),
                                                                           nif.name(B[src])))
@@ -542,9 +602,18 @@ def main():
     ap.add_argument('--tex-out')
     ap.add_argument('--tex-prefix')
     ap.add_argument('--keep-tex-names', action='store_true')
+    ap.add_argument('--dds', choices=('argb', 'dxt1', 'dxt5'), default='argb',
+                    help='--tex-out DDS format (default argb = uncompressed 32-bit)')
+    ap.add_argument('--normal-tex', action='store_true', help="use the glTF normalTexture in a template Normal slot")
+    ap.add_argument('--normal-flip-g', action='store_true', help='invert the normal map green channel')
+    ap.add_argument('--gloss-from-roughness', type=float, metavar='S',
+                    help='Gloss slot = (1 - roughness) * S instead of the base colour')
     ap.add_argument('--compare', help='reference nif for a semantic mesh comparison')
     a = ap.parse_args()
-    build(a.glb, a.template, a.out, a.mesh_template, a.tex_out, a.tex_prefix, a.keep_tex_names)
+    global DDS_FMT
+    DDS_FMT = a.dds
+    build(a.glb, a.template, a.out, a.mesh_template, a.tex_out, a.tex_prefix, a.keep_tex_names,
+          normal_tex=a.normal_tex, normal_flip_g=a.normal_flip_g, gloss_scale=a.gloss_from_roughness)
     if a.compare:
         ok = compare(a.compare, a.out)
         print('semantic compare:', 'SAME' if ok else 'DIFF')

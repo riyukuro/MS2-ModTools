@@ -54,7 +54,11 @@ tools/nif/mkmodel.py --name 23009901_MyBoss --nif blue.nif --ref-dir <a shipped 
 - **Skinning.** At most 4 influences per vertex. Each primitive needs at most 65535 vertices (UINT16 indices).
   Every primitive needs POSITION, NORMAL, TEXCOORD_0, JOINTS_0 and WEIGHTS_0.
 - **Materials.** One base-color image per primitive. It is written as an uncompressed A8R8G8B8 DDS (keep it a power
-  of two, 512 or smaller is typical), plus a flat normal map.
+  of two, 512 or smaller is typical), plus a flat normal map. `--dds dxt1|dxt5` writes block-compressed DDS with a
+  full mip chain instead (dxt5 keeps alpha). `--normal-tex` puts the material's glTF `normalTexture` into the
+  template's Normal slot instead of the flat map (`--normal-flip-g` for OpenGL-convention maps), and
+  `--gloss-from-roughness S` fills the Gloss slot with `(1 - roughness) * S` from the metallic-roughness texture
+  instead of the base color.
 - **Budget.** About 4-8k triangles for an NPC.
 - **Extra bones.** Joints the template doesn't have are not added as nodes. Their weights fold into the nearest
   ancestor joint the template has, so a tail skinned to new bones moves rigidly with, for example, the pelvis.
