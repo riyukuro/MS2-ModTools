@@ -20,6 +20,7 @@ shipped tables.  Two data sets are written, because the client and the local ser
   awm/          -> asset-web-metadata.m2d <tag>.nt                (whole .nt files plus the new xblock's triples,
                                                                    cloned from the reference xblock's own triples;
                                                                    the client resolves urn:emergent-world:<XB> here)
+  npc-model/, textures/ -> Model/Npc.m2d, Model/Textures.m2d     (only with a boss "model_dir", see boss.py)
   manifest.json -> what pack.py repacks into which archive
 
 Spec keys (see tools/dungeon/example-spec.json and README.md):
@@ -31,6 +32,8 @@ Spec keys (see tools/dungeon/example-spec.json and README.md):
   mapxblock {tag: {attr: value}}                  e.g. {"clientProperty": {"bgDay": "BG_Indoor_A.dds"}}
   instance_field  "clone" (default) | false | {attr: value}   server InstanceField row (instanceID = next after the max of its instanceType)
   dungeon_room {id, clone_from, set{}, client_set{}, server_set{}}   fieldIDs is set to the new map id
+  skills, bosses                                  custom skills and boss NPCs: see tools/dungeon/boss.py (an "ai.file"
+                                                  or "model_dir" path is looked up next to the spec file)
   copy_triggers (default true), trigger_dir, xblock_file, tok_file, minimap_file
   minimap  "generate" (default without minimap_file) | "reference" | false
            generate: tools/dungeon/minimap.py renders the xblock (xblock_file or the reference's) into the
@@ -244,6 +247,9 @@ class Gen:
                         "server_m2d": src["server_m2d"],
                         "exported": res / "Exported.m2d", "terrain": res / "PrecomputedTerrain.m2d",
                         "image": res / "Image.m2d", "awm": res / "asset-web-metadata.m2d"}
+        self.res, self.cache, self.refresh = res, cache, refresh
+        self.extra = {}  # area -> Archive, opened on demand (archive())
+        self.extra_awm = {}  # .nt name -> [triple lines] (boss.py's new models), merged by asset_web()
         self.errors = []
 
         try:
@@ -256,6 +262,12 @@ class Gen:
             raise SpecError('spec: "layout" needs build.py, which generates the xblock (mkxblock.py) first')
         if not re.fullmatch(r"[0-9a-z_]+", self.xb):
             raise SpecError("spec: xblock name must be [0-9a-z_]+ (archive names are lower case)")
+
+    def archive(self, area, path):
+        """An extra source archive (e.g. Model/Npc.m2d for boss models); pack.py repacks a copy of it."""
+        if area not in self.extra:
+            self.extra[area] = Archive(path, self.cache, area, self.refresh)
+        return self.extra[area]
 
     def err(self, msg):
         self.errors.append(msg)
@@ -572,15 +584,16 @@ class Gen:
         triples = []
         for n, data in rows.items():
             lines = [l for l in data.split(b"\n") if l.startswith(b"<" + ref_urn + b">")]
-            if not lines:
-                continue
             new = [l.replace(ref_urn, new_urn, 1).replace(ref_name, new_name) for l in lines]
+            triples += [{"file": n, "triple": l.decode()} for l in new]
+            new += [l.encode() for l in self.extra_awm.get(n, [])]
+            if not new:
+                continue
             sep = b"" if data.endswith(b"\n") else b"\n"
             dst = self.out / "awm" / n
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(data + sep + b"\n".join(new) + b"\n")
             self.written.setdefault("awm", []).append(n)
-            triples += [{"file": n, "triple": l.decode()} for l in new]
         self.asset_web_info = {"urn": new_urn.decode(), "reference_urn": ref_urn.decode(), "triples": triples}
 
     # -- minimap
@@ -650,6 +663,8 @@ class Gen:
             self.triggers(area, arch, refxb)
         self.dungeon_room()
         self.instance_field()
+        import boss
+        boss.Bosses(self).run()
         self.resources(refxb)
         self.asset_web_info = None
         self.asset_web(refxb)
@@ -660,7 +675,8 @@ class Gen:
                                  "exported": str(self.sources["exported"]),
                                  "terrain": str(self.sources["terrain"]),
                                  "image": str(self.sources["image"]),
-                                 "awm": str(self.sources["awm"])},
+                                 "awm": str(self.sources["awm"]),
+                                 **{a: str(x.path) for a, x in self.extra.items()}},
                     "asset_web": self.asset_web_info,
                     "written": self.written, "notes": self.notes}
         (self.out / "manifest.json").write_text(json.dumps(manifest, indent=1, ensure_ascii=False))
@@ -687,6 +703,13 @@ def load_spec(path):
                 break
         else:
             raise SpecError(f"spec {k}: {v} not found next to the spec, in the current directory or in the repo")
+    for b in spec.get("bosses", []):  # boss AI files and model folders resolve next to the spec
+        f = (b.get("ai") or {}).get("file")
+        if f and not os.path.isabs(f) and (p.resolve().parent / f).exists():
+            b["ai"]["file"] = str(p.resolve().parent / f)
+        d = b.get("model_dir")
+        if d and not os.path.isabs(d) and (p.resolve().parent / d).exists():
+            b["model_dir"] = str(p.resolve().parent / d)
     return spec
 
 
@@ -697,7 +720,7 @@ def main():
     ap.add_argument("--refresh", action="store_true", help="re-list/re-extract the reference archives")
     a = ap.parse_args()
     out = Path(a.out)
-    for area in ("client-xml", "server-xml", "server", "exported", "terrain", "image", "awm"):
+    for area in ("client-xml", "server-xml", "server", "exported", "terrain", "image", "awm", "npc-model", "textures"):
         shutil.rmtree(out / area, ignore_errors=True)
     try:
         g = Gen(load_spec(a.spec), out, a.refresh)

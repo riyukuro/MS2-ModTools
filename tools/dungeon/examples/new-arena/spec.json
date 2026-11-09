@@ -7,7 +7,7 @@
  "dungeon_room": {
   "id": 29900010,
   "clone_from": 20012001,
-  "set": {"maxUserCount": "4"}
+  "set": {"maxUserCount": "4", "dungeonLevel": "10", "limitPlayerLevel": "10"}
  },
  "trigger_dir": "trigger",
  "layout": {

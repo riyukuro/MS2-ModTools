@@ -19,6 +19,10 @@ MS2_SERVER_DATA = "/path/to/server/data"      # holds Xml.m2d and Server.m2d
 # Only for tools/mapedit's SDK checks and tools/run-toolbench.sh
 # MS2_GAMEBRYO_APPDIR = "/path/to/gamebryo/APPDIR"
 
+# Only for tools/nif (models): niftools' nif.xml, https://github.com/niftools/nifxml (not shipped here).
+# $NIFXML or a copy at tools/nif/nif.xml also work. Blender is only for blender_*.py and you run it yourself.
+# MS2_NIFXML = "/path/to/nif.xml"
+
 # Optional
 # MS2_DOTNET_ROOT = "/path/to/dotnet"         # used for m2d and the ingest instead of the dotnet on PATH
 # MS2_OUT = "out"                             # outputs when no -o is given

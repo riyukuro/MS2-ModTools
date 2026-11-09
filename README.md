@@ -22,6 +22,8 @@ setting stop and name it. `python3 tools/modtools_config.py` shows them all.
 | PathEngine SDK headers (interface 18) | compiling `tokbuild` | `MS2_PATHENGINE_SDK` | your own PathEngine license |
 | clang-cl, lld-link, CMake, Ninja, [msvc-wine](https://github.com/mstorsjo/msvc-wine), Wine | compiling and running `tokbuild` on Linux | `MS2_MSVC_ROOT` | your package manager; msvc-wine downloads MSVC under Microsoft's terms |
 | Gamebryo LightSpeed 3.2 SDK | Toolbench, `tools/mapedit` SDK checks | `MS2_GAMEBRYO_APPDIR` | your own SDK license |
+| niftools `nif.xml` | `tools/nif` (custom boss models) | `MS2_NIFXML` (or `$NIFXML`, or `tools/nif/nif.xml`) | <https://github.com/niftools/nifxml> |
+| Blender | only `tools/nif/blender_*.py` (you run it) | none | <https://www.blender.org> |
 
 Only tested on Linux, with a KMS dev client data set and a GMS2 v1.3.2 server data set
 (see ["What a custom dungeon needs"](tools/dungeon/README.md#what-a-custom-dungeon-needs)).
@@ -49,7 +51,8 @@ Without `MS2_SERVER_DIR` the navmesh step is skipped with a note.
 
 | folder | what |
 |---|---|
-| [tools/dungeon](tools/dungeon/README.md) | `build.py`, spec to packed dungeon; new maps from a layout; clones of shipped maps; minimaps. **Start here.** Includes the server and client steps |
+| [tools/dungeon](tools/dungeon/README.md) | `build.py`, spec to packed dungeon; new maps from a layout; clones of shipped maps; minimaps; custom bosses and skills. **Start here.** Includes the server and client steps |
+| [tools/nif](tools/nif/README.md) | MS2 NIF/KF models to glTF and back; new NPC model folders for custom bosses (`numpy`; niftools `nif.xml`, `MS2_NIFXML`) |
 | [tools/trigger](tools/trigger/README.md) | trigger script linter, checked against the server's trigger code and the map's objects |
 | [tools/tok](tools/tok/README.md) | PathEngine ground meshes: `tokgeom` (map to geometry), `tokbuild` (geometry to `.tok`), Toolbench plugin |
 | [tools/m2d](tools/m2d/README.md) | read and repack `.m2d` archives |
@@ -79,9 +82,12 @@ From real runs, with the results in [What has been proven](tools/dungeon/README.
 - **Triggers:** custom scripts run: banners, monster spawns, `trigger reset`.
 - **Collision and navmesh:** a from-scratch map has working collision, and mobs walk on its generated navmesh.
 - **Portal:** hidden and unusable before the trigger opens it, usable after.
+- **Dungeon room and clear:** entry through the dungeon room, mobs killed with a player's own attacks, `DungeonClear` and the
+  Results screen.
+- **Custom boss:** `boss-arena`'s cloned boss with a custom skill and AI, its HP bar, telegraph and damage, killed, then the
+  portal opens; also with a new model made by `tools/nif`.
 
-**Not proven:** killing mobs with a player's own weapon or skill (the tests used the `kill` command), entering through the dungeon
-room (the tests warped in), `DungeonClear`, or any stock client.
+**Not proven:** any stock client (see [What has been proven](tools/dungeon/README.md#what-has-been-proven)).
 
 ## Legal
 

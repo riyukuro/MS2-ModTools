@@ -86,6 +86,38 @@ Things that are easy to get wrong:
 
 To script input, hold keys (`xdotool keydown`, 0.3 s, `keyup`): the client missed most `xdotool key` taps.
 
+## Custom bosses
+
+`examples/boss-arena/` adds a boss to the new-arena layout. The spec keys `skills` and `bosses` are handled by `boss.py`
+(its docstring lists every key), which newmap.py runs after the dungeon room:
+
+- **Boss NPC**: `bosses[]` clones a shipped NPC (here Hemokan 23000039) under a new id (23009901). The clone gets its own
+  name in each language, level, stats, EXP, skill list and model (`kfm` and `scale`: a shipped model, or a new one from
+  `model_dir`, see below). It is written to both sides: the server `npc/23/00/23009901.xml` and the client
+  `npcdata/230.xml` row. The boss HP bar at the top of the screen comes from the clone source's class 6 / rankIcon "a",
+  so clone a boss and not a field mob. mkxblock.py accepts the spec's boss ids as NPC spawns.
+- **Custom skill**: `skills[]` builds a new skill id (50109901) from motions of shipped skill levels:
+  - The `from` value is [skill, level, motion]. Here the motions are the Hemokan charge (Attack_01_B) and slam
+    (Attack_02_B).
+  - The `motion`, `attack`, `range` and `damage` attributes on each motion override the shipped values (range distance
+    600, targetCount 10, damage rate 2.0). `"hit": false` drops a motion's attacks (a telegraph or wind-up motion).
+  - It has its own effect file. `effects` merges the `<effect>` elements of shipped effect files, with per-part scale,
+    delay, duration, translate and an `only` filter. A part's `duration` also ends a looping effect (the ground guide
+    circles `Eff_NPC_CircleGuide_*` loop until the motion ends otherwise).
+  - Attribute names are checked against the shipped rows, so a typo fails the build instead of being ignored.
+- **AI**: generated (`ai.melee` and `ai.specials`), or the spec's own file (`ai.file`, next to the spec). It is written
+  to Server.m2d `AI/Custom/AI_<id>.xml`. Skill `idx` is 1-based into the boss's skill list.
+- **Hit keys**: the server fires an NPC skill's attack only when the playing sequence reaches the anikeytext key named by
+  `<attack point="p0">` (Attack_02_B p0 at 0.725 s, so the damage lands with the slam). boss.py checks every motion of
+  the boss's skills against its kfm's anikeytext row: a missing sequence, or a missing hit key in a listed skill, stops
+  the build with the list of sequences the model has.
+- **New model** (`model_dir`, optional): a folder made by `tools/nif/mkmodel.py`, next to the spec or absolute. boss.py
+  packs it into `Model/Npc.m2d` and `Model/Textures.m2d` `npc_custom/`, merges its anikeytext row into both Xml.m2d and
+  clones the asset-web urns. See [tools/nif](../nif/README.md).
+- **Trigger** (`trigger/main.xml`): the trash wave (101-103), then on MonsterDead the banner "The Maid of the Abyss
+  appears!" and spawn 201 (the boss). On the boss's MonsterDead it runs SetPortal, shows "The way out is open." and
+  calls DungeonClear.
+
 ## The two underlying scripts
 
 `build.py` runs these; they can also be run alone:
@@ -157,13 +189,32 @@ The full ingest of `packed/server-data` into a scratch DB exits 0 and adds: map 
 `--run-navmesh`, on a scratch copy of `Navmeshes/`, built only `52900001_cd.navmesh` (8568 bytes, the same size as
 52000125_qd's; the 1179 others were already valid). The game DB was not touched.
 
+**Dungeon-room entry and a real clear (`new-arena`, 11-08).** The spec's `dungeon_room` makes the `table/dungeonroom.xml`
+row (id 29900010 for new-arena). That row is all the server needs: no InstanceField row is added. The level check is the
+row's `limitPlayerLevel`, which the clone copies from the reference (28 for 20012001), so new-arena sets
+`"limitPlayerLevel": "10"` and `"dungeonLevel": "10"`.
+
+The server flow: RoomDungeon Create runs `DungeonManager.CreateDungeonRoom(id, false)`, which moves the player to the lobby
+field 50000001. RoomDungeon EnterField runs `DungeonManager.EnterInitField()`, which goes to the room's first field
+(52900010) as a dungeon field, so `DungeonClear` works there (unlike after a warp). In the test the lobby's entry portal did
+not react to Space, so a local GM chat command stood in for the two packets the client's dungeon UI sends: `dungeon <roomId>`
+calling `session.Dungeon.CreateDungeonRoom(id, false)` and `dungeon enter` calling `session.Dungeon.EnterInitField()`.
+It is not shipped here; if you want it, add it as a `GameCommand` next to the server's other commands, with
+AdminPermissions.Warp.
+
+With a Knight's basic attacks all three mobs die, the trigger shows "The way out is open.", opens the portal, and
+`DungeonClear` brings up the Results screen (time, mesos, EXP, rewards).
+
+**Custom boss (`boss-arena`, 11-08).** See "Custom bosses" below. Trash wave, then the boss spawns with its name and the
+boss HP bar; telegraph and void blast effects, the player takes 37 per blast; the boss is killed with real skills, the
+Results screen shows and the portal opens. Real basic attacks hit this boss for about 5-7, so the example uses hp 400
+and par/mar 10, a kill in about 1-2 min. The same run with a new model (`model_dir`): a shipped body re-encoded by
+`tools/nif/gltf2nif.py` plays idle, walk and the void cast, and so did a Blender-tinted variant.
+
 **Not proven.**
 
-- Killing a mob with a player's own weapon or skill. The `new-arena` mobs were killed with the `kill` command, because the
-  test character had no weapon.
-- Entering through the dungeon room. Every run above warped in.
-- `DungeonClear`, which only works in a dungeon field (see "New map from scratch").
-- Any stock client: all client runs used a client built from [MS2Recomp](https://github.com/riyukuro/MS2Recomp) (see "Client").
+- Any stock client: the client runs used a client built from [MS2Recomp](https://github.com/riyukuro/MS2Recomp) (see
+  "Client"), and the dungeon-room and boss runs also the original exe with its Nexon service calls stubbed out.
 
 ## Server: ingest and navmesh
 
@@ -216,7 +267,8 @@ hash dir into a scratch `S/Maple2.Server.Game/` first, and only the new map is b
    ip link set eth0 up; ip link set eth1 up; ip route add default via 10.77.0.1 dev eth0` (run inside the ns; the
    dummy module is not available).
 4. Client copy: symlink `packed/client/Data/Xml.m2d/.m2h` and
-   `Resource/{Exported,PrecomputedTerrain,Image,asset-web-metadata}.m2d/.m2h` into a client copy (never over your original install).
+   `Resource/{Exported,PrecomputedTerrain,Image,asset-web-metadata}.m2d/.m2h` into a client copy (never over your original install),
+   plus `Resource/Model/{Npc,Textures}.m2d/.m2h` when a boss has a `model_dir`.
 5. Use a client built from [MS2Recomp](https://github.com/riyukuro/MS2Recomp). The stock exe shows an empty 확인 box at
    field entry (null CNXMan), and clicking it exits the client.
 6. Log in with a GM character and enter the map with the chat command `warp 52900001`; run a trigger again with

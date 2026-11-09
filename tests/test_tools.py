@@ -4,8 +4,8 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 SETTINGS = ["MS2_CLIENT_DATA", "MS2_SERVER_DATA", "MS2_SERVER_DIR", "MS2_DOTNET_ROOT", "MS2_TOKBUILD", "MS2_CP3D",
-            "MS2_PATHENGINE_SDK", "MS2_MSVC_ROOT", "MS2_GAMEBRYO_APPDIR", "MS2_TRIGGER_CACHE", "MS2_OUT"]
-EXAMPLES = ["custom-warehouse", "combat-short", "new-arena"]
+            "MS2_PATHENGINE_SDK", "MS2_MSVC_ROOT", "MS2_GAMEBRYO_APPDIR", "MS2_TRIGGER_CACHE", "MS2_NIFXML", "MS2_OUT"]
+EXAMPLES = ["custom-warehouse", "combat-short", "new-arena", "boss-arena"]
 
 
 def run(*args, cwd=REPO):

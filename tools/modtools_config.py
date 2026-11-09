@@ -28,6 +28,7 @@ SETTINGS = {
     "MS2_MSVC_ROOT": "msvc-wine install, only to cross-compile tokbuild on Linux",
     "MS2_GAMEBRYO_APPDIR": "your Gamebryo LightSpeed SDK APPDIR (tools/mapedit, Toolbench)",
     "MS2_TRIGGER_CACHE": "xblock index cache of the trigger linter (default: <MS2_OUT>/trigger-cache)",
+    "MS2_NIFXML": "niftools nif.xml for tools/nif (not shipped; $NIFXML or tools/nif/nif.xml also work)",
     "MS2_OUT": "where outputs go when no -o is given (default: <repo>/out)",
 }
 

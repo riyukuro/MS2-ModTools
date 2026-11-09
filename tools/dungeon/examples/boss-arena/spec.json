@@ -1,0 +1,272 @@
+{
+ "map_id": 52900011,
+ "xblock": "52900011_bs",
+ "clone_from": 2000312,
+ "names": {
+  "en": "Abyssal Parlour (custom boss test)",
+  "cn": "深渊会客厅 (自定义首领测试)",
+  "kr": "심연의 응접실 (커스텀 보스 테스트)"
+ },
+ "instance_field": "clone",
+ "dungeon_room": {
+  "id": 29900011,
+  "clone_from": 20012001,
+  "set": {
+   "maxUserCount": "4",
+   "dungeonLevel": "10",
+   "limitPlayerLevel": "10"
+  }
+ },
+ "trigger_dir": "trigger",
+ "layout": {
+  "floor": {
+   "model": "he_ground_grass_A01_",
+   "cols": 15,
+   "rows": 15
+  },
+  "perimeter": {
+   "model": "he_ground_rock_A01_",
+   "height": 2
+  },
+  "blocks": [
+   {
+    "model": "he_ground_rock_A02_",
+    "at": [
+     2,
+     9
+    ],
+    "size": [
+     4,
+     4
+    ],
+    "height": 1
+   },
+   {
+    "model": "he_ground_rock_A02_",
+    "at": [
+     3,
+     10
+    ],
+    "size": [
+     2,
+     2
+    ],
+    "height": 1,
+    "level": 4
+   },
+   {
+    "model": "he_floor_brick_A01_",
+    "at": [
+     10,
+     10
+    ],
+    "size": [
+     2,
+     2
+    ],
+    "height": 3
+   },
+   {
+    "model": "he_floor_brick_A01_",
+    "at": [
+     3,
+     4
+    ],
+    "height": 2
+   },
+   {
+    "model": "he_floor_brick_A01_",
+    "at": [
+     11,
+     4
+    ],
+    "height": 2
+   }
+  ],
+  "pc_spawn": {
+   "at": [
+    7,
+    3
+   ],
+   "facing": 0
+  },
+  "portal": {
+   "at": [
+    7,
+    12
+   ],
+   "id": 1,
+   "target_map": 2000001,
+   "target_portal": 2,
+   "facing": 180
+  },
+  "npcs": [
+   {
+    "at": [
+     5,
+     7
+    ],
+    "id": 101,
+    "npc": 21000001
+   },
+   {
+    "at": [
+     7,
+     8
+    ],
+    "id": 102,
+    "npc": 21000001
+   },
+   {
+    "at": [
+     9,
+     7
+    ],
+    "id": 103,
+    "npc": 21000001
+   },
+   {
+    "at": [
+     7,
+     9
+    ],
+    "id": 201,
+    "npc": 23009901,
+    "facing": 180
+   }
+  ],
+  "triggers": [
+   {
+    "file": "main.xml",
+    "id": 1001
+   }
+  ]
+ },
+ "skills": [
+  {
+   "id": 50109901,
+   "names": {
+    "en": "Abyssal Void",
+    "cn": "深渊虚空",
+    "kr": "심연의 공허"
+   },
+   "detect": {
+    "distance": "600"
+   },
+   "effects": {
+    "telegraph": {
+     "file": "custom/eff_50109901_void_cast.xml",
+     "parts": [
+      {
+       "from": "NPC/Skill/Madria/Eff_Madria_Attack_02_C_CirlcleWarning.xml",
+       "only": "type=\"nif\"",
+       "scale": 3.0,
+       "duration": 2.0
+      },
+      {
+       "from": "NPC/Skill/PapulatusPiece/Eff_PapulatusPiece_BlackHole_Ready.xml",
+       "translate": [
+        0,
+        0,
+        350
+       ],
+       "scale": 1.0
+      }
+     ]
+    },
+    "blast": {
+     "file": "custom/eff_50109901_void_blast.xml",
+     "parts": [
+      {
+       "from": "NPC/Skill/BullArmorBlue/Eff_BullArmorBlue_Attack_02_B.xml",
+       "scale": 1.5
+      },
+      {
+       "from": "NPC/Skill/PapulatusPiece/Eff_PapulatusPiece_BlackHole_Attack.xml",
+       "scale": 3.0,
+       "delay": 0.7
+      },
+      {
+       "from": "NPC/Skill/ChampSkill/Eff_ChampSkill_DarkVortex_Cast.xml",
+       "scale": 4.0,
+       "delay": 0.7
+      }
+     ]
+    }
+   },
+   "motions": [
+    {
+     "from": [
+      50100852,
+      1
+     ],
+     "effect": "telegraph",
+     "hit": false
+    },
+    {
+     "from": [
+      50100852,
+      2
+     ],
+     "effect": "blast",
+     "range": {
+      "distance": "600",
+      "rangeOffset": "0,0,0"
+     },
+     "attack": {
+      "targetCount": "10"
+     },
+     "damage": {
+      "rate": "2.0"
+     }
+    }
+   ]
+  }
+ ],
+ "bosses": [
+  {
+   "id": 23009901,
+   "clone_from": 23000039,
+   "names": {
+    "en": "Maid of the Abyss",
+    "cn": "深渊的女仆",
+    "kr": "심연의 메이드",
+    "jp": "深淵のメイド"
+   },
+   "level": 10,
+   "model": {
+    "kfm": "23000039_B_BullArmorBlue",
+    "scale": "0.8"
+   },
+   "stat": {
+    "hp": "400",
+    "pap": "250",
+    "map": "250",
+    "par": "10",
+    "mar": "10"
+   },
+   "exp": 800,
+   "skills": [
+    [
+     50100850,
+     2
+    ],
+    [
+     50109901,
+     1
+    ]
+   ],
+   "ai": {
+    "melee": 1,
+    "specials": [
+     {
+      "idx": 2,
+      "cooltime": 8000,
+      "initialCooltime": 3000,
+      "after": 1500
+     }
+    ]
+   }
+  }
+ ]
+}

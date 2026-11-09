@@ -10,6 +10,7 @@ Reads <outdir>/manifest.json and runs `m2d repack <orig> <outdir>/<area> <copy> 
   <packdir>/client/Data/Resource/PrecomputedTerrain.m2d    terrain
   <packdir>/client/Data/Resource/Image.m2d                 image
   <packdir>/client/Data/Resource/asset-web-metadata.m2d    awm
+  <packdir>/client/Data/Resource/Model/Npc.m2d, Textures.m2d   npc-model, textures (boss.py "model_dir"; client only)
   <packdir>/server-data/Xml.m2d, Server.m2d                server-xml, server (a symlink to the original if unchanged)
   <packdir>/server-data/Resource/                          symlinks: repacked copies above, every other entry of
                                                            the original Resource dir (read-only use)
@@ -29,6 +30,8 @@ TARGET = {
     "terrain": "client/Data/Resource/PrecomputedTerrain.m2d",
     "image": "client/Data/Resource/Image.m2d",
     "awm": "client/Data/Resource/asset-web-metadata.m2d",
+    "npc-model": "client/Data/Resource/Model/Npc.m2d",
+    "textures": "client/Data/Resource/Model/Textures.m2d",
     "server-xml": "server-data/Xml.m2d",
     "server": "server-data/Server.m2d",
 }
@@ -48,6 +51,8 @@ def main():
 
     for area, rel in TARGET.items():
         dst = pack / rel
+        if area not in man["archives"]:
+            continue  # optional area (an extra archive newmap.py never opened)
         orig = Path(man["archives"][area])
         if dst.resolve() in origs or dst.with_suffix(".m2h").resolve() in origs:
             sys.exit(f"refusing to write over an original archive: {dst}")

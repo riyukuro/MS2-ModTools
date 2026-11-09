@@ -49,6 +49,7 @@ class Sources:
             if n.lower().startswith("flat/presets/") and n.lower().endswith(".flat"):
                 self.flats.setdefault(Path(n).stem.lower(), n)
         self._npcs = None
+        self.custom_npcs = {f"{int(b['id']):08d}" for b in spec.get("bosses", [])}  # boss.py writes these
 
     def cat(self, name):
         r = subprocess.run(["dotnet", str(M2D_DLL), "cat", str(self.exported), name], capture_output=True, env=dotnet_env())
@@ -60,7 +61,7 @@ class Sources:
         if self._npcs is None:
             self._npcs = {Path(n.strip()).stem for n in m2d("list", self.server_xml).split("\n")
                           if n.strip().lower().startswith("npc/")}
-        return f"{int(npc):08d}" in self._npcs
+        return f"{int(npc):08d}" in self._npcs or f"{int(npc):08d}" in self.custom_npcs
 
 
 class Layout:
