@@ -89,8 +89,19 @@ From real runs, with the results in [What has been proven](tools/dungeon/README.
 
 **Not proven:** any stock client (see [What has been proven](tools/dungeon/README.md#what-has-been-proven)).
 
+## License
+
+GNU GPL version 3 ([`LICENSE`](LICENSE)) with one additional term under section 7(b), in [`NOTICE`](NOTICE): a
+distributed version, or a work based on this one, must keep the attribution "Based on MS2-ModTools
+(https://github.com/riyukuro/MS2-ModTools)" and, if it has a user interface, show it in an About, credits or start-up
+screen. `glue/pathengine/` comes from MS2Recomp and also carries its attribution, "Based on MS2Recomp
+(https://github.com/riyukuro/MS2Recomp)".
+
+The license covers the contributors' own work here: the tools, the examples, the build files and the documentation.
+Third-party code keeps its own license (listed in [`NOTICE`](NOTICE)).
+
 ## Legal
 
 This project is not affiliated with Nexon. MapleStory2 is a trademark of Nexon. The repository contains no game assets,
 executables or engine source, and no PathEngine, Gamebryo, CP3D or Toolbench binaries or headers; you supply your own. See
-[NOTICE.md](NOTICE.md).
+[NOTICE](NOTICE).

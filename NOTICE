@@ -1,0 +1,51 @@
+MS2-ModTools
+Copyright (C) 2026 the MS2-ModTools contributors
+https://github.com/riyukuro/MS2-ModTools
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License as published by the Free Software Foundation, version 3 of the License, with the additional term below. See
+LICENSE for the license text.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied
+warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+
+Additional term (GNU GPL version 3, section 7(b))
+--------------------------------------------------
+
+Any conveyed copy of this program or of a work based on it, in source or object form, must preserve this attribution:
+
+    Based on MS2-ModTools (https://github.com/riyukuro/MS2-ModTools)
+
+A work with an interactive user interface must display that attribution among its Appropriate Legal Notices (GPLv3
+section 0), in an About, credits, start-up or similar screen that the user can reach. A work without one must keep it in
+its documentation and its source. Under section 7 this term may not be removed from any copy that carries it.
+
+glue/pathengine/ is a frozen copy of code from MS2Recomp (https://github.com/riyukuro/MS2Recomp), which is licensed
+under the same terms with its own section 7(b) attribution. A copy or a work based on that code must also preserve:
+
+    Based on MS2Recomp (https://github.com/riyukuro/MS2Recomp)
+
+
+What this license covers
+------------------------
+
+The license covers the original work of the MS2-ModTools contributors in this repository: the tools, the example specs
+and trigger scripts, the build files and the documentation.
+
+It grants no rights in anything owned by others, and nothing here is a statement that any such rights are available:
+
+- MS2-ModTools is an unofficial fan project. It is not affiliated with or endorsed by Nexon. MapleStory2, its
+  executable, its data files and its trademarks belong to Nexon. To use these tools you need your own legally obtained
+  copy of the game and its data.
+- This repository contains no game assets, models, textures, executables or engine source, and no PathEngine,
+  Gamebryo, PhysX or Toolbench binaries or headers. You supply your own copies; the tools read them from where you
+  keep them.
+- tools/trigger/ and tools/mapedit/known_guids.json hold short identifiers from the shipped data (script paths, state
+  names, model names, GUIDs, usage counts), because the lint rules and the converters check against them. The example
+  specs refer to shipped data by id and name in the same way.
+- Third-party software is not included and keeps its own license:
+  - tools/m2d and tools/tok/extract download the NuGet package Maple2.File.Parser.Tadeucci when built
+    (GPL-3.0-or-later, https://github.com/AngeloTadeucci/Maple2.File).
+  - tools/nif reads niftools' nif.xml (BSD, https://github.com/niftools/nifxml) at run time; you download it.
+  - The PathEngine, Gamebryo, PhysX and Toolbench SDKs and tools need your own licensed copies.
