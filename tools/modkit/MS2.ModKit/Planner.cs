@@ -128,6 +128,9 @@ namespace MS2.ModKit
             return null;
         }
 
+        /// <summary>Adds a note that belongs to no mod (a front end says what would follow the apply).</summary>
+        public void Note(string text) { Msg(Notes, null, null, null, text); }
+
         internal void Msg(List<PlanMessage> list, Mod mod, string archive, string entry, string text)
         {
             string id = mod == null ? null : mod.Id;

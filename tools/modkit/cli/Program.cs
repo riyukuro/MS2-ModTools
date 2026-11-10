@@ -33,6 +33,9 @@ namespace MS2.ModKit.Cli
                                                with -w too, the server's archives go into the workspace
   modkit revert --game <game folder>           remove the files that apply --game wrote (with -w: the copies too)
   modkit status --game <game folder>           the files that apply --game wrote
+  modkit sync <id>... [mod...]                 the fields of an item that the client and the server both hold:
+                                               where the two sides differ, as shipped and after the mods
+                                               (--all: every mapped field)
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
@@ -47,10 +50,18 @@ options
                                  not write is never overwritten)
   --verify-all                   apply: compare every untouched entry with the original after writing
   --also-copy ARCHIVE            apply: copy this archive into the workspace even if nothing touches it
+  --no-sync                      do not write the other side of a field the mods change on one side (see
+                                 One mod, both sides in the README); the plan warns instead
+  --map FILE                     field maps to use instead of the built-in ones
+  --server-target DIR            apply, revert with -w: copy the server's archives from the workspace to DIR
+  --after-apply COMMAND          apply, revert with -w: run this command line when a server archive changed
+                                 ({target} and {workspace} are replaced by the folders); validate and diff
+                                 show it, its output is printed and its exit code reported
   --json                         validate, diff, apply, revert: print the result as JSON
   -q                             no progress on stderr
 
-exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad usage or a failure";
+exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad usage or a failure,
+           3 applied, but the copy to the server target or the command after it failed";
 
         sealed class Args
         {
@@ -61,8 +72,8 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             public string Get(string k) { string v; return Opt.TryGetValue(k, out v) ? v : null; }
         }
 
-        static readonly string[] ValueOpts = { "--client", "--server", "--schema", "--notes", "-w", "--game", "--also-copy" };
-        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help" };
+        static readonly string[] ValueOpts = { "--client", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply" };
+        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all" };
 
         static int Main(string[] argv)
         {
@@ -122,6 +133,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                     case "apply": return Apply(ctx);
                     case "revert": return Revert(ctx);
                     case "status": return Status(ctx);
+                    case "sync": return Sync(ctx);
                     case "next-id": return NextId(ctx);
                     default: throw new UsageException("unknown command " + cmd);
                 }
@@ -154,6 +166,21 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 else if (A.Has("--notes")) throw new ModKitException("no notes file " + notes);
                 return s;
             }
+
+            public FieldMaps Maps() { return A.Has("--map") ? FieldMaps.Load(A.Get("--map")) : null; }
+
+            public PlanOptions PlanOpt(bool schemas)
+            {
+                return new PlanOptions { Schemas = schemas ? Schemas() : null, Progress = Progress, Maps = Maps(), NoSync = A.Has("--no-sync") };
+            }
+
+            /// <summary>The server target folder and the command of the options; both off without them.</summary>
+            public ServerStep Step()
+            {
+                return new ServerStep { TargetDir = A.Get("--server-target"), Command = A.Get("--after-apply") };
+            }
+
+            public string WsDir { get { return A.Has("-w") ? System.IO.Path.GetFullPath(A.Get("-w")) : null; } }
 
             public string Need(int i, string what)
             {
@@ -337,7 +364,10 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
         static int PlanCmd(Ctx x, bool changes)
         {
-            Plan p = Planner.Build(x.Data, x.Mods(0), new PlanOptions { Schemas = x.Schemas(), Progress = x.Progress });
+            Plan p = Planner.Build(x.Data, x.Mods(0), x.PlanOpt(true));
+            ServerStep step = x.Step();
+            if (step.Enabled && !x.A.Has("-w")) p.Note("--server-target and --after-apply need -w <workspace>: the server's archives are written there first");
+            else foreach (string line in step.Describe(p, x.WsDir)) p.Note(line);
             if (x.Json) WriteJson(PlanJson(p)); else PrintPlan(p, changes);
             return p.HasErrors || (p.HasConflicts && !x.A.Has("--allow-conflicts")) ? 1 : 0;
         }
@@ -349,12 +379,14 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 applied = r.Applied, reason = r.Reason, plan = PlanJson(r.Plan),
                 outputs = r.Outputs.Select(o => new { archive = o.Archive, path = o.Path, header = o.HeaderPath, kept = o.Kept, replaced = o.Replaced, added = o.Added, deleted = o.Deleted, copied = o.Copied, verified = o.Verified, ms = o.Milliseconds }).ToArray(),
                 removed = r.Removed.ToArray(), written = r.Written.ToArray(), left = r.Left.ToArray(),
+                server = r.Server == null ? null : new { copied = r.Server.Copied.ToArray(), restored = r.Server.Restored.ToArray(), command = r.Server.Command, workDir = r.Server.WorkDir, ran = r.Server.Ran, exitCode = r.Server.ExitCode, output = r.Server.Output, problem = r.Server.Problem },
             };
         }
 
         static int PrintResult(Ctx x, ApplyResult r, long ms)
         {
-            if (x.Json) { WriteJson(ResultJson(r)); return r.Applied ? 0 : 1; }
+            int code = r.Server != null && !r.Server.Ok ? 3 : 0;
+            if (x.Json) { WriteJson(ResultJson(r)); return r.Applied ? code : 1; }
             PrintPlan(r.Plan, false);
             if (!r.Applied) { Console.WriteLine("nothing written: " + r.Reason); return 1; }
             foreach (ApplyOutput o in r.Outputs)
@@ -364,22 +396,45 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (string f in r.Written) Console.WriteLine("wrote " + f);
             foreach (string f in r.Removed) Console.WriteLine("removed " + f);
             foreach (string f in r.Left) Console.WriteLine("left as it is (changed since it was written): " + f);
+            Console.Write(ServerStep.Report(r.Server).Replace("\r\n", "\n"));
             Console.WriteLine("done in " + ms + " ms");
-            return 0;
+            return code;
+        }
+
+        // the server's side after an apply or a revert that went through; says on stderr what it is about to do
+        static ServerStepResult Follow(Ctx x, ApplyResult r)
+        {
+            ServerStep step = x.Step();
+            if (!step.Enabled || r == null) return null;
+            if (!x.A.Has("-w")) throw new UsageException("--server-target and --after-apply need -w <workspace>");
+            bool changed = r.Outputs.Any(o => !LooseTarget.Serves(o.Archive));
+            foreach (string root in x.Data.Roots.Where(n => n != LooseTarget.Root))
+                changed |= r.Removed.Any(f => f.StartsWith(System.IO.Path.Combine(x.WsDir, root) + System.IO.Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            {
+                if (step.HasTarget) Console.Error.WriteLine("modkit: copying the server's archives to " + System.IO.Path.GetFullPath(step.TargetDir));
+                if (step.HasCommand && changed) Console.Error.WriteLine("modkit: then running: " + step.Command.Trim());
+            }
+            return step.Run(x.Data, x.WsDir, changed);
         }
 
         static int Apply(Ctx x)
         {
-            var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress };
+            var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress, Maps = x.Maps(), NoSync = x.A.Has("--no-sync") };
             opt.AlsoCopy.AddRange(x.A.AlsoCopy);
             var sw = Stopwatch.StartNew();
             LooseTarget game = x.Game();
-            if (game == null) return PrintResult(x, x.Ws().Apply(x.Data, x.Mods(0), opt), sw.ElapsedMilliseconds);
+            if (x.Step().Enabled && !x.A.Has("-w")) throw new UsageException("--server-target and --after-apply need -w <workspace>");
+            if (game == null)
+            {
+                ApplyResult only = x.Ws().Apply(x.Data, x.Mods(0), opt);
+                if (only.Applied) only.Server = Follow(x, only);
+                return PrintResult(x, only, sw.ElapsedMilliseconds);
+            }
 
             // the client's part as plain files; what the mods change in other roots goes to the workspace, if one is given
             if (opt.AlsoCopy.Count > 0) throw new UsageException("--also-copy goes with -w, not with --game");
             List<Mod> mods = x.Mods(0);
-            Plan plan = Planner.Build(x.Data, mods, new PlanOptions { Schemas = opt.Schemas, Progress = opt.Progress });
+            Plan plan = Planner.Build(x.Data, mods, opt.PlanOptions());
             bool other = plan.Archives.Any(pa => !LooseTarget.Serves(pa.Archive));
             if (other && !x.A.Has("-w"))
                 Console.Error.WriteLine("modkit: the mods also change archives that are not the client's; those are not written without -w <workspace>");
@@ -395,6 +450,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                     r.Removed.AddRange(w.Removed);
                 }
             }
+            if (r.Applied) r.Server = Follow(x, r);
             return PrintResult(x, r, sw.ElapsedMilliseconds);
         }
 
@@ -410,19 +466,22 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                     ApplyResult w = x.Ws().Revert(x.Data, null, null);
                     if (w != null) g.Removed.AddRange(w.Removed);
                 }
+                if (x.A.Has("-w")) g.Server = Follow(x, g);
                 if (x.Json) WriteJson(new { applied = true, removedAll = true, removed = g.Removed.ToArray(), left = g.Left.ToArray() });
                 else
                 {
                     foreach (string f in g.Removed) Console.WriteLine("removed " + f);
                     foreach (string f in g.Left) Console.WriteLine("left as it is (changed since it was written): " + f);
                     Console.WriteLine("the loose files are removed from " + game.GameDir);
+                    Console.Write(ServerStep.Report(g.Server).Replace("\r\n", "\n"));
                 }
-                return 0;
+                return g.Server != null && !g.Server.Ok ? 3 : 0;
             }
             Workspace ws = x.Ws();
-            var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress };
+            var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress, Maps = x.Maps(), NoSync = x.A.Has("--no-sync") };
             var sw = Stopwatch.StartNew();
             ApplyResult r = ws.Revert(x.Data, x.A.Pos.Count > 0 ? x.A.Pos[0] : null, opt);
+            if (r != null && (r.Plan == null || r.Applied)) r.Server = Follow(x, r);
             if (r == null || r.Plan == null)
             {
                 if (x.Json) WriteJson(new { applied = true, removedAll = true, removed = r == null ? new string[0] : r.Removed.ToArray() });
@@ -430,8 +489,9 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 {
                     if (r != null) foreach (string f in r.Removed) Console.WriteLine("removed " + f);
                     Console.WriteLine("no mod is left: the copies are removed from " + ws.Dir);
+                    if (r != null) Console.Write(ServerStep.Report(r.Server).Replace("\r\n", "\n"));
                 }
-                return 0;
+                return r != null && r.Server != null && !r.Server.Ok ? 3 : 0;
             }
             return PrintResult(x, r, sw.ElapsedMilliseconds);
         }
@@ -458,6 +518,29 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (WorkspaceMod m in st.Mods) Console.WriteLine("mod " + m.Id + " " + m.Version + "\t" + m.Path);
             foreach (WorkspaceArchive a in st.Archives)
                 Console.WriteLine("archive " + a.Archive + "\t" + Path.Combine(ws.Dir, a.File) + (a.Copied ? "\t(copied as it is)" : "") + (File.Exists(Path.Combine(ws.Dir, a.File)) ? "" : "\tMISSING"));
+            return 0;
+        }
+
+        // modkit sync <id>... [mod...]: numbers are ids, the rest are mods
+        static int Sync(Ctx x)
+        {
+            var ids = new List<long>();
+            var mods = new List<Mod>();
+            foreach (string a in x.A.Pos)
+            {
+                long id;
+                if (long.TryParse(a, out id)) ids.Add(id); else mods.Add(Mod.Load(a));
+            }
+            if (ids.Count == 0) throw new UsageException("sync <id>... [mod...]");
+            EntityMap em = (x.Maps() ?? FieldMaps.Default).Entity("item");
+            if (em == null) throw new ModKitException("the field maps hold no entity \"item\"");
+            Plan plan = mods.Count == 0 ? null : Planner.Build(x.Data, mods, x.PlanOpt(false));
+            if (plan != null && plan.HasErrors) { PrintPlan(plan, false); return 1; }
+            foreach (long id in ids)
+            {
+                SyncReport r = SyncReport.ForId(x.Data, plan, em, id);
+                Console.Write(r.ToText(x.A.Has("--all")).Replace("\r\n", "\n"));
+            }
             return 0;
         }
 

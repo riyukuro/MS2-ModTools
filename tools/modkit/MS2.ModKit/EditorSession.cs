@@ -107,7 +107,20 @@ namespace MS2.ModKit
         }
 
         /// <summary>The item editor over the data and the mod being edited (see Items.cs). Ask again after the mod is replaced.</summary>
-        public ItemEditor Items() { return new ItemEditor(Data, Mod); }
+        public ItemEditor Items()
+        {
+            var e = new ItemEditor(Data, Mod);
+            if (Maps != null) e.Maps = Maps;
+            return e;
+        }
+
+        /// <summary>The sync report of one id of an entity that has a field map ("item"), over the enabled mods and the mod being edited; plan = null: the data as it is.</summary>
+        public SyncReport Sync(string entity, long id, Plan plan)
+        {
+            EntityMap em = (Maps ?? FieldMaps.Default).Entity(entity);
+            if (em == null) throw new ModKitException("no field map for \"" + entity + "\"");
+            return SyncReport.ForId(Data, plan, em, id);
+        }
 
         public TableDraft OpenTable(string archive, string entry, string parentSelector)
         {
