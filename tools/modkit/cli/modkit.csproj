@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The command line over MS2.ModKit. Build: dotnet build -c Release -o bin   Run: dotnet bin/modkit.dll -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>modkit</AssemblyName>
+    <RootNamespace>MS2.ModKit.Cli</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <RollForward>Major</RollForward>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../MS2.ModKit/MS2.ModKit.csproj" SetTargetFramework="TargetFramework=net8.0" />
+  </ItemGroup>
+</Project>

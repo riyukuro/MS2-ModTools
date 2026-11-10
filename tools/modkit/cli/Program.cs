@@ -1,0 +1,443 @@
+// modkit: the command line over the MS2.ModKit library. Everything it does is a library call; this file only
+// reads arguments and settings and prints.
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using System.Text.RegularExpressions;
+using MS2.ModKit.M2d;
+using MS2.ModKit.Xml;
+
+namespace MS2.ModKit.Cli
+{
+    static class Program
+    {
+        const string Usage = @"modkit: row-level mods for MapleStory2 game tables. Originals are only read.
+
+  modkit archives                              the .m2d archives of the data roots
+  modkit ls <archive> [pattern]                entries (pattern: * within a folder, ** across folders)
+  modkit cat <archive> <entry>                 one entry to stdout, as stored in the archive
+  modkit rows <archive> <entry> [selector]     selectors of the rows (or of the children of one row)
+  modkit schema build [archive...]             derive the table schemas from your data into the local cache
+  modkit schema show <archive> [table]         tables of an archive, or the elements and attributes of one
+  modkit validate <mod>...                     check mods against the data: errors, conflicts, warnings
+  modkit diff <mod>...                         the same and every row change, nothing is written
+  modkit apply -w <workspace> <mod>...         write modded copies of the touched archives into the workspace
+  modkit revert -w <workspace> [mod id]        rebuild the copies without one mod, or remove them all
+  modkit status -w <workspace>                 what is applied in a workspace
+  modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
+  modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
+
+  <archive> is <root>:<path>, for example client:Xml.m2d, server:Xml.m2d, server:Server.m2d.
+  <mod> is a folder with a mod.xml (or the mod.xml itself). Later mods win where two set the same thing.
+
+options
+  --client DIR, --server DIR     data roots (default: MS2_CLIENT_DATA / MS2_SERVER_DATA, then modtools.toml)
+  --schema DIR                   schema cache (default: <MS2_OUT>/modkit/schema)
+  --notes FILE                   schema notes (default: tools/modkit/schema-notes.xml)
+  --allow-conflicts              apply although mods conflict
+  --verify-all                   apply: compare every untouched entry with the original after writing
+  --also-copy ARCHIVE            apply: copy this archive into the workspace even if nothing touches it
+  --json                         validate, diff, apply, revert: print the result as JSON
+  -q                             no progress on stderr
+
+exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad usage or a failure";
+
+        sealed class Args
+        {
+            public readonly List<string> Pos = new List<string>();
+            public readonly Dictionary<string, string> Opt = new Dictionary<string, string>();
+            public readonly List<string> AlsoCopy = new List<string>();
+            public bool Has(string k) { return Opt.ContainsKey(k); }
+            public string Get(string k) { string v; return Opt.TryGetValue(k, out v) ? v : null; }
+        }
+
+        static readonly string[] ValueOpts = { "--client", "--server", "--schema", "--notes", "-w", "--also-copy" };
+        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help" };
+
+        static int Main(string[] argv)
+        {
+            Console.OutputEncoding = new UTF8Encoding(false);
+            try { return Run(argv); }
+            catch (UsageException x) { Console.Error.WriteLine("modkit: " + x.Message + "\n(modkit --help shows the commands)"); return 2; }
+            catch (ModKitException x) { Console.Error.WriteLine("modkit: " + x.Message); return 2; }
+            catch (IOException x) { Console.Error.WriteLine("modkit: " + x.Message); return 2; }
+            catch (UnauthorizedAccessException x) { Console.Error.WriteLine("modkit: " + x.Message); return 2; }
+        }
+
+        sealed class UsageException : Exception { public UsageException(string m) : base(m) { } }
+
+        static Args Parse(string[] argv)
+        {
+            var a = new Args();
+            for (int i = 0; i < argv.Length; i++)
+            {
+                string s = argv[i];
+                if (Array.IndexOf(ValueOpts, s) >= 0)
+                {
+                    if (i + 1 >= argv.Length) throw new UsageException(s + " needs a value");
+                    if (s == "--also-copy") a.AlsoCopy.Add(argv[++i]); else a.Opt[s] = argv[++i];
+                }
+                else if (Array.IndexOf(FlagOpts, s) >= 0) a.Opt[s] = "";
+                else if (s.StartsWith("-") && s.Length > 1 && a.Pos.Count > 0 && a.Pos[0] != "rows") throw new UsageException("unknown option " + s);
+                else a.Pos.Add(s);
+            }
+            return a;
+        }
+
+        static int Run(string[] argv)
+        {
+            Args a = Parse(argv);
+            if (a.Pos.Count == 0 || a.Has("-h") || a.Has("--help")) { Console.WriteLine(Usage); return a.Pos.Count == 0 && !a.Has("-h") && !a.Has("--help") ? 2 : 0; }
+            string cmd = a.Pos[0];
+            a.Pos.RemoveAt(0);
+            if (cmd == "pack") return Pack(a);
+            Settings set = Settings.Load();
+            using (var data = new DataSet())
+            {
+                string c = a.Get("--client") ?? set.Path("MS2_CLIENT_DATA"), s = a.Get("--server") ?? set.Path("MS2_SERVER_DATA");
+                if (!string.IsNullOrEmpty(c)) data.AddRoot("client", c);
+                if (!string.IsNullOrEmpty(s)) data.AddRoot("server", s);
+                if (data.Roots.Count == 0)
+                    throw new ModKitException("no data root: set MS2_CLIENT_DATA and/or MS2_SERVER_DATA (environment or modtools.toml), or pass --client / --server");
+                var ctx = new Ctx { A = a, Data = data, Set = set, Json = a.Has("--json"), Quiet = a.Has("-q") || Console.IsErrorRedirected };
+                switch (cmd)
+                {
+                    case "archives": return Archives(ctx);
+                    case "ls": return Ls(ctx);
+                    case "cat": return Cat(ctx);
+                    case "rows": return Rows(ctx);
+                    case "schema": return Schema(ctx);
+                    case "validate": return PlanCmd(ctx, false);
+                    case "diff": return PlanCmd(ctx, true);
+                    case "apply": return Apply(ctx);
+                    case "revert": return Revert(ctx);
+                    case "status": return Status(ctx);
+                    case "next-id": return NextId(ctx);
+                    default: throw new UsageException("unknown command " + cmd);
+                }
+            }
+        }
+
+        sealed class Ctx
+        {
+            public Args A; public DataSet Data; public Settings Set; public bool Json, Quiet;
+            string last = "";
+
+            public void Progress(ProgressInfo p)
+            {
+                if (Quiet) return;
+                string line = p.Total > 0 ? p.Stage + " " + p.Done + "/" + p.Total : p.Stage + " " + p.Item;
+                if (p.Total > 0 && p.Done != p.Total && p.Done % 2000 != 0) return;
+                if (line == last) return;
+                last = line;
+                Console.Error.Write("\r" + line.PadRight(60));
+                if (p.Total > 0 && p.Done == p.Total) Console.Error.Write("\r" + new string(' ', 60) + "\r");
+            }
+
+            public string SchemaDir { get { return A.Get("--schema") ?? System.IO.Path.Combine(Set.OutDir, "modkit", "schema"); } }
+
+            public SchemaSet Schemas()
+            {
+                SchemaSet s = SchemaSet.Load(SchemaDir, Data);
+                string notes = A.Get("--notes") ?? (Set.Repo == null ? null : System.IO.Path.Combine(Set.Repo, "tools", "modkit", "schema-notes.xml"));
+                if (notes != null && File.Exists(notes)) s.LoadNotes(notes);
+                else if (A.Has("--notes")) throw new ModKitException("no notes file " + notes);
+                return s;
+            }
+
+            public string Need(int i, string what)
+            {
+                if (A.Pos.Count <= i) throw new UsageException("missing " + what);
+                return A.Pos[i];
+            }
+
+            public List<Mod> Mods(int from)
+            {
+                var mods = new List<Mod>();
+                for (int i = from; i < A.Pos.Count; i++) mods.Add(Mod.Load(A.Pos[i]));
+                if (mods.Count == 0) throw new UsageException("missing <mod>");
+                return mods;
+            }
+
+            public Workspace Ws()
+            {
+                string w = A.Get("-w");
+                if (w == null) throw new UsageException("missing -w <workspace>");
+                return new Workspace(w);
+            }
+        }
+
+        // A new archive from loose files: for test data sets, and for archives that do not exist in the game.
+        static int Pack(Args a)
+        {
+            if (a.Pos.Count < 2) throw new UsageException("pack <folder> <out.m2d> [version]");
+            string dir = Path.GetFullPath(a.Pos[0]), dst = Path.GetFullPath(a.Pos[1]);
+            if (!Directory.Exists(dir)) throw new ModKitException("no folder " + dir);
+            if (File.Exists(dst) || File.Exists(M2dArchive.HeaderPathOf(dst))) throw new ModKitException(dst + " exists; pack does not write over an archive");
+            PackVersion v = PackVersion.MS2F;
+            if (a.Pos.Count > 2 && !Enum.TryParse(a.Pos[2], true, out v)) throw new UsageException("version is MS2F, NS2F, OS2F or PS2F");
+            string[] files = Directory.GetFiles(dir, "*", SearchOption.AllDirectories);
+            var list = new List<KeyValuePair<string, byte[]>>();
+            foreach (string f in files) list.Add(new KeyValuePair<string, byte[]>(f.Substring(dir.Length).TrimStart('/', '\\').Replace('\\', '/'), File.ReadAllBytes(f)));
+            list.Sort((p, q) => string.CompareOrdinal(p.Key, q.Key));
+            Directory.CreateDirectory(Path.GetDirectoryName(dst));
+            M2dWriter.Create(dst, v, M2dFlag.AesZlib, list);
+            Console.WriteLine(dst + ": " + list.Count + " entries, " + v);
+            return 0;
+        }
+
+        // ---- looking at the data ----
+
+        static int Archives(Ctx x)
+        {
+            foreach (string r in x.Data.ListArchives())
+            {
+                var fi = new FileInfo(x.Data.Resolve(r));
+                Console.WriteLine(r + "\t" + fi.Length);
+            }
+            return 0;
+        }
+
+        static int Ls(Ctx x)
+        {
+            M2dArchive arc = x.Data.Open(x.Need(0, "<archive>"));
+            Regex re = x.A.Pos.Count > 1 ? IdSpaces.EntryRegex(x.A.Pos[1]) : null;
+            var o = new StringBuilder();
+            foreach (M2dEntry e in arc.Entries)
+                if (re == null || re.IsMatch(e.Name)) o.Append(e.Name).Append('\t').Append(e.Size).Append('\n');
+            Console.Write(o);
+            return 0;
+        }
+
+        static int Cat(Ctx x)
+        {
+            M2dArchive arc = x.Data.Open(x.Need(0, "<archive>"));
+            M2dEntry e = arc.Find(x.Need(1, "<entry>"));
+            if (e == null) throw new ModKitException(x.A.Pos[0] + " has no entry " + x.A.Pos[1]);
+            byte[] b = arc.Read(e);
+            using (Stream so = Console.OpenStandardOutput()) so.Write(b, 0, b.Length);
+            return 0;
+        }
+
+        static int Rows(Ctx x)
+        {
+            M2dArchive arc = x.Data.Open(x.Need(0, "<archive>"));
+            string entry = x.Need(1, "<entry>");
+            M2dEntry e = arc.Find(entry);
+            if (e == null) throw new ModKitException(x.A.Pos[0] + " has no entry " + entry);
+            XmlDoc doc = XmlDoc.Parse(arc.Read(e), entry);
+            if (doc.Root == null) throw new ModKitException(entry + " has no element");
+            XmlElem from = x.A.Pos.Count > 2 ? RowPath.Parse(x.A.Pos[2]).Resolve(doc.Root) : doc.Root;
+            var o = new StringBuilder();
+            foreach (XmlElem ch in from.Children)
+                o.Append(RowPath.Canonical(ch)).Append("\tline ").Append(ch.Line).Append('\t').Append(ch.Attrs.Count).Append(" attributes, ").Append(ch.Children.Count).Append(" children\n");
+            Console.Write(o);
+            return 0;
+        }
+
+        static int Schema(Ctx x)
+        {
+            string sub = x.Need(0, "build or show");
+            if (sub == "build")
+            {
+                var names = new List<string>();
+                for (int i = 1; i < x.A.Pos.Count; i++) names.Add(DataSet.NormalizeRef(x.A.Pos[i]));
+                if (names.Count == 0)
+                    foreach (string d in new[] { "client:Xml.m2d", "server:Xml.m2d", "server:Server.m2d" })
+                        if (x.Data.Roots.Contains(DataSet.RootOf(d)) && x.Data.Exists(d)) names.Add(d);
+                if (names.Count == 0) throw new ModKitException("no archive to read");
+                foreach (string n in names)
+                {
+                    var set = new SchemaSet();
+                    var sw = Stopwatch.StartNew();
+                    ArchiveSchema s = set.Build(x.Data, n, x.Progress);
+                    set.Save(x.SchemaDir);
+                    Console.WriteLine(n + ": " + s.Tables.Count + " tables from " + s.Entries + " entries (" + s.Skipped + " skipped) in " + sw.ElapsedMilliseconds + " ms -> " + Path.Combine(x.SchemaDir, SchemaSet.FileNameOf(n)));
+                }
+                return 0;
+            }
+            if (sub != "show") throw new UsageException("schema build or schema show");
+            string arc = DataSet.NormalizeRef(x.Need(1, "<archive>"));
+            ArchiveSchema a = x.Schemas().Archive(arc);
+            if (a == null) throw new ModKitException("no schema is cached for " + arc + " in " + x.SchemaDir + "; run: modkit schema build " + arc);
+            if (a.Stale) Console.Error.WriteLine("modkit: the archive has changed since this schema was built; run modkit schema build " + arc);
+            var o = new StringBuilder();
+            if (x.A.Pos.Count < 3)
+            {
+                foreach (TableSchema t in a.Tables)
+                    o.Append(t.Name).Append('\t').Append(t.Files).Append(t.Files == 1 ? " file" : " files").Append("\troot ").Append(t.Root)
+                     .Append(t.Row.Length > 0 ? "\trow " + t.Row : "").Append(t.Key.Length > 0 ? "\tkey " + t.Key : "").Append(t.Variants.Length > 0 ? "\tvariants " + t.Variants : "").Append('\n');
+                Console.Write(o);
+                return 0;
+            }
+            TableSchema tb = a.Table(x.A.Pos[2]) ?? a.Table(SchemaSet.TableOf(x.A.Pos[2]));
+            if (tb == null) throw new ModKitException("the schema of " + arc + " has no table " + x.A.Pos[2] + " (modkit schema show " + arc + " lists them)");
+            o.Append(tb.Name).Append(": ").Append(tb.Files).Append(" file(s), root <").Append(tb.Root).Append(">, row <").Append(tb.Row).Append(">, key ").Append(tb.Key.Length > 0 ? tb.Key : "(none)")
+             .Append(tb.Variants.Length > 0 ? ", variants " + tb.Variants : "").Append('\n');
+            foreach (ElemSchema el in tb.Elements)
+            {
+                o.Append(el.Path).Append("  x").Append(el.Count).Append(el.HasText ? "  has text" : "").Append('\n');
+                foreach (AttrSchema at in el.Attrs)
+                    o.Append("    @").Append(at.Name).Append("  x").Append(at.Count).Append("  ").Append(at.TypeText).Append("  e.g. ").Append(string.Join(" | ", at.Samples.Take(4).Select(v => "\"" + v + "\""))).Append('\n');
+            }
+            Console.Write(o);
+            return 0;
+        }
+
+        // ---- mods ----
+
+        static void PrintPlan(Plan p, bool changes)
+        {
+            var o = new StringBuilder();
+            if (changes) foreach (PlanChange c in p.Changes) o.Append(c).Append('\n');
+            foreach (PlanMessage m in p.Notes) o.Append("note: ").Append(m).Append('\n');
+            foreach (PlanMessage m in p.Warnings) o.Append("warning: ").Append(m).Append('\n');
+            foreach (PlanMessage m in p.Conflicts) o.Append("conflict: ").Append(m).Append('\n');
+            foreach (PlanMessage m in p.Errors) o.Append("error: ").Append(m).Append('\n');
+            int entries = 0;
+            foreach (PlanArchive a in p.Archives) entries += a.Put.Count + a.Delete.Count;
+            o.Append(p.Mods.Count).Append(" mod(s): ").Append(p.Changes.Count).Append(" change(s) in ").Append(entries).Append(" entr").Append(entries == 1 ? "y" : "ies").Append(" of ")
+             .Append(p.Archives.Count).Append(" archive(s); ").Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ").Append(p.Warnings.Count).Append(" warning(s)\n");
+            Console.Write(o);
+        }
+
+        static object Msgs(List<PlanMessage> l) { return l.Select(m => new { mod = m.ModId, archive = m.Archive, entry = m.Entry, text = m.Text }).ToArray(); }
+
+        static object PlanJson(Plan p)
+        {
+            return new
+            {
+                mods = p.Mods.Select(m => new { id = m.Id, name = m.Name, version = m.Version, dir = m.Dir }).ToArray(),
+                changes = p.Changes.Select(c => new { kind = c.Kind.ToString(), mod = c.ModId, archive = c.Archive, entry = c.Entry, row = c.Row, name = c.Name, old = c.OldValue, @new = c.NewValue }).ToArray(),
+                errors = Msgs(p.Errors), conflicts = Msgs(p.Conflicts), warnings = Msgs(p.Warnings), notes = Msgs(p.Notes),
+                archives = p.Archives.Select(a => new { archive = a.Archive, put = a.Put.Select(k => k.Key).ToArray(), delete = a.Delete.ToArray() }).ToArray(),
+            };
+        }
+
+        static void WriteJson(object o) { Console.WriteLine(JsonSerializer.Serialize(o, new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping })); }
+
+        static int PlanCmd(Ctx x, bool changes)
+        {
+            Plan p = Planner.Build(x.Data, x.Mods(0), new PlanOptions { Schemas = x.Schemas(), Progress = x.Progress });
+            if (x.Json) WriteJson(PlanJson(p)); else PrintPlan(p, changes);
+            return p.HasErrors || (p.HasConflicts && !x.A.Has("--allow-conflicts")) ? 1 : 0;
+        }
+
+        static object ResultJson(ApplyResult r)
+        {
+            return new
+            {
+                applied = r.Applied, reason = r.Reason, plan = PlanJson(r.Plan),
+                outputs = r.Outputs.Select(o => new { archive = o.Archive, path = o.Path, header = o.HeaderPath, kept = o.Kept, replaced = o.Replaced, added = o.Added, deleted = o.Deleted, copied = o.Copied, verified = o.Verified, ms = o.Milliseconds }).ToArray(),
+                removed = r.Removed.ToArray(),
+            };
+        }
+
+        static int PrintResult(Ctx x, ApplyResult r, long ms)
+        {
+            if (x.Json) { WriteJson(ResultJson(r)); return r.Applied ? 0 : 1; }
+            PrintPlan(r.Plan, false);
+            if (!r.Applied) { Console.WriteLine("nothing written: " + r.Reason); return 1; }
+            foreach (ApplyOutput o in r.Outputs)
+                Console.WriteLine(o.Copied
+                    ? o.Archive + " -> " + o.Path + " (copied as it is)"
+                    : o.Archive + " -> " + o.Path + ": " + o.Replaced + " replaced, " + o.Added + " added, " + o.Deleted + " deleted, " + o.Kept + " kept as stored; read back " + o.Verified + "; " + o.Milliseconds + " ms");
+            foreach (string f in r.Removed) Console.WriteLine("removed " + f);
+            Console.WriteLine("done in " + ms + " ms");
+            return 0;
+        }
+
+        static int Apply(Ctx x)
+        {
+            var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress };
+            opt.AlsoCopy.AddRange(x.A.AlsoCopy);
+            var sw = Stopwatch.StartNew();
+            ApplyResult r = x.Ws().Apply(x.Data, x.Mods(0), opt);
+            return PrintResult(x, r, sw.ElapsedMilliseconds);
+        }
+
+        static int Revert(Ctx x)
+        {
+            Workspace ws = x.Ws();
+            var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress };
+            var sw = Stopwatch.StartNew();
+            ApplyResult r = ws.Revert(x.Data, x.A.Pos.Count > 0 ? x.A.Pos[0] : null, opt);
+            if (r == null || r.Plan == null)
+            {
+                if (x.Json) WriteJson(new { applied = true, removedAll = true, removed = r == null ? new string[0] : r.Removed.ToArray() });
+                else
+                {
+                    if (r != null) foreach (string f in r.Removed) Console.WriteLine("removed " + f);
+                    Console.WriteLine("no mod is left: the copies are removed from " + ws.Dir);
+                }
+                return 0;
+            }
+            return PrintResult(x, r, sw.ElapsedMilliseconds);
+        }
+
+        static int Status(Ctx x)
+        {
+            Workspace ws = x.Ws();
+            WorkspaceState st = ws.ReadState();
+            if (st == null) { Console.WriteLine("nothing is applied in " + ws.Dir); return 0; }
+            Console.WriteLine("applied " + st.Applied);
+            foreach (WorkspaceMod m in st.Mods) Console.WriteLine("mod " + m.Id + " " + m.Version + "\t" + m.Path);
+            foreach (WorkspaceArchive a in st.Archives)
+                Console.WriteLine("archive " + a.Archive + "\t" + Path.Combine(ws.Dir, a.File) + (a.Copied ? "\t(copied as it is)" : "") + (File.Exists(Path.Combine(ws.Dir, a.File)) ? "" : "\tMISSING"));
+            return 0;
+        }
+
+        static int NextId(Ctx x)
+        {
+            Mod m = Mod.Load(x.Need(0, "<mod>"));
+            int count = 1;
+            if (x.A.Pos.Count > 2 && (!int.TryParse(x.A.Pos[2], out count) || count < 1)) throw new UsageException("bad count " + x.A.Pos[2]);
+            foreach (long id in IdSpaces.NextFree(x.Data, m, x.Need(1, "<space>"), count, x.Progress)) Console.WriteLine(id);
+            return 0;
+        }
+    }
+
+    /// <summary>The repo's settings: environment first, then modtools.toml in the repo root (see modtools.example.toml).</summary>
+    sealed class Settings
+    {
+        public string Repo;     // null when the tool does not run from a checkout
+        readonly Dictionary<string, string> file = new Dictionary<string, string>();
+
+        public static Settings Load()
+        {
+            var s = new Settings();
+            foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
+            {
+                for (string d = start; d != null && s.Repo == null; d = System.IO.Path.GetDirectoryName(d))
+                    if (File.Exists(System.IO.Path.Combine(d, "modtools.example.toml"))) s.Repo = d;
+                if (s.Repo != null) break;
+            }
+            if (s.Repo == null) return s;
+            string f = System.IO.Path.Combine(s.Repo, "modtools.toml");
+            if (!File.Exists(f)) return s;
+            // the file only holds NAME = "value" lines and comments
+            var re = new Regex("^\\s*([A-Za-z0-9_]+)\\s*=\\s*(?:\"((?:[^\"\\\\]|\\\\.)*)\"|'([^']*)')\\s*(#.*)?$");
+            foreach (string line in File.ReadAllLines(f))
+            {
+                Match m = re.Match(line);
+                if (!m.Success) continue;
+                s.file[m.Groups[1].Value] = m.Groups[3].Success ? m.Groups[3].Value : Regex.Replace(m.Groups[2].Value, "\\\\(.)", "$1");
+            }
+            return s;
+        }
+
+        public string Path(string name)
+        {
+            string v = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrEmpty(v)) return v;
+            if (!file.TryGetValue(name, out v) || v.Length == 0) return null;
+            return System.IO.Path.IsPathRooted(v) ? v : System.IO.Path.Combine(Repo, v);
+        }
+
+        public string OutDir { get { return Path("MS2_OUT") ?? System.IO.Path.Combine(Repo ?? Directory.GetCurrentDirectory(), "out"); } }
+    }
+}
