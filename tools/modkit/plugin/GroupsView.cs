@@ -160,12 +160,12 @@ namespace MS2.Tables
             Controls.Add(applyBar);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, applyBar, hitList, right });
-            // the header form gets 40 % of the height beside the rows, the output box 15 % of the view (both splitters
-            // set a new share when dragged); in a low window the header form gives way, so the rows keep a header and
-            // three rows
-            ViewLayout.KeepHeightShare(formGrid, right, 0.4, 60,
+            // the output box keeps two lines (it scrolls); the header form gets 30 % of the height beside the rows, so
+            // the rows with icons get the larger share (both splitters set a new share when dragged). In a low window
+            // the header form still shows its column header and four rows, and the rows below a header and three rows.
+            ViewLayout.KeepLogLines(outputBox, this);
+            ViewLayout.KeepHeightShare(formGrid, right, 0.3, formGrid.ColumnHeadersHeight + 4 * formGrid.RowTemplate.Height + 4,
                 delegate { return groupBar.Height + fieldBar.Height + rowBar.Height + 4 + rowGrid.ColumnHeadersHeight + 3 * IconRow + 4; });
-            ViewLayout.KeepHeightShare(outputBox, this, 0.15, 48);
             ViewLayout.CentreOnFirstShow(this);
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
