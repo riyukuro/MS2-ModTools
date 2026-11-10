@@ -1,4 +1,4 @@
-// Where the original game data is: named roots ("client", "server") mapped to folders. Archives are named
+// Where the original game data is: named roots ("client", "gms-client", "server"; see Profile) mapped to folders. Archives are named
 // "<root>:<path under the root>", for example "client:Xml.m2d" or "client:Resource/Image.m2d".
 // The data set only ever reads.
 using System;
@@ -25,9 +25,38 @@ namespace MS2.ModKit
             if (!string.IsNullOrEmpty(serverData)) AddRoot("server", serverData);
         }
 
+        /// <summary>
+        /// The three data profiles at once: the Korean client's data folder (root "client"), the global client's
+        /// (root "gms-client") and the server's (root "server"); any of them may be null.
+        /// </summary>
+        public DataSet(string kmsClientData, string gmsClientData, string serverData)
+        {
+            if (!string.IsNullOrEmpty(kmsClientData)) AddTarget(Profile.KmsClient, kmsClientData);
+            if (!string.IsNullOrEmpty(gmsClientData)) AddTarget(Profile.GmsClient, gmsClientData);
+            if (!string.IsNullOrEmpty(serverData)) AddTarget(Profile.Server, serverData);
+        }
+
+        public void AddTarget(Profile profile, string folder) { AddRoot(profile.Root, folder); }
+
+        /// <summary>The profiles this data set has, in the fixed order kms-client, gms-client, server.</summary>
+        public List<Profile> Profiles
+        {
+            get
+            {
+                var list = new List<Profile>();
+                foreach (Profile p in Profile.All) if (roots.ContainsKey(p.Root)) list.Add(p);
+                return list;
+            }
+        }
+
+        public bool Has(Profile p) { return p != null && roots.ContainsKey(p.Root); }
+
+        /// <summary>The profile of an archive name, or null for a root that is not a profile.</summary>
+        public static Profile ProfileOf(string archiveRef) { return Profile.OfArchive(archiveRef); }
+
         public void AddRoot(string name, string folder)
         {
-            name = name.ToLowerInvariant();
+            name = Profile.CanonicalRoot(name);
             if (!Directory.Exists(folder)) throw new ModKitException("data root \"" + name + "\": no folder " + folder);
             roots[name] = Path.GetFullPath(folder);
         }
@@ -37,7 +66,7 @@ namespace MS2.ModKit
         public string RootFolder(string name)
         {
             string f;
-            return roots.TryGetValue(name.ToLowerInvariant(), out f) ? f : null;
+            return roots.TryGetValue(Profile.CanonicalRoot(name), out f) ? f : null;
         }
 
         /// <summary>"Client:Resource\Image.m2d" -> "client:Resource/Image.m2d".</summary>
@@ -47,7 +76,7 @@ namespace MS2.ModKit
             if (c <= 0) throw new ModKitException("archive \"" + archiveRef + "\" must be <root>:<path>, for example client:Xml.m2d");
             string path = archiveRef.Substring(c + 1).Replace('\\', '/').TrimStart('/');
             if (path.Length == 0 || path.IndexOf("..", StringComparison.Ordinal) >= 0) throw new ModKitException("bad archive path in \"" + archiveRef + "\"");
-            return archiveRef.Substring(0, c).ToLowerInvariant() + ":" + path;
+            return Profile.CanonicalRoot(archiveRef.Substring(0, c)) + ":" + path;
         }
 
         public static string RootOf(string archiveRef) { return archiveRef.Substring(0, archiveRef.IndexOf(':')); }
@@ -59,7 +88,7 @@ namespace MS2.ModKit
             archiveRef = NormalizeRef(archiveRef);
             string root = RootOf(archiveRef), folder;
             if (!roots.TryGetValue(root, out folder))
-                throw new ModKitException("archive " + archiveRef + ": the data root \"" + root + "\" is not set" + (root == "client" ? " (MS2_CLIENT_DATA)" : root == "server" ? " (MS2_SERVER_DATA)" : ""));
+                throw new ModKitException("archive " + archiveRef + ": the data root \"" + root + "\" is not set" + (Profile.Find(root) != null ? " (" + Profile.Find(root).EnvVar + ")" : ""));
             string cur = folder;
             foreach (string part in PathOf(archiveRef).Split('/'))
             {
