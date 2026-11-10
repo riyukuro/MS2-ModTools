@@ -1,6 +1,7 @@
 // The rows of other tables that belong to one id of an entity: the "ref" lines of its field map name the tables
 // and the attribute that holds the key. Used to show an item's option and drop rows, which live in tables that
-// only the server has. The data as shipped is read; a mod's own changes to those tables are not looked at.
+// only the server has. With a plan, the tables are read as the plan leaves them (its written entries over the
+// shipped ones); without one, as shipped.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -54,7 +55,10 @@ namespace MS2.ModKit
     public static class ServerRefs
     {
         /// <summary>The rows that the ref lines of the map find for an id. maxPerRule limits the rows listed for one line.</summary>
-        public static RefList Find(DataSet data, EntityMap em, long id, int maxPerRule)
+        public static RefList Find(DataSet data, EntityMap em, long id, int maxPerRule) { return Find(data, em, id, maxPerRule, null); }
+
+        /// <summary>As Find, over the data as the plan leaves it (plan null: as shipped).</summary>
+        public static RefList Find(DataSet data, EntityMap em, long id, int maxPerRule, Plan plan)
         {
             if (em == null) throw new ArgumentNullException("em");
             var list = new RefList();
@@ -70,7 +74,7 @@ namespace MS2.ModKit
                     if (!looked)
                     {
                         looked = true;
-                        under = ServerUnder(data, em, id);
+                        under = ServerUnder(data, em, id, plan);
                         if (under == null) list.Notes.Add("the server has no entry of this id, so the keys it would hold are not known");
                     }
                     if (under == null) continue;
@@ -82,12 +86,11 @@ namespace MS2.ModKit
                 Regex rx = IdSpaces.EntryRegex(rule.Entries);
                 byte[] needle = Encoding.ASCII.GetBytes(rule.Attribute + "=\"" + key + "\"");
                 int n = 0, more = 0;
-                foreach (M2dEntry e in arch.Entries)
+                foreach (KeyValuePair<string, byte[]> e in Entries(arch, plan == null ? null : plan.Find(rule.Archive), rx))
                 {
-                    if (!rx.IsMatch(e.Name)) continue;
-                    byte[] bytes = arch.Read(e);
+                    byte[] bytes = e.Value;
                     if (IndexOf(bytes, needle) < 0) continue;
-                    XmlDoc doc = XmlDoc.Parse(bytes, rule.Archive + " " + e.Name);
+                    XmlDoc doc = XmlDoc.Parse(bytes, rule.Archive + " " + e.Key);
                     if (doc.Root == null) continue;
                     var found = new List<XmlElem>();
                     Collect(doc.Root, rule.Attribute, key, found);
@@ -95,7 +98,7 @@ namespace MS2.ModKit
                     {
                         if (n >= maxPerRule) { more++; continue; }
                         n++;
-                        list.Hits.Add(new RefHit { Rule = rule, Archive = rule.Archive, Entry = e.Name, Selector = RowPath.Canonical(x), KeyValue = key, Line = x.Line, Row = RowText(x) });
+                        list.Hits.Add(new RefHit { Rule = rule, Archive = rule.Archive, Entry = e.Key, Selector = RowPath.Canonical(x), KeyValue = key, Line = x.Line, Row = RowText(x) });
                     }
                 }
                 if (more > 0) list.Notes.Add(rule.Name + ": " + more + " more row(s) are not listed");
@@ -105,15 +108,44 @@ namespace MS2.ModKit
 
         static void Note(RefList l, string text) { if (!l.Notes.Contains(text)) l.Notes.Add(text); }
 
-        static XmlElem ServerUnder(DataSet data, EntityMap em, long id)
+        /// <summary>The entries of an archive that match rx, with their bytes as the plan's archive leaves them.</summary>
+        static IEnumerable<KeyValuePair<string, byte[]>> Entries(M2dArchive arch, PlanArchive pa, Regex rx)
+        {
+            var put = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
+            var gone = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (pa != null)
+            {
+                foreach (KeyValuePair<string, byte[]> kv in pa.Put) put[kv.Key] = kv.Value;
+                foreach (string d in pa.Delete) gone.Add(d);
+            }
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (M2dEntry e in arch.Entries)
+            {
+                if (!rx.IsMatch(e.Name) || gone.Contains(e.Name)) continue;
+                seen.Add(e.Name);
+                byte[] b;
+                yield return new KeyValuePair<string, byte[]>(e.Name, put.TryGetValue(e.Name, out b) ? b : arch.Read(e));
+            }
+            if (pa != null)
+                foreach (KeyValuePair<string, byte[]> kv in pa.Put)
+                    if (!seen.Contains(kv.Key) && rx.IsMatch(kv.Key)) yield return kv;
+        }
+
+        static XmlElem ServerUnder(DataSet data, EntityMap em, long id, Plan plan)
         {
             if (!data.Exists(em.Server.Archive)) return null;
             M2dArchive arch = data.Open(em.Server.Archive);
+            PlanArchive pa = plan == null ? null : plan.Find(em.Server.Archive);
+            var bytes = new Dictionary<string, byte[]>(StringComparer.OrdinalIgnoreCase);
             var names = new List<string>();
-            foreach (M2dEntry e in arch.Entries) names.Add(e.Name);
+            foreach (KeyValuePair<string, byte[]> kv in Entries(arch, pa, new Regex(".")))
+            {
+                names.Add(kv.Key);
+                bytes[kv.Key] = kv.Value;
+            }
             string entry = em.Server.EntryOf(id, names);
             if (entry == null) return null;
-            XmlDoc doc = XmlDoc.Parse(arch.Read(arch.Find(entry)), em.Server.Archive + " " + entry);
+            XmlDoc doc = XmlDoc.Parse(bytes[entry], em.Server.Archive + " " + entry);
             List<XmlElem> u = em.UnderElems(false, doc.Root, id);
             return u.Count > 0 ? u[0] : null;
         }

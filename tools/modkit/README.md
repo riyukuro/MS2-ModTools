@@ -657,9 +657,10 @@ Shops, drops, item options and NPC behaviour exist only on the server. They are 
 view pick `server:Xml.m2d` or `server:Server.m2d` in **Archive**, open the entry, and edit, Plan, Apply and Revert as
 for a client table. Rows that sit inside another row (the items of one shop) are reached with **Rows under**.
 
-To find the rows that belong to one item, press **Server rows** in the Items view, or run `modkit refs <id>...`. It
+To find the rows that belong to one item, press **Server rows** in the Items view, or run `modkit refs <id>... [mod...]`. It
 lists the option rows the item's server file points at, and the drop and shop rows that hold its id, each with
-archive, entry and row selector, ready to be opened in the Tables view. The list is for looking up; edit the rows in
+archive, entry and row selector, ready to be opened in the Tables view. The rows are shown as the mods leave them
+(in the view: the enabled mods and the mod being edited; on the command line: the mods named after the ids). The list is for looking up; edit the rows in
 the Tables view.
 
 ### Server target folder and the command after apply

@@ -314,6 +314,20 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void RefsShowTheRowsAsTheModLeavesThem()
+        {
+            using (var f = new FakeItems(true))
+            {
+                EntityMap em = FakeItems.Maps.Entity("item");
+                Plan p = Build(f, "<edit archive=\"" + S + "\" entry=\"rates/a.xml\">" + Set("rate[code=4]", "bonus", "8") + "</edit>");
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string after = ServerRefs.Find(f.Data, em, 1200005, 10, p).ToText();
+                Assert.That(after, Does.Contain("code=\"4\" grade=\"1\" bonus=\"8\""), after);
+                Assert.That(ServerRefs.Find(f.Data, em, 1200005, 10).ToText(), Does.Contain("bonus=\"3\""), "without a plan: as shipped");
+            }
+        }
+
+        [Test]
         public void TheSyncReportListsWhatDiffersBeforeAndAfter()
         {
             using (var f = new FakeItems(true))

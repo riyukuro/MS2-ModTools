@@ -37,8 +37,8 @@ namespace MS2.ModKit.Cli
   modkit sync <id>... [mod...]                 the fields of an item that the client and the server both hold:
                                                where the two sides differ, as shipped and after the mods
                                                (--all: every mapped field)
-  modkit refs <id>...                          the rows of server-only tables that belong to an item (option,
-                                               drop and shop rows), as shipped
+  modkit refs <id>... [mod...]                 the rows of server-only tables that belong to an item (option,
+                                               drop and shop rows), as shipped or as the mods leave them
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
@@ -579,13 +579,22 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
         {
             EntityMap em = (x.Maps() ?? FieldMaps.Default).Entity("item");
             if (em == null) throw new ModKitException("the field maps hold no entity \"item\"");
-            if (x.A.Pos.Count == 0) throw new UsageException("refs <id>...");
+            if (x.A.Pos.Count == 0) throw new UsageException("refs <id>... [mod...]");
+            var ids = new List<long>();
+            var mods = new List<Mod>();
             foreach (string a in x.A.Pos)
             {
                 long id;
-                if (!long.TryParse(a, out id)) throw new UsageException("bad id " + a);
-                Console.WriteLine("item " + id + ":");
-                Console.Write(ServerRefs.Find(x.Data, em, id, 50).ToText().Replace("\r\n", "\n"));
+                if (long.TryParse(a, out id)) ids.Add(id); else mods.Add(Mod.Load(a));
+            }
+            if (ids.Count == 0) throw new UsageException("refs <id>... [mod...]");
+            // with mods: the tables as the mods leave them
+            Plan plan = mods.Count == 0 ? null : Planner.Build(x.Data, mods, x.PlanOpt(false));
+            if (plan != null && plan.HasErrors) { PrintPlan(x, plan, false); return 1; }
+            foreach (long id in ids)
+            {
+                Console.WriteLine("item " + id + (plan != null ? " (after the mods):" : ":"));
+                Console.Write(ServerRefs.Find(x.Data, em, id, 50, plan).ToText().Replace("\r\n", "\n"));
             }
             return 0;
         }

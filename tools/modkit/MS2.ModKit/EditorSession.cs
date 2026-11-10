@@ -146,11 +146,14 @@ namespace MS2.ModKit
         }
 
         /// <summary>The rows of other tables that belong to an id (the ref lines of the entity's field map), in the data as shipped.</summary>
-        public RefList Refs(string entity, long id, int maxPerRule)
+        public RefList Refs(string entity, long id, int maxPerRule) { return Refs(entity, id, maxPerRule, null); }
+
+        /// <summary>As Refs, in the data as the plan leaves it (plan null: as shipped; see Plan()).</summary>
+        public RefList Refs(string entity, long id, int maxPerRule, Plan plan)
         {
             EntityMap em = (Maps ?? FieldMaps.Default).Entity(entity);
             if (em == null) throw new ModKitException("no field map for \"" + entity + "\"");
-            return ServerRefs.Find(Data, em, id, maxPerRule);
+            return ServerRefs.Find(Data, em, id, maxPerRule, plan);
         }
 
         public TableDraft OpenTable(string archive, string entry, string parentSelector)

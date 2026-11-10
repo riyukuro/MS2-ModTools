@@ -855,17 +855,23 @@ namespace MS2.Tables
                 });
         }
 
-        /// <summary>The rows of server-only tables that belong to one item, as shipped; into the output pane.</summary>
+        /// <summary>The rows of server-only tables that belong to one item, as the mods leave them; into the output pane.</summary>
         public bool DoRefs(long id) { return DoRefs("item", id); }
 
-        /// <summary>The rows of server-only tables that belong to one id of an entity, as shipped; into the output pane.</summary>
+        /// <summary>The rows of server-only tables that belong to one id of an entity, as the enabled mods and the mod being edited leave them; into the output pane.</summary>
         public bool DoRefs(string entity, long id)
         {
             RefList r = null;
+            bool after = false;
             return Guard(delegate { Session(); if (id <= 0) throw new ModKitException("choose an " + entity + " in the list first"); })
-                && RunJob("Server rows", delegate(Action<ProgressInfo> progress) { r = session.Refs(entity, id, 20); }, delegate
+                && RunJob("Server rows", delegate(Action<ProgressInfo> progress)
                 {
-                    Say(entity + " " + id + ", rows of server tables that belong to it (as shipped). To change one, open its archive and entry in the MS2 Tables view; the last column is the row.\r\n" + r.ToText());
+                    Plan p = session.Plan(progress);
+                    after = !p.HasErrors && p.Archives.Count > 0;
+                    r = session.Refs(entity, id, 20, after ? p : null);
+                }, delegate
+                {
+                    Say(entity + " " + id + ", rows of server tables that belong to it (" + (after ? "as the mods leave them" : "as shipped") + "). To change one, open its archive and entry in the MS2 Tables view; the last column is the row.\r\n" + r.ToText());
                 });
         }
 
