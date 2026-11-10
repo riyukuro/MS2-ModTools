@@ -123,6 +123,8 @@ namespace MS2.ModKit.Tests
                 d.SetLevel(9);
                 d.SetHp(500);
                 d.SetName("Fake Mole King");
+                Assert.That(d.Level, Is.EqualTo("9"));
+                Assert.That(d.GetFieldShipped("@level"), Is.EqualTo("5"), "the shipped value stays readable for the form");
 
                 NpcDraft n = ed.Clone(2900001, 2900050, "Mole Chief", 12, 900);
                 Assert.That(n.IsNew, Is.True);
@@ -195,6 +197,7 @@ namespace MS2.ModKit.Tests
                 NpcDraft d = ed.Open(2900001);
                 Assert.That(d.Level, Is.EqualTo("5"), "the level from the server's basic@level");
                 d.SetLevel(8);
+                Assert.That(d.GetField("@level") + "/" + d.GetFieldShipped("@level"), Is.EqualTo("8/5"), "both from the server's file");
                 ed.Clone(2900002, 2900003, "Clay Guard Two", 0, 77);
                 Plan p = f.Plan();
                 string dump = Fake.Dump(p);

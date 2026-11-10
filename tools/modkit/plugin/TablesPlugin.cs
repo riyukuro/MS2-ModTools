@@ -1,8 +1,7 @@
 // MS2.Tables: Gamebryo Toolbench plugin with the table editor of the mod kit. Usage: tools/modkit/README.md.
 //
-// This file: the plugin class, the six folder settings and the menu actions. TablesView.cs and ItemsView.cs are
-// the views. All the
-// work (reading archives, the mod.xml model, plan, apply, revert) is in MS2.ModKit.dll, which sits beside this DLL.
+// This file: the plugin class, the six folder settings and the menu actions. TablesView.cs, ItemsView.cs and NpcsView.cs
+// are the views. All the work (reading archives, the mod.xml model, plan, apply, revert) is in MS2.ModKit.dll, which sits beside this DLL.
 // Targets .NET 3.5 / C# 7.3 (Toolbench is a CLR 2 x86 host).
 using System;
 using Emergent.Toolbench;
@@ -88,19 +87,22 @@ namespace MS2.Tables
         protected virtual bool ShowsTables { get { return false; } }
     }
 
-    /// <summary>Shows the MS2 Items view. The Tables view is made first: the session and the mod are its.</summary>
-    public class ShowItemsAction : IActionHandler
+    /// <summary>Shows one of the entity views (MS2 Items, MS2 NPCs). The Tables view is made first: the session and the mod are its.</summary>
+    public abstract class ShowEntityViewAction : IActionHandler
     {
+        protected abstract string ViewId { get; }
+        protected abstract string Title { get; }
+
         public ExecutionResult Execute(ExecutionContext context, ExecutionStyle style)
         {
             try
             {
                 IViewService views = Platform.GetService<IViewService>();
                 views.CreateOrFindView(TablesView.ViewId);
-                AbstractView view = views.CreateOrFindView(ItemsView.ViewId) as AbstractView;
+                AbstractView view = views.CreateOrFindView(ViewId) as AbstractView;
                 if (view == null)
                 {
-                    Logger.Error("MS2 Items: the view " + ItemsView.ViewId + " could not be created");
+                    Logger.Error(Title + ": the view " + ViewId + " could not be created");
                     return ExecutionResult.Failed;
                 }
                 views.ShowView(view);
@@ -108,10 +110,22 @@ namespace MS2.Tables
             }
             catch (Exception ex)
             {
-                Logger.Error(ex, "MS2 Items");
+                Logger.Error(ex, Title);
                 return ExecutionResult.Failed;
             }
         }
+    }
+
+    public class ShowItemsAction : ShowEntityViewAction
+    {
+        protected override string ViewId { get { return ItemsView.ViewId; } }
+        protected override string Title { get { return "MS2 Items"; } }
+    }
+
+    public class ShowNpcsAction : ShowEntityViewAction
+    {
+        protected override string ViewId { get { return NpcsView.ViewId; } }
+        protected override string Title { get { return "MS2 NPCs"; } }
     }
 
     public class ShowAction : TablesAction

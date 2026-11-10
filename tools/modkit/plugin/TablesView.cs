@@ -648,7 +648,7 @@ namespace MS2.Tables
             return true;
         }
 
-        // ---- for the other views of the plugin (MS2 Items) ----
+        // ---- for the other views of the plugin (MS2 Items, MS2 NPCs) ----
         //
         // The session, the mod being edited, the worker thread and the close question are this view's. Another view
         // edits the same mod through the session and tells this view; it does not keep any of them itself.
@@ -702,8 +702,8 @@ namespace MS2.Tables
         internal event MethodInvoker TargetChanged;
 
         /// <summary>
-        /// The view whose buttons were used last: true = MS2 Items. The MS2 Mods menu commands leave the Tables
-        /// view where it is when the Items view is the one in use.
+        /// The view whose buttons were used last: true = MS2 Items or MS2 NPCs. The MS2 Mods menu commands leave the Tables
+        /// view where it is when one of those is the one in use.
         /// </summary>
         internal static bool ItemsInUse;
 
@@ -842,24 +842,30 @@ namespace MS2.Tables
         }
 
         /// <summary>The sync report of one item over the enabled mods and the pending edits; into the output pane.</summary>
-        public bool DoSync(long id, bool all)
+        public bool DoSync(long id, bool all) { return DoSync("item", id, all); }
+
+        /// <summary>The sync report of one id of an entity ("item", "npc"); into the output pane.</summary>
+        public bool DoSync(string entity, long id, bool all)
         {
             SyncReport r = null;
-            return Guard(delegate { FlushEdits(); Session(); if (id <= 0) throw new ModKitException("choose an item in the list first"); })
-                && RunJob("Sync report", delegate(Action<ProgressInfo> progress) { r = session.Sync("item", id, session.Plan(progress)); }, delegate
+            return Guard(delegate { FlushEdits(); Session(); if (id <= 0) throw new ModKitException("choose an " + entity + " in the list first"); })
+                && RunJob("Sync report", delegate(Action<ProgressInfo> progress) { r = session.Sync(entity, id, session.Plan(progress)); }, delegate
                 {
                     Say(r.ToText(all));
                 });
         }
 
         /// <summary>The rows of server-only tables that belong to one item, as shipped; into the output pane.</summary>
-        public bool DoRefs(long id)
+        public bool DoRefs(long id) { return DoRefs("item", id); }
+
+        /// <summary>The rows of server-only tables that belong to one id of an entity, as shipped; into the output pane.</summary>
+        public bool DoRefs(string entity, long id)
         {
             RefList r = null;
-            return Guard(delegate { Session(); if (id <= 0) throw new ModKitException("choose an item in the list first"); })
-                && RunJob("Server rows", delegate(Action<ProgressInfo> progress) { r = session.Refs("item", id, 20); }, delegate
+            return Guard(delegate { Session(); if (id <= 0) throw new ModKitException("choose an " + entity + " in the list first"); })
+                && RunJob("Server rows", delegate(Action<ProgressInfo> progress) { r = session.Refs(entity, id, 20); }, delegate
                 {
-                    Say("item " + id + ", rows of server tables that belong to it (as shipped). To change one, open its archive and entry in the MS2 Tables view; the last column is the row.\r\n" + r.ToText());
+                    Say(entity + " " + id + ", rows of server tables that belong to it (as shipped). To change one, open its archive and entry in the MS2 Tables view; the last column is the row.\r\n" + r.ToText());
                 });
         }
 

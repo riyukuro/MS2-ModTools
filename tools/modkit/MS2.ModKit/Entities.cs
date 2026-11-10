@@ -203,7 +203,12 @@ namespace MS2.ModKit
         }
 
         /// <summary>The value of a field of the bundle row (as the map's client side names it), else of the per-id file's mapped field.</summary>
-        public string GetField(string clientField)
+        public string GetField(string clientField) { return FieldValue(clientField, false); }
+
+        /// <summary>The value GetField gives as the data set has it, without the mod.</summary>
+        public string GetFieldShipped(string clientField) { return FieldValue(clientField, true); }
+
+        string FieldValue(string clientField, bool shipped)
         {
             EntityMap em = Editor.Maps == null ? null : Editor.Maps.Entity(Editor.Entity);
             FieldMapEntry e = null;
@@ -212,10 +217,12 @@ namespace MS2.ModKit
             foreach (EntitySection s in Sections)
             {
                 if (!s.Chain.StartsWith("environment[", StringComparison.Ordinal)) continue;
-                if (s.Part.Kind == Editor.Entity && BelowEnv(s.Chain) == FieldMapEntry.ElemOf(clientField)) return Get(s, FieldMapEntry.AttrOf(clientField));
+                if (s.Part.Kind == Editor.Entity && BelowEnv(s.Chain) == FieldMapEntry.ElemOf(clientField))
+                    return shipped ? GetOriginal(s, FieldMapEntry.AttrOf(clientField)) : Get(s, FieldMapEntry.AttrOf(clientField));
                 if (fileValue == null && e != null && s.Part.Kind == EntityEditor.FileKind && BelowEnv(s.Chain) == FieldMapEntry.ElemOf(e.Server))
                 {
-                    string v = Get(s, FieldMapEntry.AttrOf(e.Server)), c, why;
+                    string attr = FieldMapEntry.AttrOf(e.Server), c, why;
+                    string v = shipped ? GetOriginal(s, attr) : Get(s, attr);
                     fileValue = v != null && e.TryToClient(v, null, null, out c, out why) ? c : v;
                 }
             }
