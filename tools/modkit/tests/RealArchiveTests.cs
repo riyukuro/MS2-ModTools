@@ -8,6 +8,7 @@ using System.Linq;
 using System.Text;
 using Maple2.File.IO;
 using MS2.ModKit.M2d;
+using MS2.ModKit.Xml;
 using NUnit.Framework;
 
 namespace MS2.ModKit.Tests
@@ -158,6 +159,116 @@ namespace MS2.ModKit.Tests
                 Assert.That(back.GetBytes(back.Files.First(e => e.Name == victim.Name)), Is.EqualTo(changed));
                 Assert.That(back.GetBytes(back.Files.First(e => e.Name == addedName)), Is.EqualTo(added));
                 TestContext.Progress.WriteLine($"{root}:{name}: ModKit rewrite {mineMs} ms, m2d repack {refMs} ms, {new FileInfo(mineOut).Length} bytes, identical .m2d and .m2h");
+            }
+            finally { Directory.Delete(tmp, true); }
+        }
+        // The check the plan asks for: one attribute of one row changed in a table that is in the client and in the
+        // server Xml.m2d, applied to copies, read back; every other entry and every other byte of the table is as before.
+        [Test]
+        public void OneAttributeOnBothSides()
+        {
+            string client = RealData.Archive("client", "Xml.m2d"), server = RealData.Archive("server", "Xml.m2d");
+            string tmp = RealData.TempDir("oneattr");
+            try
+            {
+                using var data = new DataSet(Path.GetDirectoryName(client), Path.GetDirectoryName(server));
+                string[] refs = { "client:Xml.m2d", "server:Xml.m2d" };
+                M2dArchive ca = data.Open(refs[0]), sa = data.Open(refs[1]);
+
+                // the first table of both sides whose first row has a whole-number attribute after its first one
+                string entry = null, attr = null; var at = new string[2]; var oldValue = new string[2];
+                foreach (M2dEntry e in ca.Entries)
+                {
+                    if (!e.Name.StartsWith("table/") || !e.Name.EndsWith(".xml") || sa.Find(e.Name) == null) continue;
+                    XmlDoc cd, sd;
+                    try { cd = XmlDoc.Parse(ca.Read(e), e.Name); sd = XmlDoc.Parse(sa.Read(e.Name), e.Name); }
+                    catch (ModKitException) { continue; }
+                    if (cd.Root == null || sd.Root == null || cd.Root.Children.Count == 0) continue;
+                    XmlElem row = cd.Root.Children[0];
+                    string sel = RowPath.Canonical(row);
+                    string why;
+                    XmlElem srow = RowPath.Parse(sel).TryResolve(sd.Root, out why);
+                    if (srow == null) continue;
+                    foreach (XmlAttr a in row.Attrs.Skip(1))
+                    {
+                        long n;
+                        if (!long.TryParse(a.Value, out n) || n < 0 || n > 1000000 || srow.Attr(a.Name) == null || sel.Contains("[" + a.Name + "=")) continue;
+                        entry = e.Name; attr = a.Name; at[0] = sel; at[1] = sel; oldValue[0] = a.Value; oldValue[1] = srow.Attr(a.Name);
+                        break;
+                    }
+                    if (entry != null) break;
+                }
+                Assert.That(entry, Is.Not.Null, "no table fits");
+                const string newValue = "1234567";
+
+                var sb = new StringBuilder("<mod id=\"test.oneattr\" name=\"one attribute\" version=\"1\">\n");
+                for (int i = 0; i < 2; i++)
+                    sb.Append("  <edit archive=\"" + refs[i] + "\" entry=\"" + entry + "\">\n    <change at=\"" + XmlDoc.EscapeAttr(at[i], '"') + "\"><set name=\"" + attr + "\" value=\"" + newValue + "\"/></change>\n  </edit>\n");
+                sb.Append("</mod>\n");
+                Directory.CreateDirectory(Path.Combine(tmp, "mod"));
+                File.WriteAllText(Path.Combine(tmp, "mod", "mod.xml"), sb.ToString());
+                Mod mod = Mod.Load(Path.Combine(tmp, "mod"));
+
+                var sw = Stopwatch.StartNew();
+                Plan plan = Planner.Build(data, new[] { mod }, null);
+                long planMs = sw.ElapsedMilliseconds;
+                Assert.That(plan.Errors, Is.Empty);
+                Assert.That(plan.Changes.Count, Is.EqualTo(2));
+                foreach (PlanChange c in plan.Changes) TestContext.Progress.WriteLine("diff: " + c);
+
+                var ws = new Workspace(Path.Combine(tmp, "ws"));
+                sw.Restart();
+                ApplyResult res = ws.Apply(data, new[] { mod }, new ApplyOptions());
+                long applyMs = sw.ElapsedMilliseconds;
+                Assert.That(res.Applied, Is.True, res.Reason);
+                sw.Restart();
+                var ws2 = new Workspace(Path.Combine(tmp, "ws-verify-all"));
+                ApplyResult res2 = ws2.Apply(data, new[] { mod }, new ApplyOptions { VerifyAll = true });
+                long applyAllMs = sw.ElapsedMilliseconds;
+                Assert.That(res2.Applied, Is.True, res2.Reason);
+
+                for (int i = 0; i < 2; i++)
+                {
+                    M2dArchive orig = data.Open(refs[i]);
+                    FileAssert.AreEqual(ws.PathOf(refs[i]), ws2.PathOf(refs[i]));
+                    using var made = M2dArchive.Open(ws.PathOf(refs[i]));
+                    Assert.That(made.Version, Is.EqualTo(orig.Version));
+                    Assert.That(made.Count, Is.EqualTo(orig.Count));
+                    int same = 0;
+                    for (int k = 0; k < orig.Count; k++)
+                    {
+                        M2dEntry o = orig.Entries[k], m = made.Entries[k];
+                        Assert.That(m.Name, Is.EqualTo(o.Name));
+                        Assert.That(m.Index, Is.EqualTo(o.Index));
+                        if (string.Equals(o.Name, entry, StringComparison.OrdinalIgnoreCase)) continue;
+                        Assert.That(m.Flag, Is.EqualTo(o.Flag), o.Name);
+                        Assert.That(m.Size, Is.EqualTo(o.Size), o.Name);
+                        if (!made.ReadRaw(m).AsSpan().SequenceEqual(orig.ReadRaw(o))) Assert.Fail(refs[i] + " " + o.Name + ": stored bytes changed");
+                        same++;
+                    }
+                    Assert.That(same, Is.EqualTo(orig.Count - 1));
+
+                    // the table: the same bytes but for the one value, and the reference reader agrees
+                    byte[] before = orig.Read(entry), after = made.Read(entry);
+                    int pre = 0;
+                    while (pre < before.Length && pre < after.Length && before[pre] == after[pre]) pre++;
+                    int suf = 0;
+                    while (suf < before.Length - pre && suf < after.Length - pre && before[before.Length - 1 - suf] == after[after.Length - 1 - suf]) suf++;
+                    Assert.That(before.Length - pre - suf, Is.LessThanOrEqualTo(oldValue[i].Length), "bytes of the old value");
+                    Assert.That(after.Length - pre - suf, Is.LessThanOrEqualTo(newValue.Length), "bytes of the new value");
+                    Assert.That(after.Length - before.Length, Is.EqualTo(newValue.Length - oldValue[i].Length));
+                    XmlDoc d = XmlDoc.Parse(after, entry);
+                    Assert.That(RowPath.Parse(at[i]).Resolve(d.Root).Attr(attr), Is.EqualTo(newValue));
+                    using (var theirs = new M2dReader(ws.PathOf(refs[i])))
+                        Assert.That(theirs.GetBytes(theirs.Files.First(f => f.Name == made.Find(entry).Name)), Is.EqualTo(after));
+                    ApplyOutput o1 = res.Outputs[i], o2 = res2.Outputs[i];
+                    TestContext.Progress.WriteLine($"{refs[i]} {entry}: @{attr} changed in 1 row; {same} other entries have the same stored bytes; rewrite {o1.Milliseconds} ms (read back {o1.Verified}), with VerifyAll {o2.Milliseconds} ms (read back {o2.Verified})");
+                }
+                TestContext.Progress.WriteLine($"plan {planMs} ms, apply both archives {applyMs} ms, apply with VerifyAll {applyAllMs} ms");
+
+                // revert: nothing of the mod is left
+                ws.Revert(data, null, null);
+                Assert.That(File.Exists(ws.PathOf(refs[0])), Is.False);
             }
             finally { Directory.Delete(tmp, true); }
         }
