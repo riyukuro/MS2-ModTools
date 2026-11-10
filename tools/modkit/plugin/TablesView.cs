@@ -52,6 +52,7 @@ namespace MS2.Tables
 
         public TablesView()
         {
+            Open = this;
             Font mono = new Font(FontFamily.GenericMonospace, 8.25f);
             pendingBox.Font = mono;
             outputBox.Font = mono;
@@ -179,6 +180,7 @@ namespace MS2.Tables
                 Thread w = worker;
                 if (w != null && w.IsAlive) w.Join();
                 if (session != null) { session.Dispose(); session = null; }
+                if (Open == this) Open = null;
             }
             base.Dispose(disposing);
         }
@@ -267,6 +269,7 @@ namespace MS2.Tables
                 session = new EditorSession(s.ClientData, s.ServerData, s.ModsDir, s.Workspace);
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 if (keep != null && keep.Ops.Count > 0) session.Adopt(keep);
+                else MarkSaved();
                 filling = true;
                 foreach (string a in session.Archives()) archiveBox.Items.Add(a);
                 // loose files are the default once a game folder is set; a choice made in the box is kept
@@ -283,6 +286,7 @@ namespace MS2.Tables
                 if (saved != null)
                 {
                     session.LoadMod(saved.Folder);
+                    MarkSaved();
                     FillMods();
                     resumed = "\nediting:     mod " + session.Mod.Id + " as saved in the mods folder";
                 }
@@ -541,6 +545,7 @@ namespace MS2.Tables
             if (s.Mod.Ops.Count > 0 && MessageBox.Show(this, "Drop the pending changes of mod " + s.Mod.Id + "?", "MS2 Tables",
                     MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             s.NewMod(modIdBox.Text.Trim());
+            MarkSaved();
             ReopenTable();
             ShowMod();
             FillMods();
@@ -551,6 +556,7 @@ namespace MS2.Tables
         {
             grid.EndEdit();
             string dir = Session().SaveMod();
+            MarkSaved();
             FillMods();
             Say("saved " + Path.Combine(dir, "mod.xml"));
         }
@@ -564,10 +570,68 @@ namespace MS2.Tables
             if (s.Mod.Ops.Count > 0 && MessageBox.Show(this, (s.Mod.Id == it.Id ? "Load mod " + it.Id + " again as it was saved?" : "Load mod " + it.Id + "?") + " Changes of mod " + s.Mod.Id + " that are not saved are dropped.",
                     "MS2 Tables", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             s.LoadMod(it.Folder);
+            MarkSaved();
             ReopenTable();
             ShowMod();
             FillMods();
             Say("loaded mod " + s.Mod.Id + " from " + s.Mod.Dir + ": " + s.Mod.Ops.Count + " operation block(s)");
+        }
+
+        // ---- unsaved changes ----
+
+        // the mod's text when it was last saved, loaded or started; the mod has unsaved changes when its text differs
+        string savedXml;
+        bool closeAsked;
+
+        void MarkSaved() { savedXml = session != null ? session.Mod.ToXml() : null; }
+
+        bool Unsaved()
+        {
+            if (session == null) return false;
+            try { grid.EndEdit(); } catch (Exception) { }
+            return session.Mod.ToXml() != savedXml;
+        }
+
+        /// <summary>
+        /// Asks what to do with unsaved changes before the view or Toolbench closes: Yes saves the mod, No drops
+        /// the changes, Cancel keeps the window open. False means "do not close".
+        /// </summary>
+        bool ConfirmClose()
+        {
+            if (!Unsaved()) return true;
+            DialogResult r = MessageBox.Show(this, "Mod " + session.Mod.Id + " has changes that are not saved. Save them before closing?",
+                "MS2 Tables", MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+            if (r == DialogResult.Cancel) return false;
+            if (r == DialogResult.No) return true;
+            try { SaveMod(); return true; }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "The mod was not saved: " + ex.Message, "MS2 Tables", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                return false;
+            }
+        }
+
+        /// <summary>Toolbench calls this when the view's pane is closed.</summary>
+        public override bool OnClose(bool closeContent, bool checkDirty)
+        {
+            if (!closeAsked && !ConfirmClose()) return false;
+            return base.OnClose(closeContent, checkDirty);
+        }
+
+        // Toolbench does not ask its views when the main window closes (and its window raises no FormClosing);
+        // it runs the handlers of its ClosingHandler extension point, and ours (ClosingHandler) calls this.
+        internal static TablesView Open;
+
+        /// <summary>False keeps Toolbench open.</summary>
+        internal bool ConfirmShutdown()
+        {
+            if (IsDisposed) return true;
+            if (IsBusy()) { Say("wait for the running job before closing"); return false; }
+            if (!ConfirmClose()) return false;
+            closeAsked = true;      // the views are closed next; do not ask a second time
+            // if something else keeps the window open after all, ask again the next time
+            try { BeginInvoke((MethodInvoker)delegate { closeAsked = false; }); } catch (Exception) { }
+            return true;
         }
 
         // ---- jobs on the worker thread ----

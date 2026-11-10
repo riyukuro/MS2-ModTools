@@ -67,6 +67,11 @@
     </actionset>
   </extension>
 
+  <!-- Exit with unsaved changes in the view asks first. -->
+  <extension point="Emergent.Toolbench.Workbench.ClosingHandler">
+    <handler class="MS2.Tables.ClosingHandler"/>
+  </extension>
+
   <!-- Without a perspective mapping neither the view nor the action set is shown. -->
   <extension point="Emergent.Toolbench.Workbench.PerspectiveMapping">
     <mapping perspectiveId="Emergent.Toolbench.Workbench.GlobalPerspective">

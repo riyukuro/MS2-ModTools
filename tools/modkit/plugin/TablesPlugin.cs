@@ -44,6 +44,16 @@ namespace MS2.Tables
         }
     }
 
+    /// <summary>Asked by Toolbench before it exits; false keeps it open.</summary>
+    public class ClosingHandler : IWorkbenchClosingHandler
+    {
+        public bool Execute()
+        {
+            TablesView view = TablesView.Open;
+            return view == null || view.ConfirmShutdown();
+        }
+    }
+
     public abstract class TablesAction : IActionHandler
     {
         public ExecutionResult Execute(ExecutionContext context, ExecutionStyle style)

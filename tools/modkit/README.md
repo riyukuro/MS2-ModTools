@@ -288,7 +288,9 @@ Using it:
    grid. The mod being edited is marked and always takes part, checked or not. The checks and the order are kept in
    `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them. When the view opens and
    the mods folder already has a mod with the id being edited (`my.mod` at first), that saved mod is loaded, so work
-   goes on where it was saved. Changes that were not saved are lost when Toolbench is closed; it does not ask.
+   goes on where it was saved. When Toolbench is closed with changes that were not saved, it asks first: Yes saves
+   the mod, No drops the changes, Cancel keeps Toolbench open. Closing only the view's pane hides it and keeps the
+   changes.
 6. **Apply to** chooses where the client's tables go: **game folder (loose files)**, the default once a game folder is
    set, or **workspace (patched archives)**.
 7. **Plan** shows what the checked mods plus the pending edits would change, with errors, conflicts and
