@@ -141,6 +141,9 @@ namespace MS2.ModKit
         /// <summary>true: a plan writes nothing to the other side of a mapped field (it warns instead).</summary>
         public bool NoSync;
 
+        /// <summary>What follows an apply or a revert on the server's side: a target folder and a command, both off until set.</summary>
+        public readonly ServerStep Server = new ServerStep();
+
         /// <summary>The mods folder as a list with order and enabled states.</summary>
         public ModList ModList() { return MS2.ModKit.ModList.Load(ModsDir); }
 
@@ -178,6 +181,7 @@ namespace MS2.ModKit
                 if (WorkspaceDir == null && HasOtherRoot(p))
                     p.Msg(p.Warnings, null, null, null, "the workspace folder is not set: the server's archives would not be written");
             }
+            foreach (string line in Server.Describe(p, WorkspaceDir)) p.Msg(p.Notes, null, null, null, line);
             return p;
         }
 
@@ -190,6 +194,28 @@ namespace MS2.ModKit
         /// other roots into the workspace. What the other target left behind from an earlier apply is removed.
         /// </summary>
         public ApplyResult Apply(Action<ProgressInfo> progress)
+        {
+            ApplyResult r = ApplyOnly(progress);
+            if (r.Applied) ServerFollowUp(r);
+            return r;
+        }
+
+        // the server's archives go to the workspace under <workspace>/<root>/
+        void ServerFollowUp(ApplyResult r)
+        {
+            if (!Server.Enabled) return;
+            bool changed = false;
+            foreach (ApplyOutput o in r.Outputs) if (!LooseTarget.Serves(o.Archive)) changed = true;
+            if (WorkspaceDir != null)
+                foreach (string root in OtherRoots())
+                {
+                    string under = Path.Combine(WorkspaceDir, root) + Path.DirectorySeparatorChar;
+                    foreach (string f in r.Removed) if (f.StartsWith(under, StringComparison.OrdinalIgnoreCase)) changed = true;
+                }
+            r.Server = Server.Run(Data, WorkspaceDir, changed);
+        }
+
+        ApplyResult ApplyOnly(Action<ProgressInfo> progress)
         {
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
             if (Target == ApplyTarget.Workspace && WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
@@ -252,6 +278,7 @@ namespace MS2.ModKit
             }
             if (!any)
                 throw new ModKitException("nothing is applied: no " + Workspace.StateFile + " in the workspace" + (string.IsNullOrEmpty(GameDir) ? "" : " and no " + LooseTarget.StateFile + " in the game folder"));
+            ServerFollowUp(res);
             return res;
         }
 
@@ -284,6 +311,7 @@ namespace MS2.ModKit
             foreach (string f in r.Removed) sb.Append("removed ").Append(f).Append("\r\n");
             foreach (string f in r.Left) sb.Append("left alone, changed since it was written: ").Append(f).Append("\r\n");
             if (r.Outputs.Count == 0 && r.Removed.Count == 0 && r.Written.Count == 0 && r.Left.Count == 0) sb.Append("nothing to write or remove\r\n");
+            sb.Append(ServerStep.Report(r.Server));
             return sb.ToString();
         }
     }

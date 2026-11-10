@@ -54,6 +54,7 @@ namespace MS2.ModKit
         public readonly List<string> Removed = new List<string>();     // copies of an earlier apply that are no longer needed
         public readonly List<string> Written = new List<string>();     // loose files written into a game folder (LooseTarget)
         public readonly List<string> Left = new List<string>();        // loose files of the record that were changed since and are left alone
+        public ServerStepResult Server;                                 // what followed on the server's side (ServerStep); null when nothing is set
     }
 
     public sealed class WorkspaceMod { public string Id, Path, Version; }
