@@ -26,9 +26,10 @@ dotnet build MS2.ModKit -c Release              # MS2.ModKit/bin/Release/net35/M
 
 Below, `modkit` stands for `dotnet tools/modkit/cli/bin/modkit.dll`.
 
-The data folders come from `MS2_CLIENT_DATA` and `MS2_SERVER_DATA` (environment, then `modtools.toml`, as for the other
-tools) or from `--client DIR` and `--server DIR`. Archives are named `<root>:<path>`: `client:Xml.m2d`,
-`server:Xml.m2d`, `server:Server.m2d`.
+The data folders come from `MS2_CLIENT_DATA`, `MS2_GMS_CLIENT_DATA` and `MS2_SERVER_DATA` (environment, then
+`modtools.toml`, as for the other tools) or from `--client DIR`, `--gms DIR` and `--server DIR`. Set the ones you have.
+Archives are named `<root>:<path>`: `client:Xml.m2d` (the Korean client), `gms-client:Xml.m2d` (the global client),
+`server:Xml.m2d`, `server:Server.m2d`. Which client is which: [Profiles](#profiles-which-data-you-have).
 
 ## Try it on the example
 
@@ -266,7 +267,8 @@ environment variable is used, so a script can start Toolbench with the folders a
 
 | Setting | Environment | Meaning |
 |-|-|-|
-| Client data folder | `MS2_CLIENT_DATA` | the `Data` folder of your client (holds `Xml.m2d`). Only read |
+| Korean client data folder | `MS2_CLIENT_DATA` | the `Data` folder of a Korean client (`kms-client`, holds `Xml.m2d`). Only read. Empty when you have none |
+| Global client data folder | `MS2_GMS_CLIENT_DATA` | the `Data` folder of a global client (`gms-client`). Only read. Empty when you have none |
 | Server data folder | `MS2_SERVER_DATA` | the data folder of your local server (holds its `Xml.m2d`). Only read |
 | Mods folder | `MS2_MODS` | a folder of mod folders. Save mod writes `<mods>/<mod id>/mod.xml`; the view lists its mods (a folder whose name starts with `.` or `_` is left out) |
 | Workspace folder | `MS2_MOD_WORKSPACE` | where Apply writes patched copies of archives: the server's always, the client's when you apply to the workspace |
@@ -417,17 +419,83 @@ taken; or type one.
 
 ## One mod, both sides
 
-The client and the server each keep their own description of an item, in different files and partly in different
-formats. A mod that changes only the client's copy changes what a tooltip says; a mod that changes only the server's
-copy changes what happens, and the tooltip keeps the old number. modkit keeps the two together: you change a field
-once, and the other side is written for you.
+The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
+files and partly in different formats. A mod that changes only the client's copy changes what a tooltip says. A mod
+that changes only the server's copy changes what happens, while the tooltip keeps the old number. modkit keeps the
+copies together: you change a field once, and every other copy you have is written for you.
 
-### What is mirrored
+### Profiles: which data you have
+
+A **profile** is one known layout of the game data. modkit knows three:
+
+| Profile | Archive name | What it is | Item data | Tables | Languages |
+|-|-|-|-|-|-|
+| `kms-client` | `client:Xml.m2d` | the Korean client | in bundles: `itemdata/<id / 100000>.xml` holds many items | `table/kr/...` | cn, de, en, jp, kr, pt |
+| `gms-client` | `gms-client:Xml.m2d` | the global (North America / Europe) client | one file per item: `item/<a>/<bc>/<id>.xml` | `table/na/...` | de, en, pt |
+| `server` | `server:Xml.m2d`, `server:Server.m2d` | the server's data | one file per item, as the global client | `table/na/...` | de, en, pt |
+
+**Which one is your client?** Open your client's `Data/Xml.m2d` in the Tables view (or `modkit ls client:Xml.m2d
+"itemdata/*"`). If it has an `itemdata` folder, it is a `kms-client`. If it has an `item` folder with one file per
+item instead, it is a `gms-client`: set it as the global client folder, not as the Korean one.
+
+A **workspace** works on the targets you have: any of the three, one, two or all of them. Set a folder for each one
+you have and leave the others empty:
+
+| Profile | Setting (page "MS2 Mods") | Environment | Command line |
+|-|-|-|-|
+| `kms-client` | Korean client data folder | `MS2_CLIENT_DATA` | `--client DIR` (or `--kms DIR`) |
+| `gms-client` | Global client data folder | `MS2_GMS_CLIENT_DATA` | `--gms DIR` |
+| `server` | Server data folder | `MS2_SERVER_DATA` | `--server DIR` |
+
+`modkit targets` lists the targets that are set, with their folders. Each mod is applied to every target that is
+set, in one Apply. Plan and Apply print a `targets:` line and then one line per target, for example:
+
+```
+targets: kms-client (Korean client), gms-client (global client), server
+  kms-client: 1 change(s) (1 synced by the field maps) in 1 entry of 1 archive(s)
+  gms-client: 1 change(s) (1 mirrored) in 1 entry of 1 archive(s)
+  server: 1 change(s) in 1 entry of 1 archive(s)
+```
+
+After Apply and Revert, the lines say which file was written or removed for each target. The Tables view shows the
+`targets:` line when it loads its settings, and the Items view shows the per-target lines of Plan, Apply and Revert
+in its output box. A target that is not set is named on the `targets:` line as "not in this data set", and nothing
+is written for it.
+
+In a mod, `kms-client:` and `kms:` may be written for `client:`, and `gms:` for `gms-client:`. modkit stores them as
+`client:` and `gms-client:`.
+
+**Older workspaces and mods.** Before profiles, a workspace had a client and a server. That client is a `kms-client`,
+and its archive name `client:` is still the name of the `kms-client` profile. Existing mods, the workspace's
+`client` and `server` folders and its record of what was applied keep working as they are, with nothing to convert.
+A global client is added by setting its folder. Its patched archives then go to a `gms-client` folder in the same
+workspace.
+
+### What is mirrored, and between which profiles
+
+| From | To | How |
+|-|-|-|
+| `server` | `gms-client` | **mirrored**: the same entry, the same rows, the same values. Both use one file per item and the same table names |
+| `gms-client` | `server` | mirrored the same way |
+| `kms-client` | `gms-client` and `server` | **synced by the field map** (below): the value goes to the corresponding field of each item file |
+| `gms-client` or `server` | `kms-client` | synced by the field map into the item's row in its bundle |
+
+The global client and the server hold the same layout, but not the same fields. The server's files carry attributes
+and tables that the client never reads. What the global client lacks is read from the global client's own shipped
+archive, not from a fixed list. An attribute or element that never occurs in the global client's shipped copy of that
+table is left out of the mirror, with a warning (see below). Whole files and new rows are copied without those
+attributes. A change in the mod that has a place on both sides is mirrored. A table that only the server has is
+changed on the server only, without a warning.
+
+A mod that writes the target entry itself is not mirrored there: what the mod says for that side stands.
+
+### The field map
 
 modkit carries a **field map** for items (`MS2.ModKit/Maps/item.fieldmap.xml`). Each line pairs one attribute of the
-client's item row with one attribute of the server's item file, and says how the value is converted, for example:
+Korean client's item row with one attribute of the item file of the global client and the server, and says how the
+value is converted, for example:
 
-| Conversion | Client holds | Server holds |
+| Conversion | Korean client holds | Item file holds |
 |-|-|-|
 | same | a value | the same text |
 | bool | `true` / `false` | `1` / `0` |
@@ -435,9 +503,9 @@ client's item row with one attribute of the server's item file, and says how the
 | affix | a bare name, or the full path | folder + name + extension |
 | pick | one number | a list of numbers; the client's is the one at the position the item's rank gives |
 
-When a mod changes a mapped field on one side, Plan adds the change for the other side, converted, and lists it like
-any other change. This happens for every mod at Plan time, whichever tool wrote the mod; nothing extra is stored in
-`mod.xml`. Four cases are left alone:
+When a mod changes a mapped field in one profile, Plan adds the change for each other profile that is set, converted,
+and lists it like any other change. This happens for every mod at Plan time, whichever tool wrote the mod. Nothing
+extra is stored in `mod.xml`. Four cases are left alone:
 
 - The mod sets the other side itself. Your value stands, and if the two do not correspond Plan warns.
 - The op carries `sync="false"`. It stays on its side, and Plan warns (see below).
@@ -445,28 +513,38 @@ any other change. This happens for every mod at Plan time, whichever tool wrote 
   what the other side should become, leaves it, and Plan warns.
 - The other side has no row, file or element for that id. Plan warns.
 
-The map was made by comparing the same ids on both sides of one shipped data set, field by field. Every line records
-how many ids were compared and how many agreed, and a confidence: **high** (97 % or more agree), **medium** (90 % or
-more) or **low**. A low line is still mirrored, because for most items the two sides are equal there; the sync report
+The map was made by comparing the same ids of a Korean client and a server, field by field. Every line records how
+many ids were compared and how many agreed, and a confidence: **high** (97 % or more agree), **medium** (90 % or
+more) or **low**. A low line is still synced, because for most items the two sides are equal there. The sync report
 shows the confidence, so check a low field in the report before you rely on it. Pairs with different names that
 agree too rarely are kept as **candidates**: they are shown in the report and never written. Fields with no
 counterpart are listed in the map as client-only or server-only and are changed only where they are.
 
-Only items have a map so far. Tables that both sides hold in the same format (most of `table/`) are not mapped; for
-those use **Copy edits to other side** in the Tables view, or write both `<edit>`s.
+Only items have a map so far. Tables that the Korean client and the server both hold in the same format (most of
+`table/`) are not mapped. For those, use **Copy edits to other side** in the Tables view, or write both `<edit>`s.
+Region tables are a separate case: the Korean client keeps them under `table/kr`, the others under `table/na`, and
+modkit does not carry a change from one folder to the other.
 
 The map names files, elements and attributes only. `--map FILE` (command line) uses another map file in place of the
-built-in one, and `--no-sync` turns the mirroring off for one run.
+built-in one, and `--no-sync` turns the field-map sync off for one run. Mirroring between the global client and the
+server stays on.
 
 ### What the warnings mean
 
 | Plan says | Meaning | What to do |
 |-|-|-|
-| `explicit one-sided override: ... on the client only (sync is off for it); server ... stays "..."` | A mapped field is changed on one side, and the op says `sync="false"` (or mirroring is off). The two sides will differ | Nothing, if you meant it. Otherwise remove `sync="false"` |
-| `... is changed on the client only: the field map of "item" has no entry for it` | The changed field is in no line of the map, not even as client-only. modkit does not know whether the server has a counterpart | Look the field up on the other side (Tables view, or **All fields**). If the server has it under another name, change it there too |
+| `not mirrored from server:Xml.m2d: environment/drop @rate has no place in gms-client (its shipped ... never has it); N row(s) of the mod set it` | The field exists on the server but never in the global client's shipped copy of that table. It is changed on the server only | Nothing: the global client does not read it |
+| `not mirrored from ...: ...` followed by another message | The mirrored change could not be made on the other side (the entry or a row is not there). The first side is still changed | Look at the entry on the other side. Write the change there yourself if it belongs there |
+| `explicit one-sided override: ... on the client only (sync is off for it); server ... stays "..."` | A mapped field is changed on one side, and the op says `sync="false"` (or `--no-sync` is given). The two sides will differ | Nothing, if you meant it. Otherwise remove `sync="false"` |
+| `... is changed on the client only: the field map of "item" has no entry for it` | The changed field is in no line of the map, not even as client-only. modkit does not know whether the other side has a counterpart | Look the field up on the other side (Tables view, or **All fields**). If it is there under another name, change it there too |
 | `explicit one-sided override: ... is set to "x" on the client and ... to "y" on the server; the two do not correspond` | The mods set both sides of a mapped field, to values that do not match under the conversion | Check which one is meant |
-| `... is changed on the client only: the shipped values do not correspond (...), so the server is left as it is` | The two sides already differed for this item, so nothing was mirrored | Set the other side in the mod if it should change |
+| `... is changed on the client only: the shipped values do not correspond (...), so the server is left as it is` | The two sides already differed for this item, so nothing was synced | Set the other side in the mod if it should change |
 | `... has no <...> on the server ...; changed on the client only` | The other side has no place for the value for this id | Nothing, or add the element on the other side yourself |
+
+A note (not a warning), `gms-client is not a target of this data set`, says when a mod names a target that is not
+set. Its lines are left out there and the rest of the mod is applied. When the other per-id profile is set (a
+`gms-client:` edit with only a server set, or the other way round), the note says the lines are planned for that
+target only, and the change reaches it the same way as a mirrored one.
 
 A warning never stops Apply.
 
