@@ -52,6 +52,7 @@ namespace MS2.Tables
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
+        readonly IconBox portraitBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };
         readonly List<Control> lockable = new List<Control>();
 
         public NpcsView()
@@ -129,10 +130,39 @@ namespace MS2.Tables
                 if (r == null || r.Heading != null) e.Cancel = true;
             };
 
+            // the npc's portrait at the left of the two bars above the grid, as in the item form: 96 pixels, 64 in a
+            // low window, and the bars never take more than the height that leaves the grid a header and four rows
+            var bars = new Panel { Dock = DockStyle.Fill };
+            bars.Controls.Add(textBar);
+            bars.Controls.Add(npcBar);
+            var portraitPad = new Panel { Dock = DockStyle.Left, Width = 104, Padding = new Padding(6, 4, 2, 4) };
+            portraitPad.Controls.Add(portraitBox);
+            var head = new Panel { Dock = DockStyle.Top, Height = 104 };
+            head.Controls.Add(bars);
+            head.Controls.Add(portraitPad);
+            tips.SetToolTip(portraitBox, "The npc's portrait (environment@portrait), read from Resource/Image.m2d of your client or server data; a box with a cross: no data folder has that image");
+
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
-            right.Controls.Add(textBar);
-            right.Controls.Add(npcBar);
+            right.Controls.Add(head);
+            bool fitting = false;
+            EventHandler fitHead = delegate
+            {
+                if (fitting) return;
+                fitting = true;
+                try
+                {
+                    int pic = right.ClientSize.Height < 480 ? 64 : 96;
+                    if (portraitBox.Width != pic) { portraitBox.Width = pic; portraitPad.Width = pic + portraitPad.Padding.Horizontal; }
+                    int want = Math.Max(pic + portraitPad.Padding.Vertical, npcBar.Height + textBar.Height);
+                    int room = right.ClientSize.Height - (grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 4);
+                    if (room > 0) want = Math.Min(want, Math.Max(pic + portraitPad.Padding.Vertical, room));
+                    if (head.Height != want) head.Height = want;
+                }
+                finally { fitting = false; }
+            };
+            right.Resize += fitHead;
+            bars.Layout += delegate { fitHead(bars, EventArgs.Empty); };
 
             Controls.Add(right);
             Controls.Add(new Splitter { Dock = DockStyle.Left, Width = 4 });
@@ -382,6 +412,7 @@ namespace MS2.Tables
             if (d == null)
             {
                 npcLabel.Text = "(no npc)";
+                portraitBox.Show(null, null);
                 nameBox.Text = titleBox.Text = cloneIdBox.Text = cloneNameBox.Text = cloneLevelBox.Text = cloneHpBox.Text = "";
                 return;
             }
@@ -396,9 +427,26 @@ namespace MS2.Tables
             }
             grid.RowCount = rows.Count;
             npcLabel.Text = "NPC " + d.Id.ToString(CultureInfo.InvariantCulture) + (d.IsNew ? " (new)" : "");
+            ShowPortrait(d);
             nameBox.Text = d.Name ?? "";
             titleBox.Text = d.Title ?? "";
             cloneIdBox.Text = cloneNameBox.Text = cloneLevelBox.Text = cloneHpBox.Text = "";
+        }
+
+        void ShowPortrait(NpcDraft d)
+        {
+            string entry = null;
+            try { entry = d.PortraitEntry(); }
+            catch (ModKitException) { }
+            IconCache cache = null;
+            if (host != null)
+            {
+                try { cache = IconCache.For(host.SharedSession().Data); }
+                catch (ModKitException) { }
+                catch (System.IO.IOException) { }
+            }
+            portraitBox.Show(cache, entry);
+            tips.SetToolTip(portraitBox, entry == null ? "This npc names no portrait" : "Portrait: " + entry + " in Resource/Image.m2d");
         }
 
         NpcDraft Draft()
