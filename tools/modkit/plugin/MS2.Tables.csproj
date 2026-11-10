@@ -1,0 +1,38 @@
+<!-- MS2.Tables Toolbench plugin: the table editor of the mod kit (tools/modkit/README.md). Builds with the .NET SDK on
+     Linux or Windows:
+       dotnet build tools/modkit/plugin -c Release -p:ToolbenchDir=<Toolbench folder>
+     ToolbenchDir is the folder of your own Gamebryo LightSpeed 3.2 Toolbench (the one holding Emergent.Toolbench.dll and
+     Plugins/, e.g. <Gamebryo SDK>/sdk/Win32/Bin/VC90/Shipping). Its assemblies are referenced in place and never copied
+     (Private=false); the output in bin/Release is MS2.Tables.dll + MS2.ModKit.dll + plugin.xml for
+     <Toolbench>/Plugins/MS2.Tables/. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net35</TargetFramework>
+    <PlatformTarget>x86</PlatformTarget>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>MS2.Tables</AssemblyName>
+    <RootNamespace>MS2.Tables</RootNamespace>
+    <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+  <Target Name="MS2TablesCheckToolbench" BeforeTargets="ResolveAssemblyReferences">
+    <Error Condition="'$(ToolbenchDir)' == ''" Text="Set ToolbenchDir to your Gamebryo Toolbench folder (the one holding Emergent.Toolbench.dll), e.g. -p:ToolbenchDir=&lt;Gamebryo SDK&gt;/sdk/Win32/Bin/VC90/Shipping" />
+    <Error Condition="'$(ToolbenchDir)' != '' And !Exists('$(ToolbenchDir)/Emergent.Toolbench.dll')" Text="No Emergent.Toolbench.dll in ToolbenchDir=$(ToolbenchDir)" />
+  </Target>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <ProjectReference Include="../MS2.ModKit/MS2.ModKit.csproj" />
+    <Reference Include="System.Windows.Forms" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="Emergent.Toolbench"><HintPath>$(ToolbenchDir)/Emergent.Toolbench.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.Actions"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.Actions/Emergent.Toolbench.Actions.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.ContentService"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.ContentService/Emergent.Toolbench.ContentService.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.Settings"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.Settings/Emergent.Toolbench.Settings.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.UI.Common"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.UI.Common/Emergent.Toolbench.UI.Common.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="Emergent.Toolbench.UI.Workbench"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.UI.Workbench/Emergent.Toolbench.UI.Workbench.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="WeifenLuo.WinFormsUI.Docking"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.UI.Workbench/WeifenLuo.WinFormsUI.Docking.dll</HintPath><Private>false</Private></Reference>
+    <None Include="plugin.xml" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

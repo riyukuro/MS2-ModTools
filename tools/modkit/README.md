@@ -8,6 +8,8 @@ and leaves the originals alone. Entries and rows that no mod touches keep their 
   writer, the XML editing, the manifest, the checks, apply and revert. It prints nothing and never exits the process,
   so an editor (a Toolbench plugin) can load it in-process.
 - `cli/` is a small command line tool over the library (.NET 8).
+- `plugin/` is the table editor: a Gamebryo Toolbench plugin over the library (see
+  [The table editor in Toolbench](#the-table-editor-in-toolbench)).
 - `tests/` are the tests; `examples/pets/` is a made-up data set with three mods to try things on.
 
 No game data is in this repo, and none is needed for the examples or the tests.
@@ -170,7 +172,8 @@ modkit status -w <workspace>
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
 - Point the game and the server at the copies yourself (or copy them over a **copy** of the game folder). That step,
-  and proof in the running game, is not part of this tool yet.
+  and proof in the running game, is not part of this tool yet (the table editor section below says where to put
+  them).
 
 What "kept" means: an entry that no mod touches is copied as stored (compressed and encrypted bytes, flags, order).
 In an edited entry only the edited spans change: encoding, byte order mark, line ends, attribute order, quotes,
@@ -232,6 +235,71 @@ using (var data = new DataSet(clientDataDir, serverDataDir))
 - Archives written on .NET 8 are byte for byte what `tools/m2d` writes. On another runtime the compressed bytes of the
   entries that were changed can differ (its zlib is another one); the contents are the same and every reader reads
   them. Untouched entries are copied as stored on every runtime.
+
+## The table editor in Toolbench
+
+`plugin/` is a plugin for Gamebryo LightSpeed 3.2 Toolbench (your own copy, from your Gamebryo SDK; see
+[tools/toolbench](../toolbench/README.md) for running it under Wine). It adds a view, **MS2 Tables**, that shows one
+XML entry of an archive as a grid, keeps your edits as a `mod.xml`, and runs plan, apply and revert. It holds no logic
+of its own: `MS2.ModKit.dll` does the work, as it does for the command line tool.
+
+Build and install (the Toolbench assemblies are referenced in place, nothing of the SDK is copied):
+
+```sh
+dotnet build tools/modkit/plugin -c Release -p:ToolbenchDir=<Gamebryo SDK>/sdk/Win32/Bin/VC90/Shipping
+```
+
+Copy `MS2.Tables.dll`, `MS2.ModKit.dll` and `plugin.xml` from `tools/modkit/plugin/bin/Release/` into
+`<Toolbench>/Plugins/MS2.Tables/`.
+
+Settings (menu **Utilities > Settings...**, page "MS2 Mods"; per user, all empty by default). While a setting is empty its
+environment variable is used, so a script can start Toolbench with the folders already set:
+
+| Setting | Environment | Meaning |
+|-|-|-|
+| Client data folder | `MS2_CLIENT_DATA` | the `Data` folder of your client (holds `Xml.m2d`). Only read |
+| Server data folder | `MS2_SERVER_DATA` | the data folder of your local server (holds its `Xml.m2d`). Only read |
+| Mods folder | `MS2_MODS` | a folder of mod folders. Save mod writes `<mods>/<mod id>/mod.xml`; Plan and Apply use every mod in it (a folder whose name starts with `.` or `_` is left out) |
+| Workspace folder | `MS2_MOD_WORKSPACE` | where Apply writes the patched copies |
+
+One data folder is enough to look around; saving needs the mods folder, and apply the workspace folder as well. After
+changing a setting press **Reload settings** in the view.
+
+Using it:
+
+1. The view opens docked at the right edge and is narrow at first: drag its left edge to make room for the grid
+   (menu **MS2 Mods > Tables** shows the view again). Pick an archive, type part of an
+   entry name into **Entry filter** and press Enter, or double-click an entry in the list. Each child element of the
+   root element is a row and each attribute a column. For rows that sit deeper, put a selector of their parent into
+   **Rows under** (for example `pet[id=101]` to see that pet's `<skill>` rows).
+2. Edit cells. An edited cell turns yellow, and the **Pending changes** pane shows the `mod.xml` the edits make.
+   Typing the original value back takes the change out again. **Clone row** adds a row that starts as a copy of the
+   selected one (green; change its id), **Delete / restore row** deletes a row or takes the delete back, **Remove
+   attribute** takes the attribute of the selected cell off its row, **Add column** adds a column for an attribute no
+   row has yet.
+3. A table that is in the client and in the server archive has to be changed in both. **Copy edits to other side**
+   writes the edits of the open table into the mod for the other data root too.
+4. **Save mod** writes the mod folder. **Load mod** reads one back into the grid: pick a folder of the mods folder
+   or type a path. **New mod** starts an empty mod with the id in **Mod id** (the first mod is called `my.mod`).
+5. **Plan** shows what all mods of the mods folder plus the pending edits would change, with errors, conflicts and
+   warnings, and writes nothing. **Apply** saves the mod being edited and writes the patched copies into the
+   workspace; with an error or a conflict it writes nothing and says why. **Revert** removes the copies again. The
+   three are also in the **MS2 Mods** menu.
+
+Where the copies go, and how the game gets them: Apply writes `<workspace>/client/Xml.m2d` and `Xml.m2h` and
+`<workspace>/server/Xml.m2d` (only the archives a mod touches) and `modkit-state.xml`. The original data folders are
+never written. To run with the mods:
+
+- client: make a copy of your client folder once, and copy `<workspace>/client/*` over the files of the same name in
+  the copy's `Data` folder after each apply. Start the copy.
+- local server: point the server's data path at a folder that holds `<workspace>/server/Xml.m2d` in place of the
+  original one (a copy of the server data folder with that file replaced), and restart it.
+
+After Revert the copies are gone from the workspace; put the original files back the same way.
+
+Not in this editor yet: schema checks (the command line `--schema`), `<ids>` ranges, `<entry>` operations and edits
+of element text. A mod that holds them loads, plans and applies as it is; the grid just has no cell for them. Apply
+runs on the window's thread, so Toolbench does not react while a large archive is written.
 
 ## Tests
 

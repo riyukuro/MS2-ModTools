@@ -57,6 +57,7 @@ Without `MS2_SERVER_DIR` the navmesh step is skipped with a note.
 | [tools/tok](tools/tok/README.md) | PathEngine ground meshes: `tokgeom` (map to geometry), `tokbuild` (geometry to `.tok`), Toolbench plugin |
 | [tools/m2d](tools/m2d/README.md) | read and repack `.m2d` archives |
 | [tools/modkit](tools/modkit/README.md) | mods as folders of row changes to the game's XML tables, applied to copies of the client and server archives: diff, conflict report, reserved ids, revert. C# library (.NET 3.5 and 8) and a command line tool (.NET SDK 8+) |
+| [tools/modkit/plugin](tools/modkit/README.md#the-table-editor-in-toolbench) | MS2 Tables, a Toolbench plugin: a table of the archives as a grid, edits kept as a mod, plan / apply / revert into a workspace of copies |
 | [tools/mapedit](tools/mapedit/README.md) | shipped map to Toolbench project and back; scripted map edits |
 | [tools/toolbench](tools/toolbench/README.md) | run Gamebryo Toolbench / World Builder under Wine |
 | [glue/pathengine](glue/pathengine/README.md) | frozen client code that tokbuild compiles |

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!-- MS2 table editor for Gamebryo Toolbench (usage: tools/modkit/README.md, "The table editor in Toolbench").
+     A front end over MS2.ModKit.dll: the view shows one XML entry of a data archive as a grid, keeps the edits as a
+     mod.xml, and Plan / Apply / Revert run the mod kit over the mods folder. The original archives are only read;
+     patched copies go to the workspace folder. All four folders are per-user settings, empty by default. -->
+<plugin
+  xmlns="http://www.emergent.net/schemas/plugin-base-schema.xsd"
+  name="MS2 table editor"
+  id="MS2.Tables"
+  version="0.1.0.0"
+  provider="MS2-ModTools"
+  class="MS2.Tables.Plugin">
+
+  <extension point="Emergent.Toolbench.Settings.SettingsSet">
+    <settings>
+      <setting scope="PerUser" id="MS2.Mods.ClientData" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Client data folder</display-name>
+        <description>The Data folder of your own MapleStory2 client (the one holding Xml.m2d and Xml.m2h). It is only read. Empty = the environment variable MS2_CLIENT_DATA.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.ServerData" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Server data folder</display-name>
+        <description>The data folder of your local server (the one holding its Xml.m2d). It is only read. Empty = the environment variable MS2_SERVER_DATA.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.ModsDir" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Mods folder</display-name>
+        <description>Folder of mod folders (each with a mod.xml). Save mod writes here; Plan and Apply use every mod in it. Empty = the environment variable MS2_MODS.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.Workspace" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Workspace folder</display-name>
+        <description>Where Apply writes the patched copies (client/ and server/ under it). Point a copy of the client and the local server at these files. Empty = the environment variable MS2_MOD_WORKSPACE.</description>
+      </setting>
+    </settings>
+  </extension>
+
+  <extension point="Emergent.Toolbench.Workbench.View">
+    <view id="MS2.Tables.View"
+          name="MS2 Tables"
+          class="MS2.Tables.TablesView"
+          default-dock="Document"
+          default-visible="true"/>
+  </extension>
+
+  <extension point="Emergent.Toolbench.Workbench.ActionSet">
+    <actionset label="MS2 Mods Actions" visible="true" id="MS2.Tables.Actions">
+      <menu label="MS2 &amp;Mods" id="MS2.Tables.Menu" priority="70"/>
+      <menuitem id="MS2.Tables.Menu.Show" action="MS2.Tables.ShowAction" path="MS2 Mods" priority="10"/>
+      <menuitem id="MS2.Tables.Menu.Plan" action="MS2.Tables.PlanAction" path="MS2 Mods" priority="20"/>
+      <menuitem id="MS2.Tables.Menu.Apply" action="MS2.Tables.ApplyAction" path="MS2 Mods" priority="30"/>
+      <menuitem id="MS2.Tables.Menu.Revert" action="MS2.Tables.RevertAction" path="MS2 Mods" priority="40"/>
+      <action label="Tables" tooltip="Shows the MS2 Tables view" handler="MS2.Tables.ShowAction" id="MS2.Tables.ShowAction"/>
+      <action label="Plan" tooltip="Shows what the mods in the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
+              handler="MS2.Tables.PlanAction" id="MS2.Tables.PlanAction"/>
+      <action label="Apply" tooltip="Saves the mod being edited and writes patched copies of the archives into the workspace folder"
+              handler="MS2.Tables.ApplyAction" id="MS2.Tables.ApplyAction"/>
+      <action label="Revert" tooltip="Removes the patched copies from the workspace folder"
+              handler="MS2.Tables.RevertAction" id="MS2.Tables.RevertAction"/>
+    </actionset>
+  </extension>
+
+  <!-- Without a perspective mapping neither the view nor the action set is shown. -->
+  <extension point="Emergent.Toolbench.Workbench.PerspectiveMapping">
+    <mapping perspectiveId="Emergent.Toolbench.Workbench.GlobalPerspective">
+      <view id="MS2.Tables.View"/>
+      <actionset id="MS2.Tables.Actions"/>
+    </mapping>
+  </extension>
+
+  <requires>
+    <import plugin="Emergent.Toolbench.Settings"/>
+    <import plugin="Emergent.Toolbench.Actions"/>
+    <import plugin="Emergent.Toolbench.UI.Workbench"/>
+  </requires>
+
+  <runtime>MS2.Tables.dll</runtime>
+</plugin>
