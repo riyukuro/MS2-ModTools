@@ -89,6 +89,7 @@ namespace MS2.ModKit
         readonly List<string> files = new List<string>();
         readonly Dictionary<string, M2dArchive> open = new Dictionary<string, M2dArchive>();
         readonly List<string> roots = new List<string>();
+        bool disposed;
 
         /// <param name="first">The profile whose own image archive is looked in first (null: kms-client, gms-client, server).</param>
         public ImageSource(DataSet data, Profile first)
@@ -119,12 +120,13 @@ namespace MS2.ModKit
             return a;
         }
 
-        /// <summary>The bytes of the entry from the first archive that has it, or null.</summary>
+        /// <summary>The bytes of the entry from the first archive that has it, or null (also after Dispose).</summary>
         public byte[] Read(string entry)
         {
             if (string.IsNullOrEmpty(entry)) return null;
             lock (gate)
             {
+                if (disposed) return null;
                 foreach (string f in files)
                 {
                     M2dArchive a = Archive(f);
@@ -141,6 +143,7 @@ namespace MS2.ModKit
             if (string.IsNullOrEmpty(entry)) return false;
             lock (gate)
             {
+                if (disposed) return false;
                 foreach (string f in files) if (Archive(f).Find(entry) != null) return true;
             }
             return false;
@@ -150,6 +153,7 @@ namespace MS2.ModKit
         {
             lock (gate)
             {
+                disposed = true;
                 foreach (M2dArchive a in open.Values) a.Dispose();
                 open.Clear();
             }

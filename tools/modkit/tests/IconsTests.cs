@@ -169,6 +169,20 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ReadsNothingAfterDispose()
+        {
+            using (var f = new FakeIcons(true, false))
+            {
+                var src = new ImageSource(f.Data, null);
+                Assert.AreEqual(Img("k1"), src.Read("item/icon/1200001.png"));
+                src.Dispose();
+                // a background load that ends after the view let go of the source gets nothing (and opens nothing)
+                Assert.IsNull(src.Read("item/icon/1200001.png"));
+                Assert.IsFalse(src.Has("item/icon/1200001.png"));
+            }
+        }
+
+        [Test]
         public void NoImageArchive()
         {
             using (var f = new FakeIcons(false, false))
