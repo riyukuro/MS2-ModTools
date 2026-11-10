@@ -51,12 +51,14 @@ namespace MS2.ModKit
             var sr = new SyncRun { Run = run, Maps = options.Maps ?? FieldMaps.Default, NoSync = options.NoSync };
             Plan plan = run.Plan;
             PlanChange[] snapshot = plan.Changes.ToArray();
+            Dictionary<string, PlanChange> twinSet = TwinChanges(run, snapshot);
             foreach (PlanChange ch in snapshot)
             {
                 if (ch.State == null || ch.Mod == null || ch.Mirrored) continue;
                 if (!plan.Changes.Contains(ch)) continue;
                 bool attr = ch.Kind == ChangeKind.SetAttr || ch.Kind == ChangeKind.RemoveAttr;
                 if (!attr && ch.Kind != ChangeKind.AddRow) continue;
+                if (attr && SetOnTwin(run, twinSet, ch)) continue;
                 bool client;
                 EntityMap em = sr.Maps.Find(ch.Archive, ch.Entry, out client);
                 try
@@ -79,6 +81,56 @@ namespace MS2.ModKit
                     "@" + first.Name + " is changed in " + n + " row(s) (first: " + first.Row + ") on this side only; " + sr.LooseOther[key]
                     + " holds the same table and there is no field map for it, so that side is not written");
             }
+        }
+
+        // ---- the same field set on two profiles that mirror each other (server and gms-client) ----
+
+        // The profile whose change is synced when a mod sets the same field on mirror twins: the server, else the
+        // first of the twins in the fixed order.
+        static Profile Preferred(Run run, Profile p)
+        {
+            Profile best = p;
+            foreach (Profile q in run.Data.Profiles)
+            {
+                if (q != p && !p.Mirrors(q)) continue;
+                if (q.IsServer && !best.IsServer) best = q;
+                else if (q.IsServer == best.IsServer && Array.IndexOf(Profile.All, q) < Array.IndexOf(Profile.All, best)) best = q;
+            }
+            return best;
+        }
+
+        static string TwinKey(string archive, string entry, string row, string name)
+        {
+            return archive.ToLowerInvariant() + "\n" + entry.Replace('\\', '/').ToLowerInvariant() + "\n" + row + "\n@" + name;
+        }
+
+        // the attribute changes the mods themselves made (not the mirror, not the sync), by target, entry, row and name
+        static Dictionary<string, PlanChange> TwinChanges(Run run, PlanChange[] changes)
+        {
+            var d = new Dictionary<string, PlanChange>();
+            foreach (PlanChange c in changes)
+            {
+                if (c.Mod == null || c.Mirrored || c.Synced) continue;
+                if (c.Kind != ChangeKind.SetAttr && c.Kind != ChangeKind.RemoveAttr) continue;
+                d[TwinKey(c.Archive, c.Entry, c.Row, c.Name)] = c;
+            }
+            return d;
+        }
+
+        // A change of a mirror twin that the preferred twin also makes: synced once, from the preferred one. Values
+        // that differ are a warning: the other side gets the preferred twin's value.
+        static bool SetOnTwin(Run run, Dictionary<string, PlanChange> set, PlanChange ch)
+        {
+            Profile p = Profile.OfArchive(ch.Archive);
+            if (p == null) return false;
+            Profile best = Preferred(run, p);
+            if (best == p) return false;
+            PlanChange other;
+            if (!set.TryGetValue(TwinKey(best.ArchiveIn(ch.Archive), ch.Entry, ch.Row, ch.Name), out other)) return false;
+            if (other.NewValue != ch.NewValue)
+                run.Plan.Msg(run.Plan.Warnings, ch.Mod, ch.Archive, ch.Entry, ch.Row + " @" + ch.Name + " is " + Val(ch.NewValue) + " on the " + p.Name + " and " + Val(other.NewValue)
+                    + " on the " + best.Name + "; the other side of the field map is synced from the " + best.Name);
+            return true;
         }
 
         // ---- a table with the same name in both roots and no field map ----

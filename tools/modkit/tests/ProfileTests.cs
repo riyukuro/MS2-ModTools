@@ -281,6 +281,34 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        [Test]
+        public void AFieldSetOnServerAndGlobalClientIsSyncedOnce()
+        {
+            using (var f = new FakeTargets())
+            {
+                // the same value on both per-id targets: one synced change on the Korean client, no warning
+                Plan p = f.Plan(f.Mod("m", Edit(G, Five, "environment/property", "sellPrice", "61") + Edit(S, Five, "environment/property", "sellPrice", "61")));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings, Is.Empty, dump);
+                Assert.That(p.Changes.Count(c => c.Archive == K && c.Name == "sellPrice"), Is.EqualTo(1), dump);
+                Assert.That(Change(p, K, Bucket, "sellPrice").NewValue, Is.EqualTo("61"), dump);
+                Assert.That(p.Changes.Count(c => c.Name == "sellPrice"), Is.EqualTo(3), dump);
+
+                // two values: the Korean client gets the server's, whatever the order of the lines, and a warning says so
+                foreach (bool serverFirst in new[] { true, false })
+                {
+                    string gl = Edit(G, Five, "environment/property", "sellPrice", "62"), sl = Edit(S, Five, "environment/property", "sellPrice", "63");
+                    p = f.Plan(f.Mod("n" + serverFirst, serverFirst ? sl + gl : gl + sl));
+                    dump = Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Changes.Count(c => c.Archive == K && c.Name == "sellPrice"), Is.EqualTo(1), dump);
+                    Assert.That(Change(p, K, Bucket, "sellPrice").NewValue, Is.EqualTo("63"), dump);
+                    Assert.That(p.Warnings.Count(w => w.Text.Contains("synced from the server")), Is.EqualTo(1), dump);
+                }
+            }
+        }
+
         static Dictionary<string, byte[]> Files(string dir)
         {
             var d = new Dictionary<string, byte[]>();
