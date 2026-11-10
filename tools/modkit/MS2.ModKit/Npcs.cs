@@ -33,18 +33,15 @@ namespace MS2.ModKit
         public string Title { get { return First("title", "name"); } }
 
         /// <summary>
-        /// Sets the title in every language file of every target. An npc without a title row gets one in every
-        /// language that has a title file. Returns the number of rows.
+        /// Sets the title in every language file of every target. A language that has a title file but no title row
+        /// of the npc gets one (shipped npcs often have title rows in a few languages only). An empty title adds no
+        /// rows. Returns the number of rows.
         /// </summary>
         public int SetTitle(string value)
         {
             if (value == null) throw new ArgumentNullException("value");
-            if (StringParts("title").Count == 0)
-            {
-                if (value.Length == 0) return 0;
-                Editor.AddStringRows(2, "<key id=\"" + NpcEditor.Padded(Id) + "\" name=\"\" />");
+            if (value.Length > 0 && Editor.AddStringRows(2, "<key id=\"" + NpcEditor.Padded(Id) + "\" name=\"\" />", this) > 0)
                 Editor.Fill(this);
-            }
             return SetAll("title", "name", value);
         }
 
@@ -152,6 +149,12 @@ namespace MS2.ModKit
             foreach (string archive in Sides())
                 foreach (string c in CompanionFiles(id))
                     l.Add(archive + "  " + c + ", where the source has one");
+            if (FileXml != null && FileXml.StartsWith("server:", StringComparison.Ordinal))
+            {
+                string gms = "gms-client:" + FileXml.Substring("server:".Length);
+                if (Data.Exists(gms))
+                    l.Add(gms + "  the server's lines above, mirrored: the same files, rows and attributes, without the server-only ones and the languages it does not ship");
+            }
             return l;
         }
     }

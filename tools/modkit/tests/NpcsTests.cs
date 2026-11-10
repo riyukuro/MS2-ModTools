@@ -31,6 +31,8 @@ namespace MS2.ModKit.Tests
 
         static string Names(string file, string suffix)
         {
+            // the zz title file has no row of 2900001: shipped npcs often have title rows in a few languages only
+            if (file == "npctitle.xml" && suffix == " (zz)") return Head + "<ms2>\n\t<key id=\"02900009\" name=\"Other (zz)\" />\n</ms2>\n";
             if (file == "npctitle.xml")
                 return Head + "<ms2>\n\t<key id=\"02900001\" name=\"Digger" + suffix + "\" />\n\t<key id=\"02900001\" name=\"Digger" + suffix + "\" feature=\"F1\" />\n</ms2>\n";
             string a = file == "npcnameplural.xml" ? "Fake Moles" : "Fake Mole", b = file == "npcnameplural.xml" ? "Clay Guards" : "Clay Guard";
@@ -202,6 +204,24 @@ namespace MS2.ModKit.Tests
                 Plan p = f.Plan();
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(Fake.Text(p, S, "string/es/npctitle.xml"), Does.Contain("<key id=\"02900002\" name=\"Gate Keeper\" />"));
+            }
+        }
+
+        [Test]
+        public void ATitleIsAddedInTheLanguagesThatLackOne()
+        {
+            using (var f = new FakeNpcs(true, true, true))
+            {
+                NpcEditor ed = f.Editor();
+                NpcDraft d = ed.Clone(2900001, 2900051, null, 0, 0);
+                Assert.That(d.SetTitle("Boss"), Is.EqualTo(7), "kms en 2 rows, zz 1 new; server en 2, es 2");
+                Plan p = f.Plan();
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Text(p, K, "string/zz/npctitle.xml"), Does.Contain("<key id=\"02900051\" name=\"Boss\" />"));
+                Assert.That(Fake.Text(p, K, "string/en/npctitle.xml"), Does.Contain("<key id=\"02900051\" name=\"Boss\" feature=\"F1\" />"));
+                Assert.That(Fake.Text(p, G, "string/en/npctitle.xml"), Does.Contain("<key id=\"02900051\" name=\"Boss\" />"), "mirrored");
+                Assert.That(ed.Open(2900051).SetTitle("Boss"), Is.EqualTo(7), "no second row");
+                Assert.That(string.Join("\n", ed.Registration(2900051).ToArray()), Does.Contain("gms-client:Xml.m2d  the server's lines above, mirrored"));
             }
         }
 

@@ -900,7 +900,13 @@ namespace MS2.ModKit
         // ---- new rows ----
 
         /// <summary>Adds a literal row to the string file of every language of every side that has the file. Returns the number of rows.</summary>
-        internal int AddStringRows(int file, string rowXml)
+        internal int AddStringRows(int file, string rowXml) { return AddStringRows(file, rowXml, null); }
+
+        /// <summary>
+        /// The same, skipping the string files where the draft already has a part of that file (a row the source
+        /// ships in some languages only gets the others).
+        /// </summary>
+        internal int AddStringRows(int file, string rowXml, EntityDraft have)
         {
             int n = 0;
             foreach (string archive in Sides())
@@ -908,6 +914,7 @@ namespace MS2.ModKit
                 {
                     DocInfo doc = Doc(archive, StringEntry(lang, StringFiles[file]));
                     if (doc == null) continue;
+                    if (have != null && have.Parts.Exists(p => p.Archive == archive && string.Equals(p.Entry, doc.Name, StringComparison.OrdinalIgnoreCase))) continue;
                     Edit(archive, doc.Name).Rows.Add(new RowOp { Kind = RowOpKind.Add, Xml = rowXml });
                     n++;
                 }
