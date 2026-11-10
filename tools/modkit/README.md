@@ -101,7 +101,9 @@ error: [example.rival-pets] client:Xml.m2d table/pet.xml: new id 905 of space "p
 ```
 
 **Every op names its archive.** The client and the server each have their own copy of most tables, and a mod says
-which it changes. Nothing is mirrored for you: a row that both sides read is written twice, once per side.
+which it changes. A table that both sides hold in the same format is written twice, once per side. For items,
+whose two sides are different files, modkit writes the other side itself; see
+[One mod, both sides](#one-mod-both-sides). `sync="false"` on an `<edit>`, a `<change>` or a `<set>` keeps it on its own side.
 
 | element | meaning |
 |---|---|
@@ -371,9 +373,10 @@ section is missing and the mod holds the client half only.
    whose names are searched and listed. The list shows shipped names; items the mod adds come first, marked `(new)`.
 2. Pick an item. The grid shows every field with its value and the shipped value. Edit the value: the cell turns
    yellow, and typing the shipped value back takes the edit out of the mod.
-3. **Client and server together** (on by default): when the server's file has the same element and attribute as the
-   one edited on the client side, the same value is written there too. Fields that exist on one side only are
-   changed on that side only. Nothing is translated between the two formats.
+3. **Client and server together** (on by default): an edit of a field that both sides hold is written to both, in
+   each side's own format. Fields that exist on one side only are changed on that side only. With the box off, the
+   edit stays on the side you typed it in and Plan warns about it. **Sync report**, **All fields** and **Server
+   rows** are described under [One mod, both sides](#one-mod-both-sides).
 4. **Name**, **Description**, **Second line** and **Set texts** write the texts into every language folder at
    once, so the item reads the same whichever one your client uses.
 5. The stat row is shared. Changing it changes every item that names its code. **Own stat row** copies the row to
@@ -411,6 +414,119 @@ taken; or type one.
   or new item.
 - **A new item shows nowhere by itself.** After Apply the client knows the clone, and nothing more happens until
   the server knows the id too and gives the item to a character (a shop, a drop, a reward or a server command).
+
+## One mod, both sides
+
+The client and the server each keep their own description of an item, in different files and partly in different
+formats. A mod that changes only the client's copy changes what a tooltip says; a mod that changes only the server's
+copy changes what happens, and the tooltip keeps the old number. modkit keeps the two together: you change a field
+once, and the other side is written for you.
+
+### What is mirrored
+
+modkit carries a **field map** for items (`MS2.ModKit/Maps/item.fieldmap.xml`). Each line pairs one attribute of the
+client's item row with one attribute of the server's item file, and says how the value is converted, for example:
+
+| Conversion | Client holds | Server holds |
+|-|-|-|
+| same | a value | the same text |
+| bool | `true` / `false` | `1` / `0` |
+| numlist | numbers separated by commas | the same numbers, written differently (`0.5, 1` and `0.500000,1.000000`) |
+| affix | a bare name, or the full path | folder + name + extension |
+| pick | one number | a list of numbers; the client's is the one at the position the item's rank gives |
+
+When a mod changes a mapped field on one side, Plan adds the change for the other side, converted, and lists it like
+any other change. This happens for every mod at Plan time, whichever tool wrote the mod; nothing extra is stored in
+`mod.xml`. Four cases are left alone:
+
+- The mod sets the other side itself. Your value stands, and if the two do not correspond Plan warns.
+- The op carries `sync="false"`. It stays on its side, and Plan warns (see below).
+- The two sides did not correspond for this item before the mod (shipped data has such items). modkit cannot tell
+  what the other side should become, leaves it, and Plan warns.
+- The other side has no row, file or element for that id. Plan warns.
+
+The map was made by comparing the same ids on both sides of one shipped data set, field by field. Every line records
+how many ids were compared and how many agreed, and a confidence: **high** (97 % or more agree), **medium** (90 % or
+more) or **low**. A low line is still mirrored, because for most items the two sides are equal there; the sync report
+shows the confidence, so check a low field in the report before you rely on it. Pairs with different names that
+agree too rarely are kept as **candidates**: they are shown in the report and never written. Fields with no
+counterpart are listed in the map as client-only or server-only and are changed only where they are.
+
+Only items have a map so far. Tables that both sides hold in the same format (most of `table/`) are not mapped; for
+those use **Copy edits to other side** in the Tables view, or write both `<edit>`s.
+
+The map names files, elements and attributes only. `--map FILE` (command line) uses another map file in place of the
+built-in one, and `--no-sync` turns the mirroring off for one run.
+
+### What the warnings mean
+
+| Plan says | Meaning | What to do |
+|-|-|-|
+| `explicit one-sided override: ... on the client only (sync is off for it); server ... stays "..."` | A mapped field is changed on one side, and the op says `sync="false"` (or mirroring is off). The two sides will differ | Nothing, if you meant it. Otherwise remove `sync="false"` |
+| `... is changed on the client only: the field map of "item" has no entry for it` | The changed field is in no line of the map, not even as client-only. modkit does not know whether the server has a counterpart | Look the field up on the other side (Tables view, or **All fields**). If the server has it under another name, change it there too |
+| `explicit one-sided override: ... is set to "x" on the client and ... to "y" on the server; the two do not correspond` | The mods set both sides of a mapped field, to values that do not match under the conversion | Check which one is meant |
+| `... is changed on the client only: the shipped values do not correspond (...), so the server is left as it is` | The two sides already differed for this item, so nothing was mirrored | Set the other side in the mod if it should change |
+| `... has no <...> on the server ...; changed on the client only` | The other side has no place for the value for this id | Nothing, or add the element on the other side yourself |
+
+A warning never stops Apply.
+
+### The sync report
+
+The report answers "do the two sides agree for this item?", before and after the mods:
+
+```
+modkit sync <id>... [mod...]        the fields that differ or that the mods change
+modkit sync --all <id> [mod...]     every mapped field
+```
+
+In the Items view, select an item and press **Sync report** or **All fields**; the report covers the checked mods
+and the edits that are not saved yet. Each line names the field on both sides, the conversion and the confidence,
+and one of:
+
+- `agrees`, `changed, agrees`: the two sides correspond.
+- `DIFFERS`: they do not. Shipped data has such items too (the report says how many fields differed before the
+  mods), so a difference is not always a mistake of the mod.
+- `client omits it` / `server omits it`: one side has no such attribute for this item. Counted apart from the
+  differences.
+- `candidate`: a pair the map does not trust; shown for information.
+
+### Server-only tables
+
+Shops, drops, item options and NPC behaviour exist only on the server. They are tables like any other: in the Tables
+view pick `server:Xml.m2d` or `server:Server.m2d` in **Archive**, open the entry, and edit, Plan, Apply and Revert as
+for a client table. Rows that sit inside another row (the items of one shop) are reached with **Rows under**.
+
+To find the rows that belong to one item, press **Server rows** in the Items view, or run `modkit refs <id>...`. It
+lists the option rows the item's server file points at, and the drop and shop rows that hold its id, each with
+archive, entry and row selector, ready to be opened in the Tables view. The list is for looking up; edit the rows in
+the Tables view.
+
+### Server target folder and the command after apply
+
+Apply writes the changed server archives to the workspace. Two settings carry them on from there. Both are empty by
+default, and then nothing more happens.
+
+| Setting (page "MS2 Mods") | Environment | Command line | Meaning |
+|-|-|-|-|
+| Server target folder | `MS2_SERVER_TARGET` | `--server-target DIR` | after a successful apply, every server archive of the workspace (with its `.m2h`) is copied into this folder. Use the data folder of a **copy** of your server, never the folder modkit reads the originals from (it refuses that, and a folder inside the workspace) |
+| Command after apply | `MS2_AFTER_APPLY` | `--after-apply COMMAND` | a command line that is started when the copy is done, for example your server's ingest step |
+
+- **Plan shows both before anything runs**: `after a successful apply server:Xml.m2d would be copied to ...` and
+  `... this command would be run in ...: ...`, with the command exactly as it will be started.
+- The command is started directly, without a shell: the first word (or the first part in double quotes) is the
+  program, the rest are its arguments. For shell features name the shell yourself (`cmd /c ...`, `sh -c "..."`).
+- `{target}` and `{workspace}` in the command are replaced by the two folders. The command runs in the target
+  folder (in the workspace when no target is set) and gets `MODKIT_WORKSPACE`, `MODKIT_SERVER_TARGET` and
+  `MODKIT_SERVER_ARCHIVES` (the archives that were written, separated by the system's path separator, `;` on
+  Windows; empty when a revert left none) in its environment.
+- Its output goes line by line into the view's output box (the command line tool prints it), followed by
+  `exit code N`. An exit code other than 0, or a failed copy, is reported as a failure of the step; the applied
+  files stay (command line exit code 3).
+- It runs only when a server archive changed. A mod that touches the client alone starts nothing.
+- **Revert** puts the original archives back into the target folder (modkit records what it copied there in
+  `modkit-target.xml`) and runs the command again, so the server can take the original data back.
+- The command is yours: modkit runs what the setting says, with your rights. If the command writes a database, point
+  it at a database you can lose.
 
 ## Tests
 
