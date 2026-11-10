@@ -824,12 +824,30 @@ namespace MS2.ModKit
         /// <summary>A copy of a shipped group under a new id (0: the lowest free id of the reserved range).</summary>
         public long Clone(GroupKind kind, long source, long newId)
         {
-            if (ShippedIds(kind).BinarySearch(source) < 0) throw new ModKitException("there is no shipped " + (kind == GroupKind.Shop ? "shop " : "drop box ") + Inv(source) + " to copy");
+            GroupOp own = Mod.FindGroup(kind, source);
+            bool added = own != null && (own.New || own.IsClone);
+            if (!added && ShippedIds(kind).BinarySearch(source) < 0) throw new ModKitException("there is no " + (kind == GroupKind.Shop ? "shop " : "drop box ") + Inv(source) + " to copy");
             newId = TakeId(kind, newId);
-            Mod.Groups.Add(new GroupOp { Kind = kind, Id = newId, Clone = source });
+            // a group the mod adds is copied op for op (its source, xml and row ops); a shipped one becomes a clone op
+            Mod.Groups.Add(added ? CopyOp(own, newId) : new GroupOp { Kind = kind, Id = newId, Clone = source });
             IdSpaces.Reserve(Mod, Space(kind), newId);
             return newId;
         }
+
+        static GroupOp CopyOp(GroupOp g, long id)
+        {
+            var c = new GroupOp { Kind = g.Kind, Id = id, New = g.New, Clone = g.Clone, Split = g.Split, Xml = g.Xml, HeaderFeature = g.HeaderFeature, HeaderLocale = g.HeaderLocale };
+            foreach (AttrOp a in g.Header) c.Header.Add(CopyAttr(a));
+            foreach (GroupRowOp r in g.Rows)
+            {
+                var n = new GroupRowOp { Kind = r.Kind, Sn = r.Sn, Feature = r.Feature, Locale = r.Locale, Group = r.Group, Item = r.Item, N = r.N, Xml = r.Xml };
+                foreach (AttrOp a in r.Attrs) n.Attrs.Add(CopyAttr(a));
+                c.Rows.Add(n);
+            }
+            return c;
+        }
+
+        static AttrOp CopyAttr(AttrOp a) { return new AttrOp { Kind = a.Kind, Name = a.Name, Value = a.Value, At = a.At, Sync = a.Sync }; }
 
         /// <summary>A new group written from scratch: xml is the shop's header row or the box's &lt;dropBox&gt; (null: an empty one).</summary>
         public long New(GroupKind kind, long newId, string xml)

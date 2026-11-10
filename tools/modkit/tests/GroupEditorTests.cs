@@ -171,6 +171,18 @@ namespace MS2.ModKit.Tests
                 Assert.That(hits.Count, Is.EqualTo(2));
                 Assert.That(hits[0].Added);
 
+                // a group the mod adds can be copied too: the copy has its rows and edits, under its own id
+                long box3 = ed.Clone(GroupKind.DropBox, box, 0);
+                Assert.That(box3, Is.EqualTo(900010002));
+                Assert.That(ed.Open(GroupKind.DropBox, box3).Side(Planner.ServerTables).Rows[1].Get("weight"), Is.EqualTo("7"));
+                long shop2 = ed.Clone(GroupKind.Shop, shop, 0);
+                Assert.That(ed.Open(GroupKind.Shop, shop2).Sides[0].Rows[1].Get("price"), Is.EqualTo("21"));
+                ed.SetRowField(v, server, server.Rows[1], "weight", "8");
+                Assert.That(ed.Open(GroupKind.DropBox, box3).Side(Planner.ServerTables).Rows[1].Get("weight"), Is.EqualTo("7"), "the copy is apart from its source");
+                Assert.Throws<ModKitException>(delegate { ed.Clone(GroupKind.DropBox, 123456, 0); });
+                ed.Discard(GroupKind.DropBox, box3);
+                ed.Discard(GroupKind.Shop, shop2);
+
                 ed.Discard(GroupKind.DropBox, box);
                 Assert.That(ed.Exists(GroupKind.DropBox, box), Is.False);
                 Assert.That(m.Ids.Count, Is.EqualTo(2));
