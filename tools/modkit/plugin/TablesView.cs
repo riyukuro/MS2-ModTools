@@ -415,9 +415,10 @@ namespace MS2.Tables
             columns.Clear();
             draft = d;
             if (d == null) { tableLabel.Text = ""; return; }
-            // the columns are added with fixed widths, then share the full width (ViewLayout.FillColumns)
+            // the columns are added with fixed widths, then share the full width (ViewLayout.FillColumns); the frozen
+            // row column keeps its width (a grid in fill mode refuses a frozen column that fills)
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "row", ReadOnly = true, Width = 190, Frozen = true, SortMode = DataGridViewColumnSortMode.NotSortable }));
+            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "row", ReadOnly = true, Width = 190, Frozen = true, AutoSizeMode = DataGridViewAutoSizeColumnMode.None, SortMode = DataGridViewColumnSortMode.NotSortable }));
             foreach (string c in d.Columns) AddGridColumn(c);
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.RowCount = d.Rows.Count;
