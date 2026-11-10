@@ -137,6 +137,8 @@ namespace MS2.Tables
             rowGrid.CellValueNeeded += OnRowValueNeeded;
             rowGrid.CellValuePushed += OnRowValuePushed;
             rowGrid.CellFormatting += OnRowFormatting;
+            rowGrid.CellPainting += OnRowPainting;
+            rowGrid.RowTemplate.Height = IconRow;
             rowGrid.CellBeginEdit += delegate(object sender, DataGridViewCellCancelEventArgs e)
             {
                 if (e.RowIndex >= removedFrom || e.ColumnIndex < 2) e.Cancel = true;
@@ -350,6 +352,7 @@ namespace MS2.Tables
 
         void OnHostChanged()
         {
+            iconOfItem.Clear();
             formGrid.CancelEdit();
             rowGrid.CancelEdit();
             GroupKind kind = Kind();
@@ -581,12 +584,70 @@ namespace MS2.Tables
                 foreach (KeyValuePair<string, string> kv in r.Fields)
                     if (!seen.ContainsKey(kv.Key)) { seen[kv.Key] = true; columns.Add(kv.Key); }
             rowGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
-            rowGrid.Columns.Add(Col("row", 230, true));
+            DataGridViewColumn first = Col("row", 230 + IconRow, true);
+            first.DefaultCellStyle.Padding = new Padding(IconRow + 2, 0, 0, 0);   // the item's icon is drawn at the left of the cell
+            rowGrid.Columns.Add(first);
             rowGrid.Columns.Add(Col(side.Flat ? "split" : "entry", 170, true));
             foreach (string c in columns) rowGrid.Columns.Add(Col(c, Math.Max(60, Math.Min(160, c.Length * 9)), false));
             rowGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             rowGrid.RowCount = gridRows.Count;
             rowGrid.Invalidate();
+        }
+
+        // ---- the item icon of each row ----
+
+        const int IconRow = 34;   // row height; the icon is 2 pixels smaller
+        ItemEditor items;
+        readonly Dictionary<string, string> iconOfItem = new Dictionary<string, string>();
+
+        /// <summary>The item a row hands out: shops name it in id, nested drop boxes in itemID, flat ones in item.</summary>
+        static long RowItem(GroupRowView r, GroupKind kind)
+        {
+            string v = kind == GroupKind.Shop ? r.Get("id") : (r.Get("itemID") ?? r.Get("item") ?? r.Item);
+            long id;
+            return v != null && long.TryParse(v.Trim(), System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out id) && id > 0 ? id : 0;
+        }
+
+        IconCache Cache()
+        {
+            if (host == null) return null;
+            try { return IconCache.For(host.SharedSession().Data); }
+            catch (ModKitException) { return null; }
+            catch (System.IO.IOException) { return null; }
+        }
+
+        /// <summary>The icon entry of the item as the mod has it (null: no such item or no icon).</summary>
+        string IconOfItem(long id)
+        {
+            string key = id.ToString(System.Globalization.CultureInfo.InvariantCulture), entry;
+            if (iconOfItem.TryGetValue(key, out entry)) return entry;
+            entry = null;
+            try
+            {
+                EditorSession s = host.SharedSession();
+                if (items == null || items.Mod != s.Mod || items.Data != s.Data) { items = s.Items(); iconOfItem.Clear(); }
+                entry = items.Open(id).IconEntry();   // no such item: ModKitException, the plain placeholder
+            }
+            catch (ModKitException) { }
+            catch (System.IO.IOException) { }
+            iconOfItem[key] = entry;
+            return entry;
+        }
+
+        void OnRowPainting(object sender, DataGridViewCellPaintingEventArgs e)
+        {
+            if (e.ColumnIndex != 0 || e.RowIndex < 0 || view == null) return;
+            GroupRowView r = RowAt(e.RowIndex);
+            if (r == null) return;
+            e.Paint(e.ClipBounds, DataGridViewPaintParts.All);
+            long id = RowItem(r, view.Kind);
+            IconCache cache = Cache();
+            string entry = id != 0 && cache != null ? IconOfItem(id) : null;
+            int size = e.CellBounds.Height - 4;
+            var box = new Rectangle(e.CellBounds.X + 2, e.CellBounds.Y + 2, size, size);
+            Image img = cache != null ? cache.Get(entry, rowGrid) : null;
+            IconCache.Draw(e.Graphics, box, img, entry == null || cache.IsMissing(entry));
+            e.Handled = true;
         }
 
         GroupRowView RowAt(int i) { return i >= 0 && i < gridRows.Count ? gridRows[i] : null; }
