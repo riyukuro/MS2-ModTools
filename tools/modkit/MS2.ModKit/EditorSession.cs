@@ -129,6 +129,9 @@ namespace MS2.ModKit
             return e;
         }
 
+        /// <summary>The skill and effect editor over the data and the mod being edited (see SkillEditor.cs). Ask again after the mod is replaced.</summary>
+        public SkillEditor Skills() { return new SkillEditor(Data, Mod); }
+
         /// <summary>The shop and drop box editor over the data and the mod being edited (see GroupEditor.cs). Ask again after the mod is replaced.</summary>
         public GroupEditor Groups()
         {
