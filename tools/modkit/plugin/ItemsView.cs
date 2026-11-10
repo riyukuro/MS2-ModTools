@@ -1,6 +1,6 @@
 // The "MS2 Items" view: one item at a time instead of one table at a time. A search box (id or name), the list of
 // hits, the fields of the chosen item grouped by the file and element they are in, the name and description texts,
-// and Clone to new id.
+// Clone to new id, and its own Plan / Apply / Revert buttons and output box.
 //
 // The view holds no data logic and no mod of its own. MS2.ModKit.ItemEditor turns what is done here into operations
 // of the mod the MS2 Tables view is editing; the session, the worker thread (Plan / Apply / Revert), the output text
@@ -46,6 +46,7 @@ namespace MS2.Tables
         readonly TextBox guideBox = new TextBox { Width = 240, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 110 };
+        readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();
 
@@ -63,6 +64,18 @@ namespace MS2.Tables
             top.Controls.Add(languageBox);
             tips.SetToolTip(languageBox, "The language folder (string/<language>) whose names are searched and shown. A name or description set here is written to every language.");
             top.Controls.Add(hitsLabel);
+
+            // the same choice and the same three commands as in the MS2 Tables view, run by that view's worker
+            // thread; the result shows in this view's output box and the Tables view stays where it is
+            FlowLayoutPanel applyBar = Bar();
+            applyBar.Controls.Add(Lbl("Apply to"));
+            targetBox.Items.Add("workspace (patched archives)");
+            targetBox.Items.Add("game folder (loose files)");
+            tips.SetToolTip(targetBox, "Where Apply writes the client's tables (the same choice as in the MS2 Tables view): patched copies of the archives in the workspace folder, or plain files under Data/ of the game folder. The server's archives always go to the workspace.");
+            applyBar.Controls.Add(targetBox);
+            applyBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
+            applyBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change", delegate { return host.DoApply(); }));
+            applyBar.Controls.Add(Job("Revert", "Removes what Apply wrote", delegate { return host.DoRevert(); }));
 
             FlowLayoutPanel itemBar = Bar();
             itemBar.Controls.Add(itemLabel);
@@ -120,8 +133,10 @@ namespace MS2.Tables
             Controls.Add(hitList);
             Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
             Controls.Add(outputBox);
+            Controls.Add(applyBar);
             Controls.Add(top);
-            lockable.AddRange(new Control[] { top, hitList, right });
+            lockable.AddRange(new Control[] { top, applyBar, hitList, right });
+            targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
             searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -172,6 +187,33 @@ namespace MS2.Tables
             return b;
         }
 
+        /// <summary>A button for Plan, Apply or Revert: the command starts a job of the Tables view and returns at once.</summary>
+        Button Job(string text, string tip, Func<bool> start)
+        {
+            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+            b.Click += delegate
+            {
+                // Guard connects the Tables view (and loads the session); the job itself is started outside it
+                if (Guard(delegate { grid.EndEdit(); host.NeedHandle(); })) start();
+            };
+            tips.SetToolTip(b, tip);
+            return b;
+        }
+
+        protected override void OnEnter(EventArgs e)
+        {
+            TablesView.ItemsInUse = true;
+            base.OnEnter(e);
+        }
+
+        void OnHostTarget()
+        {
+            bool was = filling;
+            filling = true;
+            targetBox.SelectedIndex = host.TargetIndex;
+            filling = was;
+        }
+
         // ---- the MS2 Tables view: session, mod, worker thread, output, close question ----
 
         void Hook(TablesView h)
@@ -183,6 +225,7 @@ namespace MS2.Tables
                 host.Flushing -= OnHostFlushing;
                 host.BusyChanged -= OnHostBusy;
                 host.Said -= OnHostSaid;
+                host.TargetChanged -= OnHostTarget;
             }
             host = h;
             editor = null;
@@ -191,6 +234,8 @@ namespace MS2.Tables
             h.Flushing += OnHostFlushing;
             h.BusyChanged += OnHostBusy;
             h.Said += OnHostSaid;
+            h.TargetChanged += OnHostTarget;
+            OnHostTarget();
             outputBox.Text = h.OutputText;
             OnHostBusy(h.Busy);
         }

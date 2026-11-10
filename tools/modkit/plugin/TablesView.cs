@@ -144,7 +144,11 @@ namespace MS2.Tables
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, rowBar, grid, entryList, modBar, modsPanel });
 
-            targetBox.SelectedIndexChanged += delegate { if (!filling && session != null) session.Target = TargetChosen(); };
+            targetBox.SelectedIndexChanged += delegate
+            {
+                if (!filling && session != null) session.Target = TargetChosen();
+                if (TargetChanged != null) TargetChanged();
+            };
             modsList.ItemCheck += OnModCheck;
             modsList.DoubleClick += delegate { Guard(delegate { LoadMod(); }); };
             archiveBox.SelectedIndexChanged += delegate { if (!filling) FillEntries(); };
@@ -682,6 +686,31 @@ namespace MS2.Tables
         internal void SayOutside(string text) { Say(text); }
 
         internal string OutputText { get { return outputBox.Text; } }
+
+        /// <summary>The "Apply to" choice (0 = workspace, 1 = game folder), for another view that shows it too.</summary>
+        internal int TargetIndex
+        {
+            get { return targetBox.SelectedIndex; }
+            set { if (value >= 0 && value < targetBox.Items.Count) targetBox.SelectedIndex = value; }
+        }
+
+        /// <summary>The "Apply to" choice changed, here or by the session being loaded.</summary>
+        internal event MethodInvoker TargetChanged;
+
+        /// <summary>
+        /// The view whose buttons were used last: true = MS2 Items. The MS2 Mods menu commands leave the Tables
+        /// view where it is when the Items view is the one in use.
+        /// </summary>
+        internal static bool ItemsInUse;
+
+        protected override void OnEnter(EventArgs e)
+        {
+            ItemsInUse = false;
+            base.OnEnter(e);
+        }
+
+        /// <summary>The worker thread reports back through this view's window handle; a view never shown has none yet.</summary>
+        internal void NeedHandle() { if (!IsHandleCreated) CreateControl(); if (!IsHandleCreated) { IntPtr h = Handle; } }
 
         // ---- jobs on the worker thread ----
 

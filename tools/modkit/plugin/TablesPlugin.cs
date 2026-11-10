@@ -68,7 +68,9 @@ namespace MS2.Tables
                     Logger.Error("MS2 Tables: the view " + TablesView.ViewId + " could not be created");
                     return ExecutionResult.Failed;
                 }
-                views.ShowView(view);
+                // from the Items view the command runs where it is: its result shows in that view's own output box
+                if (ShowsTables || !TablesView.ItemsInUse) views.ShowView(view);
+                else view.NeedHandle();
                 return Run(view) ? ExecutionResult.Success : ExecutionResult.Failed;
             }
             catch (Exception ex)
@@ -79,6 +81,8 @@ namespace MS2.Tables
         }
 
         protected abstract bool Run(TablesView view);
+        /// <summary>True for the command that is there to show the Tables view.</summary>
+        protected virtual bool ShowsTables { get { return false; } }
     }
 
     /// <summary>Shows the MS2 Items view. The Tables view is made first: the session and the mod are its.</summary>
@@ -107,7 +111,11 @@ namespace MS2.Tables
         }
     }
 
-    public class ShowAction : TablesAction { protected override bool Run(TablesView view) { return true; } }
+    public class ShowAction : TablesAction
+    {
+        protected override bool Run(TablesView view) { return true; }
+        protected override bool ShowsTables { get { return true; } }
+    }
     public class PlanAction : TablesAction { protected override bool Run(TablesView view) { return view.DoPlan(); } }
     public class ApplyAction : TablesAction { protected override bool Run(TablesView view) { return view.DoApply(); } }
     public class RevertAction : TablesAction { protected override bool Run(TablesView view) { return view.DoRevert(); } }
