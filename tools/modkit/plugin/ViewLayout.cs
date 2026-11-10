@@ -100,6 +100,17 @@ namespace MS2.Tables
         /// is the one given; dragging its splitter sets a new one), never under min pixels and never so high that less
         /// than min pixels are left for the rest.
         /// </summary>
+        /// <summary>
+        /// The output box at the bottom of a view keeps two lines of its font and its sideways scroll bar (it scrolls)
+        /// until its splitter is dragged.
+        /// </summary>
+        public static void KeepLogLines(TextBox box, Control container)
+        {
+            int h = 2 * box.Font.Height + SystemInformation.HorizontalScrollBarHeight + 8;
+            box.Height = h;
+            KeepHeightShare(box, container, 0, h);
+        }
+
         public static void KeepHeightShare(Control pane, Control container, double share, int min)
         {
             KeepHeightShare(pane, container, share, min, null);
@@ -128,7 +139,9 @@ namespace MS2.Tables
             pane.SizeChanged += delegate
             {
                 int h = container.ClientSize.Height;
-                if (!adjusting && h > 2 * min && pane.Visible) share = Math.Max(0.05, Math.Min(0.95, pane.Height / (double)h));
+                // only a splitter drag (the mouse button is down) sets a new share: the view's own scaling when it is
+                // made changes the height too, and must not
+                if (!adjusting && h > 2 * min && pane.Visible && (Control.MouseButtons & MouseButtons.Left) != 0) share = Math.Max(0.05, Math.Min(0.95, pane.Height / (double)h));
             };
             fit(container, EventArgs.Empty);
         }

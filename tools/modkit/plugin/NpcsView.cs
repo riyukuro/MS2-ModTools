@@ -142,7 +142,7 @@ namespace MS2.Tables
             Controls.Add(applyBar);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, applyBar, hitList, right });
-            ViewLayout.KeepHeightShare(outputBox, this, 0.15, 48);
+            ViewLayout.KeepLogLines(outputBox, this);
             ViewLayout.CentreOnFirstShow(this);
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
