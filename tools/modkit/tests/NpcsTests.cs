@@ -67,8 +67,9 @@ namespace MS2.ModKit.Tests
         /// <summary>
         /// Languages: kms-client en and zz, gms-client en, server en and es. keeperTitle: the en title files of the
         /// two clients have a row of 2900002, the server's has none (shipped string files differ so per side).
+        /// nameOnlyLang: the server also has a language xx with a name file only.
         /// </summary>
-        public FakeNpcs(bool kms, bool gms, bool server, bool keeperTitle = false)
+        public FakeNpcs(bool kms, bool gms, bool server, bool keeperTitle = false, bool nameOnlyLang = false)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-npcs-" + Guid.NewGuid().ToString("N"));
             string k = null, g = null, s = null;
@@ -92,6 +93,7 @@ namespace MS2.ModKit.Tests
                 // an emotion file of an id that has no npc, as shipped data has some
                 if (!server2) l.Add(E("emotion/npc/02900060.xml", Emotion));
                 if (server2) Strings(l, false, "en", "es"); else Strings(l, keeperTitle, "en");
+                if (server2 && nameOnlyLang) l.Add(E("string/xx/npcname.xml", Names("npcname.xml", " (xx)")));
                 M2dWriter.Create(Path.Combine(dir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, l);
             }
             Data = new DataSet(k, g, s);
@@ -171,6 +173,20 @@ namespace MS2.ModKit.Tests
 
                 List<string> reg = ed.Registration(2900050);
                 Assert.That(string.Join("\n", reg.ToArray()), Does.Contain("npcdata/029.xml").And.Contain("npc/02/90/02900050.xml").And.Contain("emotion/npc/02900050.xml").And.Contain("02900050"));
+            }
+        }
+
+        [Test]
+        public void RegistrationListsTheLanguagesOfEachStringFile()
+        {
+            using (var f = new FakeNpcs(true, true, true, nameOnlyLang: true))
+            {
+                List<string> reg = f.Editor().Registration(2900050);
+                string all = string.Join("\n", reg.ToArray());
+                Assert.That(all, Does.Contain(S + "  string/<en,es,xx>/npcname.xml"), all);
+                Assert.That(all, Does.Contain(S + "  string/<en,es>/npctitle.xml"), all);
+                Assert.That(all, Does.Contain(K + "  string/<en,zz>/npctitle.xml"), all);
+                Assert.That(all, Does.Not.Contain("npcfunctionname.xml"), "no target ships one: " + all);
             }
         }
 

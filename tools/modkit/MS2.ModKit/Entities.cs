@@ -501,20 +501,26 @@ namespace MS2.ModKit
         /// The language folders of an archive that hold the entity's name file, read from the archive; when it has
         /// none, the languages its profile reads (Profile.Languages).
         /// </summary>
-        public List<string> LanguagesIn(string archive)
+        public List<string> LanguagesIn(string archive) { return LanguagesIn(archive, StringFiles[0]); }
+
+        /// <summary>
+        /// The language folders of an archive that hold one string file (file: "npctitle.xml", ...). Only for the
+        /// name file does an archive without any fall back to its profile's languages.
+        /// </summary>
+        public List<string> LanguagesIn(string archive, string file)
         {
-            string key = "entitylangs\n" + archive + "\n" + StringFiles[0];
+            string key = "entitylangs\n" + archive + "\n" + file;
             object o;
             if (Data.Cache.TryGetValue(key, out o)) return new List<string>((List<string>)o);
             var list = new List<string>();
-            var rx = new Regex("^string/([^/]+)/" + Regex.Escape(StringFiles[0]) + "$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+            var rx = new Regex("^string/([^/]+)/" + Regex.Escape(file) + "$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
             if (Data.Exists(archive))
                 foreach (M2dEntry e in Data.Open(archive).Entries)
                 {
                     Match m = rx.Match(e.Name);
                     if (m.Success && !list.Contains(m.Groups[1].Value)) list.Add(m.Groups[1].Value);
                 }
-            if (list.Count == 0)
+            if (list.Count == 0 && string.Equals(file, StringFiles[0], StringComparison.OrdinalIgnoreCase))
             {
                 Profile p = Profile.OfArchive(archive);
                 if (p != null) list.AddRange(p.Languages);

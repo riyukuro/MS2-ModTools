@@ -474,6 +474,8 @@ an empty id box takes the next free id of the source's block.
 - The clone gets its own copy of every piece the source has: the npc row, the npc file, the name, plural, title and
   function name rows in every language of every target, and the face and talk files. It keeps the source's model
   and everything else until you change it.
+- The copied rows are the source's rows as shipped, not as your mod has changed them: a name or title you gave the
+  source does not carry over. Set the clone's own texts with its Name and Title boxes.
 - A clone cannot be cloned again; clone the shipped npc once more. **Remove clone** takes a clone out of the mod.
 
 Where a new id is written, per target (the plan view also lists this for a new npc):

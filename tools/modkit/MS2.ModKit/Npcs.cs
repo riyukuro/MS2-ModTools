@@ -145,7 +145,10 @@ namespace MS2.ModKit
             if (FileXml != null) l.Add(FileXml + "  " + NewFileEntry(id));
             foreach (string archive in Sides())
                 foreach (string f in StringFiles)
-                    l.Add(archive + "  string/<" + string.Join(",", LanguagesIn(archive).ToArray()) + ">/" + f + "  <key id=\"" + Padded(id) + "\"> row, where the source has one");
+                {
+                    List<string> langs = LanguagesIn(archive, f);
+                    if (langs.Count > 0) l.Add(archive + "  string/<" + string.Join(",", langs.ToArray()) + ">/" + f + "  <key id=\"" + Padded(id) + "\"> row, where the source has one");
+                }
             foreach (string archive in Sides())
                 foreach (string c in CompanionFiles(id))
                     l.Add(archive + "  " + c + ", where the source has one");
