@@ -16,7 +16,6 @@ using System.Windows.Forms;
 using Emergent.Toolbench;
 using Emergent.Toolbench.UI.Workbench;
 using MS2.ModKit;
-using WeifenLuo.WinFormsUI.Docking;
 
 namespace MS2.Tables
 {
@@ -46,7 +45,6 @@ namespace MS2.Tables
         Thread worker;
         string busy;                                              // what the worker is doing; null = idle
         int lastProgress;
-        bool widened;
         readonly TextBox pendingBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill };
 
@@ -125,7 +123,7 @@ namespace MS2.Tables
             grid.RowHeadersVisible = false;
             grid.MultiSelect = false;
             grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
             grid.BackgroundColor = SystemColors.AppWorkspace;
             grid.DefaultCellStyle.BackColor = SystemColors.Window;
@@ -143,6 +141,8 @@ namespace MS2.Tables
             Controls.Add(bottom);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, rowBar, grid, entryList, modBar, modsPanel });
+            ViewLayout.KeepHeightShare(bottom, this, 0.32, 120);
+            ViewLayout.CentreOnFirstShow(this);
 
             targetBox.SelectedIndexChanged += delegate
             {
@@ -415,8 +415,11 @@ namespace MS2.Tables
             columns.Clear();
             draft = d;
             if (d == null) { tableLabel.Text = ""; return; }
-            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "row", ReadOnly = true, Width = 190, Frozen = true, SortMode = DataGridViewColumnSortMode.NotSortable });
+            // the columns are added with fixed widths, then share the full width (ViewLayout.FillColumns)
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "row", ReadOnly = true, Width = 190, Frozen = true, SortMode = DataGridViewColumnSortMode.NotSortable }));
             foreach (string c in d.Columns) AddGridColumn(c);
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.RowCount = d.Rows.Count;
             tableLabel.Text = d.Archive + "  " + d.Entry + (d.ParentSelector.Length > 0 ? "  " + d.ParentSelector : "");
         }
@@ -424,7 +427,7 @@ namespace MS2.Tables
         void AddGridColumn(string name)
         {
             columns.Add(name);
-            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = name, Width = 90, SortMode = DataGridViewColumnSortMode.NotSortable });
+            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = name, Width = 90, SortMode = DataGridViewColumnSortMode.NotSortable }));
         }
 
         void SyncColumns()
@@ -781,36 +784,6 @@ namespace MS2.Tables
             lastProgress = now;
             string text = what + ": " + p.Stage + (string.IsNullOrEmpty(p.Item) ? "" : " " + p.Item) + (p.Total > 0 ? " " + p.Done + "/" + p.Total : "");
             Post(delegate { if (busy != null) busyLabel.Text = text; });
-        }
-
-        // ---- the width at first show ----
-
-        protected override void OnVisibleChanged(EventArgs e)
-        {
-            base.OnVisibleChanged(e);
-            if (Visible && !widened && IsHandleCreated) { widened = true; BeginInvoke((MethodInvoker)Widen); }
-        }
-
-        /// <summary>
-        /// A plain view is docked at the right edge at a fifth of the window, too narrow for a grid. Once per
-        /// start, a view found docked at a side and under 600 pixels wide gets 60 % of the window.
-        /// </summary>
-        void Widen()
-        {
-            try
-            {
-                for (Control c = Parent; c != null; c = c.Parent)
-                {
-                    var dc = c as DockContent;
-                    if (dc == null) continue;
-                    DockPanel p = dc.DockPanel;
-                    if (p == null || Width >= 600) return;
-                    if (dc.DockState == DockState.DockRight && p.DockRightPortion < 0.6) p.DockRightPortion = 0.6;
-                    else if (dc.DockState == DockState.DockLeft && p.DockLeftPortion < 0.6) p.DockLeftPortion = 0.6;
-                    return;
-                }
-            }
-            catch (Exception ex) { Logger.Warning("MS2 Tables: could not widen the view: " + ex.Message); }
         }
 
         // ---- plan, apply, revert (also behind the MS2 Mods menu) ----

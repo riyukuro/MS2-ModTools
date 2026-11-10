@@ -108,14 +108,14 @@ namespace MS2.Tables
             grid.RowHeadersVisible = false;
             grid.MultiSelect = false;
             grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
-            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+            grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
             grid.BackgroundColor = SystemColors.AppWorkspace;
             grid.DefaultCellStyle.BackColor = SystemColors.Window;
             grid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
-            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "field", ReadOnly = true, Width = 330, SortMode = DataGridViewColumnSortMode.NotSortable });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "value", Width = 260, SortMode = DataGridViewColumnSortMode.NotSortable });
-            grid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "shipped value", ReadOnly = true, Width = 260, SortMode = DataGridViewColumnSortMode.NotSortable });
+            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "field", ReadOnly = true, Width = 330, SortMode = DataGridViewColumnSortMode.NotSortable }));
+            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "value", Width = 260, SortMode = DataGridViewColumnSortMode.NotSortable }));
+            grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "shipped value", ReadOnly = true, Width = 260, SortMode = DataGridViewColumnSortMode.NotSortable }));
             grid.CellValueNeeded += OnCellValueNeeded;
             grid.CellValuePushed += OnCellValuePushed;
             grid.CellFormatting += OnCellFormatting;
@@ -139,6 +139,8 @@ namespace MS2.Tables
             Controls.Add(applyBar);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, applyBar, hitList, right });
+            ViewLayout.KeepHeightShare(outputBox, this, 0.18, 60);
+            ViewLayout.CentreOnFirstShow(this);
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
             searchBox.KeyDown += delegate(object sender, KeyEventArgs e)

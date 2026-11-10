@@ -71,7 +71,7 @@ namespace MS2.Tables
                     return ExecutionResult.Failed;
                 }
                 // from the Items view the command runs where it is: its result shows in that view's own output box
-                if (ShowsTables || !TablesView.ItemsInUse) views.ShowView(view);
+                if (ShowsTables || !TablesView.ItemsInUse) { views.ShowView(view); ViewLayout.ToCentre(view); }
                 else view.NeedHandle();
                 return Run(view) ? ExecutionResult.Success : ExecutionResult.Failed;
             }
@@ -106,6 +106,7 @@ namespace MS2.Tables
                     return ExecutionResult.Failed;
                 }
                 views.ShowView(view);
+                ViewLayout.ToCentre(view);
                 return ExecutionResult.Success;
             }
             catch (Exception ex)
