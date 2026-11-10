@@ -429,10 +429,14 @@ namespace MS2.ModKit
             return null;
         }
 
-        /// <summary>The entity an entry belongs to, and on which side; null when no map covers it.</summary>
+        /// <summary>
+        /// The entity an entry belongs to, and on which side; null when no map covers it. A map's server side
+        /// (the per-id layout) stands for the gms-client too: "gms-client:Xml.m2d" is found as "server:Xml.m2d".
+        /// </summary>
         public EntityMap Find(string archive, string entry, out bool clientSide)
         {
             long n;
+            if (Profile.OfArchive(archive) == Profile.GmsClient) archive = Profile.Server.ArchiveIn(archive);
             foreach (EntityMap e in Entities)
             {
                 if (string.Equals(e.Client.Archive, archive, StringComparison.OrdinalIgnoreCase) && e.Client.Match(entry, out n)) { clientSide = true; return e; }

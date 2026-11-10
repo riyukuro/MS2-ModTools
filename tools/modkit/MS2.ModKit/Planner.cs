@@ -21,6 +21,10 @@ namespace MS2.ModKit
         public string OldValue, NewValue;
         /// <summary>Written by the two-sided sync (PlannerSync.cs), not by a line of the mod.</summary>
         public bool Synced;
+        /// <summary>Written by the mirror between the per-id profiles (PlannerMirror.cs): the same line of the mod on
+        /// another target; MirroredFrom is the archive the mod names ("server:Xml.m2d").</summary>
+        public bool Mirrored;
+        public string MirroredFrom;
 
         // for the sync pass
         internal XmlElem Elem, Source;
@@ -29,7 +33,7 @@ namespace MS2.ModKit
         internal AttrOp AttrOp;
         internal Mod Mod;
 
-        public override string ToString() { return Text() + (Synced ? "  (synced from the other side)" : ""); }
+        public override string ToString() { return Text() + (Synced ? "  (synced from the other side)" : Mirrored ? "  (mirrored from " + MirroredFrom + ")" : ""); }
 
         string Text()
         {
@@ -156,7 +160,7 @@ namespace MS2.ModKit
 
     public static partial class Planner
     {
-        sealed class Claim { internal Mod Mod; internal XmlElem Elem; internal string What, Value; internal bool Synced; }
+        sealed class Claim { internal Mod Mod; internal XmlElem Elem; internal string What, Value; internal bool Synced, Mirrored; }
 
         sealed class EntryState
         {
@@ -179,6 +183,11 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, EntryState> States = new Dictionary<string, EntryState>(StringComparer.Ordinal);
             internal readonly List<EntryState> Order = new List<EntryState>();
             internal readonly Dictionary<string, string> BadArchives = new Dictionary<string, string>();
+            internal PlanOptions Options;
+            /// <summary>Set while a mirrored op is planned (PlannerMirror.cs).</summary>
+            internal MirrorCtx Mirror;
+            internal readonly Dictionary<string, Dropped> Dropped = new Dictionary<string, Dropped>(StringComparer.Ordinal);
+            internal readonly List<Dropped> DroppedOrder = new List<Dropped>();
 
             internal M2dArchive Open(Mod mod, string archive)
             {
@@ -213,7 +222,7 @@ namespace MS2.ModKit
         public static Plan Build(DataSet data, IList<Mod> mods, PlanOptions options)
         {
             if (options == null) options = new PlanOptions();
-            var run = new Run { Data = data, Plan = new Plan() };
+            var run = new Run { Data = data, Plan = new Plan(), Options = options };
             Plan plan = run.Plan;
             var seen = new Dictionary<string, bool>();
             foreach (Mod m in mods)
@@ -223,7 +232,8 @@ namespace MS2.ModKit
                 plan.Mods.Add(m);
             }
 
-            int total = 0, done = 0;
+            List<MirrorOp> mirrored = MirrorOps(run, mods);
+            int total = mirrored.Count, done = 0;
             foreach (Mod m in mods) total += m.Ops.Count * 2;
 
             // whole entries first: an edit may then work on an entry that a mod adds
@@ -232,15 +242,20 @@ namespace MS2.ModKit
                 {
                     ProgressUtil.Report(options.Progress, "plan", m.Id, ++done, total);
                     var en = op as EntryOp;
-                    if (en != null) DoEntryOp(run, m, en);
+                    if (en != null && Targeted(run, m, en)) DoEntryOp(run, m, en);
                 }
+            foreach (MirrorOp mo in mirrored)
+                if (mo.Op is EntryOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
             foreach (Mod m in mods)
                 foreach (ModOp op in m.Ops)
                 {
                     ProgressUtil.Report(options.Progress, "plan", m.Id, ++done, total);
                     var ed = op as EditOp;
-                    if (ed != null) DoEditOp(run, m, ed);
+                    if (ed != null && Targeted(run, m, ed)) DoEditOp(run, m, ed);
                 }
+            foreach (MirrorOp mo in mirrored)
+                if (mo.Op is EditOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
+            FinishMirror(run);
             SyncPass(run, options);
 
             foreach (EntryState st in run.Order)
@@ -277,6 +292,19 @@ namespace MS2.ModKit
             return plan;
         }
 
+        // A line for a profile the data set does not have (a server line in a workspace of the two clients) is not
+        // an error: the mod is applied to the targets that are there. The line still reaches the other per-id
+        // profile through the mirror; a kms-client line without kms-client data reaches nothing.
+        static bool Targeted(Run run, Mod mod, ModOp op)
+        {
+            Profile p = Profile.OfArchive(op.Archive);
+            if (p == null || run.Data.Has(p) || run.Data.Profiles.Count == 0) return true;
+            bool mirrored = false;
+            foreach (Profile q in run.Data.Profiles) if (p.Mirrors(q)) mirrored = true;
+            run.Plan.Msg(run.Plan.Notes, mod, op.Archive, null, p.Name + " is not a target of this data set: its lines are " + (mirrored ? "planned for the other per-id target only" : "not applied"));
+            return false;
+        }
+
         // ---- whole entries ----
 
         static void DoEntryOp(Run run, Mod mod, EntryOp op)
@@ -291,7 +319,7 @@ namespace MS2.ModKit
                 if (!st.Existed && st.Base == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "cannot delete the entry, the archive has none of that name (mod.xml line " + op.Line + ")"); return; }
                 if (st.BaseMod != null) plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "deletes the entry that " + Who(st.BaseMod, mod) + " " + (st.Existed ? "replaces" : "adds"));
                 st.DeletedBy = mod; st.BaseMod = null; st.Base = null;
-                plan.Changes.Add(new PlanChange { Kind = ChangeKind.DeleteEntry, ModId = mod.Id, Archive = op.Archive, Entry = st.Name });
+                plan.Changes.Add(Mark(run, new PlanChange { Kind = ChangeKind.DeleteEntry, ModId = mod.Id, Archive = op.Archive, Entry = st.Name }));
                 return;
             }
 
@@ -305,6 +333,7 @@ namespace MS2.ModKit
                 if (!File.Exists(full)) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": no such file in the mod folder (mod.xml line " + op.Line + ")"); return; }
                 bytes = File.ReadAllBytes(full);
                 from = "file " + op.File;
+                if (run.Mirror != null) bytes = MirrorStrip(run, mod, op.Archive, op.Name, bytes);
             }
             else
             {
@@ -321,11 +350,11 @@ namespace MS2.ModKit
                 plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry that " + Who(st.BaseMod, mod) + " also " + (st.Existed ? "replaces" : "adds"));
             }
             st.DeletedBy = null; st.Base = bytes; st.BaseMod = mod;
-            plan.Changes.Add(new PlanChange
+            plan.Changes.Add(Mark(run, new PlanChange
             {
                 Kind = st.Existed ? ChangeKind.ReplaceEntry : ChangeKind.AddEntry, ModId = mod.Id, Archive = op.Archive, Entry = st.Name,
                 NewValue = from + ", " + bytes.Length + " bytes", OldValue = st.Existed ? st.Original.Length + " bytes" : null,
-            });
+            }));
             if (!st.Existed) plan.NewIds.Add(new NewId { Mod = mod, Archive = op.Archive, Entry = st.Name });
         }
 
@@ -354,9 +383,9 @@ namespace MS2.ModKit
             {
                 try
                 {
-                    if (r.Kind == RowOpKind.Change) DoChange(plan, mod, st, r);
-                    else if (r.Kind == RowOpKind.Delete) DoDelete(plan, mod, st, r);
-                    else DoAdd(plan, mod, st, r);
+                    if (r.Kind == RowOpKind.Change) DoChange(run, mod, st, r);
+                    else if (r.Kind == RowOpKind.Delete) DoDelete(run, mod, st, r);
+                    else DoAdd(run, mod, st, r);
                 }
                 catch (ModKitException x)
                 {
@@ -405,8 +434,9 @@ namespace MS2.ModKit
             return string.IsNullOrEmpty(selector) ? from : RowPath.Parse(selector).Resolve(from);
         }
 
-        static void DoChange(Plan plan, Mod mod, EntryState st, RowOp r)
+        static void DoChange(Run run, Mod mod, EntryState st, RowOp r)
         {
+            Plan plan = run.Plan;
             XmlElem target = Sub(st.Doc.Root, r.At);
             foreach (AttrOp a in r.Attrs)
             {
@@ -425,7 +455,9 @@ namespace MS2.ModKit
                     throw new ModKitException("<" + el.Name + "> at " + row + " has child elements, its text cannot be set");
                 string key = el.Start + "\n" + what;
                 Claim prev;
-                if (st.Claims.TryGetValue(key, out prev))
+                st.Claims.TryGetValue(key, out prev);
+                if (run.Mirror != null && !MirrorKeeps(run, mod, st, el, a, prev, row, what, value)) continue;
+                if (prev != null)
                 {
                     if (prev.Value == value) { plan.Msg(plan.Notes, mod, st.Archive, st.Name, row + " " + what + ": same value as " + Who(prev.Mod, mod)); continue; }
                     plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, row + " " + what + ": " + Show(value) + " here, " + Show(prev.Value) + " in " + Who(prev.Mod, mod));
@@ -434,15 +466,15 @@ namespace MS2.ModKit
                 else if (old == value || (a.Kind == AttrOpKind.Unset && old == null))
                 {
                     plan.Msg(plan.Notes, mod, st.Archive, st.Name, row + " " + what + (old == null ? " is not there, nothing to remove" : " already is \"" + old + "\""));
-                    st.Claims[key] = new Claim { Mod = mod, Elem = el, What = what, Value = value };
+                    st.Claims[key] = new Claim { Mod = mod, Elem = el, What = what, Value = value, Mirrored = run.Mirror != null };
                     continue;
                 }
-                st.Claims[key] = new Claim { Mod = mod, Elem = el, What = what, Value = value };
+                st.Claims[key] = new Claim { Mod = mod, Elem = el, What = what, Value = value, Mirrored = run.Mirror != null };
                 var ch = new PlanChange { ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, Name = a.Name, OldValue = old, NewValue = value, Elem = el, State = st, Op = r, AttrOp = a, Mod = mod };
                 if (a.Kind == AttrOpKind.Set) { st.Ed.SetAttr(el, a.Name, a.Value); ch.Kind = ChangeKind.SetAttr; }
                 else if (a.Kind == AttrOpKind.Unset) { st.Ed.RemoveAttr(el, a.Name); ch.Kind = ChangeKind.RemoveAttr; }
                 else { st.Ed.SetText(el, a.Value); ch.Kind = ChangeKind.SetText; }
-                plan.Changes.Add(ch);
+                plan.Changes.Add(Mark(run, ch));
                 if (a.Kind == AttrOpKind.Set)
                     plan.Probes.Add(new SchemaProbe { Mod = mod, Archive = st.Archive, Entry = st.Name, ElementPath = RowPath.NamePath(el, true), Attr = a.Name, Value = a.Value });
             }
@@ -463,8 +495,9 @@ namespace MS2.ModKit
             }
         }
 
-        static void DoDelete(Plan plan, Mod mod, EntryState st, RowOp r)
+        static void DoDelete(Run run, Mod mod, EntryState st, RowOp r)
         {
+            Plan plan = run.Plan;
             XmlElem target = Sub(st.Doc.Root, r.At);
             if (target == st.Doc.Root) throw new ModKitException("the root element cannot be deleted; delete the entry instead");
             string row = RowPath.Canonical(target);
@@ -486,7 +519,7 @@ namespace MS2.ModKit
             st.Ed.DropEditsWithin(target);
             st.Ed.Delete(target);
             st.Deleted.Add(new KeyValuePair<XmlElem, Mod>(target, mod));
-            plan.Changes.Add(new PlanChange { Kind = ChangeKind.DeleteRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, OldValue = target.OuterText });
+            plan.Changes.Add(Mark(run, new PlanChange { Kind = ChangeKind.DeleteRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, OldValue = target.OuterText }));
         }
 
         static string RowKey(XmlElem e)
@@ -501,8 +534,9 @@ namespace MS2.ModKit
             return sb.ToString();
         }
 
-        static void DoAdd(Plan plan, Mod mod, EntryState st, RowOp r)
+        static void DoAdd(Run run, Mod mod, EntryState st, RowOp r)
         {
+            Plan plan = run.Plan;
             XmlDoc doc = st.Doc;
             string frag, fromIndent;
             XmlElem src = null;
@@ -555,6 +589,11 @@ namespace MS2.ModKit
                 return;
             }
 
+            if (run.Mirror != null)
+            {
+                string stripped = MirrorStripRow(run, mod, st, RowPath.NamePath(parent, true), fdoc, frag);
+                if (stripped != frag) { frag = stripped; fdoc = XmlDoc.ParseFragment(frag, "the new row"); made = fdoc.Root; }
+            }
             string key = parent.Start + "\n" + RowKey(made);
             Mod other;
             if (st.AddKeys.TryGetValue(key, out other))
@@ -575,7 +614,7 @@ namespace MS2.ModKit
             else if (before) st.Ed.InsertBefore(anchor, frag, fromIndent);
             else st.Ed.InsertAfter(anchor, frag, fromIndent);
 
-            plan.Changes.Add(new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, NewValue = frag, Elem = made, Source = src, State = st, Op = r, Mod = mod });
+            plan.Changes.Add(Mark(run, new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, NewValue = frag, Elem = made, Source = src, State = st, Op = r, Mod = mod }));
             var attrs = new Dictionary<string, string>();
             foreach (XmlAttr a in made.Attrs) attrs[a.Name] = a.Value;
             string names = RowPath.NamePath(parent, false);

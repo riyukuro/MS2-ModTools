@@ -258,6 +258,34 @@ namespace MS2.ModKit
             return sch;
         }
 
+        /// <summary>
+        /// The schema of one table of an archive (every entry whose TableOf is the name), scanned once and kept
+        /// for as long as the data set; null when the archive has no such table.
+        /// </summary>
+        public static TableSchema ScanTable(DataSet data, string archive, string table)
+        {
+            archive = DataSet.NormalizeRef(archive);
+            string key = "tableschema\n" + archive + "\n" + table;
+            object o;
+            if (data.Cache.TryGetValue(key, out o)) return (TableSchema)o;
+            TableSchema t = null;
+            M2dArchive arch = data.Open(archive);
+            foreach (M2dEntry e in arch.Entries)
+            {
+                if (!e.Name.EndsWith(".xml", StringComparison.OrdinalIgnoreCase) || TableOf(e.Name) != table) continue;
+                XmlDoc doc;
+                try { doc = XmlDoc.Parse(arch.Read(e), e.Name); }
+                catch (ModKitException) { continue; }
+                if (doc.Root == null) continue;
+                if (t == null) t = new TableSchema { Archive = archive, Name = table };
+                t.Files++;
+                Walk(t, t.Need(doc.Root.Name), doc.Root);
+            }
+            if (t != null) t.Finish();
+            data.Cache[key] = t;
+            return t;
+        }
+
         static void Walk(TableSchema t, ElemSchema s, XmlElem e)
         {
             s.Count++;

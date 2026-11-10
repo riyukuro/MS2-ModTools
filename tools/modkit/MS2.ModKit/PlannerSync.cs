@@ -1,5 +1,8 @@
 // Two-sided sync: after the mods' own edits are resolved, every attribute a mod changed in an entity that has a
-// field map (FieldMap.cs) is carried to the entity's other side, with the map's conversion. The other side is
+// field map (FieldMap.cs) is carried to the entity's other side, with the map's conversion. A map pairs the
+// kms-client (bundle rows) with the per-id layout; that side is every per-id target of the data set (server and
+// gms-client, see Profile.cs): a kms-client change goes to each of them, a server or gms-client change to the
+// kms-client. A change the mirror wrote (PlannerMirror.cs) is not synced again. The other side is
 // written only when (a) no mod sets it itself, (b) the row is not marked sync="false" and (c) the two sides
 // corresponded before the change. Everything that stays one-sided is a warning line of the plan.
 using System;
@@ -25,7 +28,19 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, string> EntryOf = new Dictionary<string, string>();
         }
 
-        static string SideName(bool client) { return client ? "client" : "server"; }
+        // the name of a side in the messages: the data root ("client", "server", "gms-client")
+        static string SideName(string archive) { return DataSet.RootOf(archive); }
+
+        // the archives a change of this side is synced to: the kms-client one, or every per-id target there is
+        static List<string> SyncTargets(Run run, EntityMap em, bool client)
+        {
+            var list = new List<string>();
+            if (!client) { list.Add(em.Client.Archive); return list; }
+            foreach (Profile p in run.Data.Profiles)
+                if (!p.Bundles) list.Add(p.ArchiveIn(em.Server.Archive));
+            if (list.Count == 0) list.Add(em.Server.Archive);
+            return list;
+        }
 
         static string Val(string v) { return v == null ? "(none)" : "\"" + v + "\""; }
 
@@ -36,7 +51,7 @@ namespace MS2.ModKit
             PlanChange[] snapshot = plan.Changes.ToArray();
             foreach (PlanChange ch in snapshot)
             {
-                if (ch.State == null || ch.Mod == null) continue;
+                if (ch.State == null || ch.Mod == null || ch.Mirrored) continue;
                 if (!plan.Changes.Contains(ch)) continue;
                 bool attr = ch.Kind == ChangeKind.SetAttr || ch.Kind == ChangeKind.RemoveAttr;
                 if (!attr && ch.Kind != ChangeKind.AddRow) continue;
@@ -45,8 +60,12 @@ namespace MS2.ModKit
                 try
                 {
                     if (em == null) { if (attr) Loose(sr, ch); }
-                    else if (attr) SyncAttr(sr, em, client, ch);
-                    else SyncAdd(sr, em, client, ch);
+                    else
+                        foreach (string target in SyncTargets(run, em, client))
+                        {
+                            if (attr) SyncAttr(sr, em, client, ch, target);
+                            else SyncAdd(sr, em, client, ch, target);
+                        }
                 }
                 catch (ModKitException x) { plan.Msg(plan.Warnings, ch.Mod, ch.Archive, ch.Entry, "two-sided sync: " + x.Message); }
             }
@@ -66,11 +85,15 @@ namespace MS2.ModKit
         {
             Run run = sr.Run;
             string root = DataSet.RootOf(ch.Archive), path = DataSet.PathOf(ch.Archive);
+            Profile from = Profile.Find(root);
             foreach (string r in run.Data.Roots)
             {
                 if (r == root) continue;
+                Profile to = Profile.Find(r);
+                if (from != null && from.Mirrors(to)) continue;     // the mirror carries it
                 string other = r + ":" + path;
-                string tk = other + "\n" + ch.Entry.ToLowerInvariant();
+                string entry = from != null ? from.EntryIn(ch.Entry, to) : ch.Entry;
+                string tk = other + "\n" + entry.ToLowerInvariant();
                 bool twin;
                 if (!sr.Twin.TryGetValue(tk, out twin))
                 {
@@ -78,7 +101,7 @@ namespace MS2.ModKit
                     if (run.Data.Exists(other))
                     {
                         M2dArchive arch = run.Open(ch.Mod, other);
-                        twin = arch != null && arch.Find(ch.Entry) != null;
+                        twin = arch != null && arch.Find(entry) != null;
                     }
                     sr.Twin[tk] = twin;
                 }
@@ -102,7 +125,7 @@ namespace MS2.ModKit
 
         // ---- an entity with a field map ----
 
-        static void SyncAttr(SyncRun sr, EntityMap em, bool client, PlanChange ch)
+        static void SyncAttr(SyncRun sr, EntityMap em, bool client, PlanChange ch, string target)
         {
             FieldLoc loc = em.Locate(client, ch.Entry, ch.Elem);
             EntitySide side = em.Side(client);
@@ -110,14 +133,14 @@ namespace MS2.ModKit
             {
                 // the key of a row, or something outside of the mapped part
                 if (side.Row != null && ch.Elem.Name == side.Row && ch.Name == side.Key) return;
-                Unmapped(sr, em, client, ch.Mod, ch.Archive, ch.Entry, ch.Row, RowPath.NamePath(ch.Elem, false) + "@" + ch.Name, FieldKind.Unknown, null);
+                Unmapped(sr, em, client, ch.Mod, ch.Archive, ch.Entry, ch.Row, RowPath.NamePath(ch.Elem, false) + "@" + ch.Name, FieldKind.Unknown, null, target);
                 return;
             }
-            SyncField(sr, em, client, ch.Mod, ch.Archive, ch.Entry, ch.Row, loc, ch.Elem, ch.Name, ch.OldValue, ch.NewValue, (ch.Op == null || ch.Op.Sync) && (ch.AttrOp == null || ch.AttrOp.Sync));
+            SyncField(sr, em, client, target, ch.Mod, ch.Archive, ch.Entry, ch.Row, loc, ch.Elem, ch.Name, ch.OldValue, ch.NewValue, (ch.Op == null || ch.Op.Sync) && (ch.AttrOp == null || ch.AttrOp.Sync));
         }
 
         // a row added as a copy of another one, with <set> lines: each set is a change of the copy
-        static void SyncAdd(SyncRun sr, EntityMap em, bool client, PlanChange ch)
+        static void SyncAdd(SyncRun sr, EntityMap em, bool client, PlanChange ch, string target)
         {
             EntitySide side = em.Side(client);
             if (side.Row == null || ch.Elem == null || ch.Elem.Name != side.Row || ch.Op == null || ch.Source == null) return;
@@ -133,19 +156,30 @@ namespace MS2.ModKit
                 if (was != null) old = was.Attr(a.Name);
                 string now = el.Attr(a.Name);
                 if (old == now) continue;
-                SyncField(sr, em, client, ch.Mod, ch.Archive, ch.Entry, ch.Row + (string.IsNullOrEmpty(a.At) ? "" : "/" + a.At), loc, el, a.Name, old, now, ch.Op.Sync && a.Sync);
+                SyncField(sr, em, client, target, ch.Mod, ch.Archive, ch.Entry, ch.Row + (string.IsNullOrEmpty(a.At) ? "" : "/" + a.At), loc, el, a.Name, old, now, ch.Op.Sync && a.Sync);
             }
         }
 
-        static void Unmapped(SyncRun sr, EntityMap em, bool client, Mod mod, string archive, string entry, string row, string field, FieldKind kind, FieldMapEntry cand)
+        static void Unmapped(SyncRun sr, EntityMap em, bool client, Mod mod, string archive, string entry, string row, string field, FieldKind kind, FieldMapEntry cand, string target)
         {
             Plan plan = sr.Run.Plan;
-            EntitySide other = em.Side(!client);
-            if (!sr.Run.Data.Exists(other.Archive)) return;
-            string text = row + " " + field + " is changed on the " + SideName(client) + " only: the field map of \"" + em.Name + "\" has no entry for it";
+            if (!sr.Run.Data.Exists(target)) return;
+            string text = row + " " + field + " is changed on the " + SideName(archive) + " only: the field map of \"" + em.Name + "\" has no entry for it";
             if (kind == FieldKind.Candidate && cand != null)
-                text += " (" + (client ? "server " + cand.Server : "client " + cand.Client) + " is a candidate that agreed on " + cand.Agree + " of " + cand.Compared + " compared ids; it is not written)";
+                text += " (" + (client ? SideName(target) + " " + cand.Server : "client " + cand.Client) + " is a candidate that agreed on " + cand.Agree + " of " + cand.Compared + " compared ids; it is not written)";
             plan.Msg(plan.Warnings, mod, archive, entry, text);
+        }
+
+        // a client (gms-client) table that never has the attribute the field map names on the per-id side
+        static bool NoPlaceIn(Run run, string archive, string entry, string path, string attr)
+        {
+            string table = SchemaSet.TableOf(entry);
+            SchemaSet cached = run.Options != null ? run.Options.Schemas : null;
+            ArchiveSchema a = cached != null ? cached.Archive(archive) : null;
+            TableSchema t = a != null && !a.Stale ? a.Table(table) : SchemaSet.ScanTable(run.Data, archive, table);
+            if (t == null) return false;
+            ElemSchema el = t.Element(path);
+            return el == null || el.Attr(attr) == null;
         }
 
         static List<string> Names(SyncRun sr, M2dArchive arch, string archive)
@@ -170,7 +204,7 @@ namespace MS2.ModKit
             return null;
         }
 
-        static void SyncField(SyncRun sr, EntityMap em, bool client, Mod mod, string archive, string entry, string row, FieldLoc loc, XmlElem el,
+        static void SyncField(SyncRun sr, EntityMap em, bool client, string otherArchive, Mod mod, string archive, string entry, string row, FieldLoc loc, XmlElem el,
                               string attr, string oldValue, string newValue, bool rowSync)
         {
             Run run = sr.Run;
@@ -179,34 +213,35 @@ namespace MS2.ModKit
             FieldMapEntry e;
             FieldKind kind = em.Classify(client, field, out e);
             if (kind == FieldKind.ClientOnly || kind == FieldKind.ServerOnly) return;
-            if (kind != FieldKind.Mapped) { Unmapped(sr, em, client, mod, archive, entry, row, field, kind, e); return; }
+            if (kind != FieldKind.Mapped) { Unmapped(sr, em, client, mod, archive, entry, row, field, kind, e, otherArchive); return; }
 
             EntitySide other = em.Side(!client);
-            string here = SideName(client), there = SideName(!client);
+            string here = SideName(archive), there = SideName(otherArchive);
+            string perId = client ? there : here;
             string what = row + " @" + attr;
-            if (!run.Data.Exists(other.Archive))
+            if (!run.Data.Exists(otherArchive))
             {
-                plan.Msg(plan.Warnings, mod, other.Archive, null, "is not in the data set: the mapped fields this mod changes are written on the " + here + " side only");
+                plan.Msg(plan.Warnings, mod, otherArchive, null, "is not in the data set: the mapped fields this mod changes are written on the " + here + " side only");
                 return;
             }
-            M2dArchive arch = run.Open(mod, other.Archive);
+            M2dArchive arch = run.Open(mod, otherArchive);
             if (arch == null) return;
             string otherField = client ? e.Server : e.Client;
             string otherPath = FieldMapEntry.ElemOf(otherField), otherAttr = FieldMapEntry.AttrOf(otherField);
             string idText = loc.Id.ToString(CultureInfo.InvariantCulture);
 
             string otherEntry;
-            if (!sr.EntryOf.TryGetValue(other.Archive + "\n" + idText, out otherEntry))
-                sr.EntryOf[other.Archive + "\n" + idText] = otherEntry = other.EntryOf(loc.Id, Names(sr, arch, other.Archive));
+            if (!sr.EntryOf.TryGetValue(otherArchive + "\n" + idText, out otherEntry))
+                sr.EntryOf[otherArchive + "\n" + idText] = otherEntry = other.EntryOf(loc.Id, Names(sr, arch, otherArchive));
             if (otherEntry == null)
             {
-                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + em.Name + " " + idText + " has no entry in " + other.Archive + "; changed on the " + here + " only");
+                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + em.Name + " " + idText + " has no entry in " + otherArchive + "; changed on the " + here + " only");
                 return;
             }
-            EntryState st = run.State(arch, other.Archive, otherEntry);
+            EntryState st = run.State(arch, otherArchive, otherEntry);
             if (st.DeletedBy != null || st.Base == null)
             {
-                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + other.Archive + " " + st.Name + " is deleted; changed on the " + here + " only");
+                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + otherArchive + " " + st.Name + " is deleted; changed on the " + here + " only");
                 return;
             }
             if (!EnsureDoc(plan, mod, st)) return;
@@ -220,7 +255,7 @@ namespace MS2.ModKit
             XmlElem otherUnder = EntityMap.Pair(loc.Under, likeCount, unders, out why);
             if (otherUnder == null)
             {
-                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + em.Name + " " + idText + " in " + other.Archive + " " + st.Name + " " + why + "; changed on the " + here + " only");
+                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + em.Name + " " + idText + " in " + otherArchive + " " + st.Name + " " + why + "; changed on the " + here + " only");
                 return;
             }
             XmlElem otherEl = EntityMap.Walk(otherUnder, otherPath, el, loc.Under);
@@ -232,13 +267,19 @@ namespace MS2.ModKit
                 // the client row is new text of a mod: it cannot be edited here, only compared
                 string has = otherEl == null ? null : otherEl.Attr(otherAttr);
                 if (!e.Corresponds(has, newValue, index))
-                    plan.Msg(plan.Warnings, mod, archive, entry, what + " = " + Val(newValue) + " on the server only: the client row of " + idText
+                    plan.Msg(plan.Warnings, mod, archive, entry, what + " = " + Val(newValue) + " on the " + here + " only: the client row of " + idText
                         + " is added by a mod with " + otherField + " = " + Val(has) + "; set it there too");
                 return;
             }
             if (otherEl == null)
             {
                 plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + em.Name + " " + idText + " has no <" + otherPath + "> on the " + there + " (" + st.Name + "); changed on the " + here + " only");
+                return;
+            }
+            if (client && otherEl.Attr(otherAttr) == null && !Profile.OfArchive(otherArchive).IsServer && NoPlaceIn(run, otherArchive, st.Name, RowPath.NamePath(otherEl, true), otherAttr))
+            {
+                plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + otherField + " has no place in " + there + " (its shipped " + SchemaSet.TableOf(st.Name) + " never has it); changed on the "
+                    + here + (run.Data.Has(Profile.Server) ? " and the server" : "") + " only");
                 return;
             }
             Mod del = DeletedBy(st, otherEl);
@@ -260,7 +301,7 @@ namespace MS2.ModKit
                     string c = client ? newValue : claim.Value, s = client ? claim.Value : newValue;
                     plan.Msg(plan.Warnings, null, em.Client.Archive, client ? entry : st.Name,
                         "explicit one-sided override: " + em.Name + " " + idText + " " + e.Client + " is set to " + Val(c) + " on the client and " + e.Server + " to " + Val(s)
-                        + " on the server; the two do not correspond (" + e.Convert + ")");
+                        + " on the " + perId + "; the two do not correspond (" + e.Convert + ")");
                 }
                 return;
             }
