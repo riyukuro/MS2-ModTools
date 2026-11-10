@@ -78,6 +78,11 @@
           class="MS2.Tables.NpcsView"
           default-dock="Document"
           default-visible="true"/>
+    <view id="MS2.Tables.SkillsView"
+          name="MS2 Skills"
+          class="MS2.Tables.SkillsView"
+          default-dock="Document"
+          default-visible="true"/>
     <view id="MS2.Tables.GroupsView"
           name="MS2 Shops and Drops"
           class="MS2.Tables.GroupsView"
@@ -91,6 +96,7 @@
       <menuitem id="MS2.Tables.Menu.Show" action="MS2.Tables.ShowAction" path="MS2 Mods" priority="10"/>
       <menuitem id="MS2.Tables.Menu.ShowItems" action="MS2.Tables.ShowItemsAction" path="MS2 Mods" priority="15"/>
       <menuitem id="MS2.Tables.Menu.ShowNpcs" action="MS2.Tables.ShowNpcsAction" path="MS2 Mods" priority="17"/>
+      <menuitem id="MS2.Tables.Menu.ShowSkills" action="MS2.Tables.ShowSkillsAction" path="MS2 Mods" priority="17"/>
       <menuitem id="MS2.Tables.Menu.ShowGroups" action="MS2.Tables.ShowGroupsAction" path="MS2 Mods" priority="18"/>
       <menufactory id="MS2.Tables.Menu.WholeWindow" label="Use the whole window" class="MS2.Tables.WholeWindowMenu" path="MS2 Mods" priority="19"/>
       <menuitem id="MS2.Tables.Menu.Plan" action="MS2.Tables.PlanAction" path="MS2 Mods" priority="20"/>
@@ -99,6 +105,7 @@
       <action label="Tables" tooltip="Shows the MS2 Tables view" handler="MS2.Tables.ShowAction" id="MS2.Tables.ShowAction"/>
       <action label="Items" tooltip="Shows the MS2 Items view: one item across its files, with clone to a new id" handler="MS2.Tables.ShowItemsAction" id="MS2.Tables.ShowItemsAction"/>
       <action label="NPCs" tooltip="Shows the MS2 NPCs view: one npc across its files and targets, with clone to a new id" handler="MS2.Tables.ShowNpcsAction" id="MS2.Tables.ShowNpcsAction"/>
+      <action label="Skills" tooltip="Shows the MS2 Skills view: one player skill or effect with its levels, motions and attacks on every target, with clone, job tree row and tooltip" handler="MS2.Tables.ShowSkillsAction" id="MS2.Tables.ShowSkillsAction"/>
       <action label="Shops and Drops" tooltip="Shows the MS2 Shops and Drops view: one shop or drop box with its rows on every target, with clone and new under reserved ids" handler="MS2.Tables.ShowGroupsAction" id="MS2.Tables.ShowGroupsAction"/>
       <action label="Plan" tooltip="Shows what the enabled mods of the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
               handler="MS2.Tables.PlanAction" id="MS2.Tables.PlanAction"/>
@@ -120,6 +127,7 @@
       <view id="MS2.Tables.View"/>
       <view id="MS2.Tables.ItemsView"/>
       <view id="MS2.Tables.NpcsView"/>
+      <view id="MS2.Tables.SkillsView"/>
       <view id="MS2.Tables.GroupsView"/>
       <actionset id="MS2.Tables.Actions"/>
     </mapping>
