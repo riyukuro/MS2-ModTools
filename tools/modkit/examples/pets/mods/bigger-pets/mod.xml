@@ -1,0 +1,30 @@
+<mod id="example.bigger-pets" name="Bigger pets" version="1.0">
+  <description>Changes rows that exist: one attribute, one nested row, one removed attribute.</description>
+
+  <!-- the same table is on both sides, and a mod says so: nothing is mirrored for you -->
+  <edit archive="client:Xml.m2d" entry="table/pet.xml">
+    <change at="pet[id=100]">
+      <set name="hp" value="65"/>
+      <unset name="speed"/>
+    </change>
+    <change at="pet[id=101]/skill[id=8]">
+      <set name="level" value="3"/>
+    </change>
+    <!-- two rows have id 102; [feature=] is the one without a feature attribute -->
+    <change at="pet[id=102][feature=]">
+      <set name="hp" value="58"/>
+    </change>
+  </edit>
+  <edit archive="server:Xml.m2d" entry="table/pet.xml">
+    <change at="pet[id=100]">
+      <set name="hp" value="65"/>
+      <unset name="speed"/>
+    </change>
+    <change at="pet[id=101]/skill[id=8]">
+      <set name="level" value="3"/>
+    </change>
+    <change at="pet[id=102][feature=]">
+      <set name="hp" value="58"/>
+    </change>
+  </edit>
+</mod>

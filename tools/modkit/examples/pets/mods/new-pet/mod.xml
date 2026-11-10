@@ -1,0 +1,39 @@
+<mod id="example.new-pet" name="A new pet" version="1.0">
+  <description>Adds a row with a new id, and the per-id file that goes with it, on both sides.</description>
+
+  <!-- The ids this mod may use, and every place where a pet id lives. An added id must be free in all of them. -->
+  <ids space="pet" from="900" to="909">
+    <where archive="client:Xml.m2d" entry="table/pet.xml" rows="pet"/>
+    <where archive="server:Xml.m2d" entry="table/pet.xml" rows="pet"/>
+    <where archive="client:Xml.m2d" entry="pet/{id}.xml"/>
+    <where archive="server:Xml.m2d" entry="pet/{id}.xml"/>
+  </ids>
+
+  <edit archive="client:Xml.m2d" entry="table/pet.xml">
+    <!-- a copy of a shipped row with some attributes changed: the usual way to make a row the game accepts -->
+    <add copy="pet[id=101]">
+      <set name="id" value="900"/>
+      <set name="name" value="Cinder"/>
+      <set at="skill[id=7]" name="level" value="4"/>
+    </add>
+  </edit>
+  <edit archive="server:Xml.m2d" entry="table/pet.xml">
+    <!-- or the row written out -->
+    <add after="pet[id=101]">
+      <xml>
+        <pet id="900" name="Cinder" hp="70" speed="2">
+          <skill id="7" level="4" />
+          <skill id="8" level="2" />
+        </pet>
+      </xml>
+    </add>
+  </edit>
+
+  <!-- a whole new entry, from a copy of a shipped one and then edited like any other -->
+  <entry archive="client:Xml.m2d" name="pet/900.xml" copy="pet/101.xml"/>
+  <edit archive="client:Xml.m2d" entry="pet/900.xml">
+    <change at="environment/basic"><set name="name" value="Cinder"/></change>
+  </edit>
+  <!-- or from a file of the mod -->
+  <entry archive="server:Xml.m2d" name="pet/900.xml" file="data/pet-900.xml"/>
+</mod>

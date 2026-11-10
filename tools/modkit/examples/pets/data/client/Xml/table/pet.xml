@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ms2>
+	<pet id="100" name="Mossy" hp="50" speed="1.5" />
+	<pet id="101" name="Pebble" hp="70" speed="2">
+		<skill id="7" level="1" />
+		<skill id="8" level="2" />
+	</pet>
+	<pet id="102" name="Fern" hp="55" speed="1" />
+	<pet id="102" feature="Alpha" name="Fern" hp="60" speed="1" />
+</ms2>

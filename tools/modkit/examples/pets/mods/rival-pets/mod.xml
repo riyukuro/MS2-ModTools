@@ -1,0 +1,17 @@
+<mod id="example.rival-pets" name="Rival pets" version="1.0">
+  <description>Made to collide with the other two examples, to show the reports.</description>
+
+  <ids space="pet" from="905" to="915">
+    <where archive="client:Xml.m2d" entry="table/pet.xml" rows="pet"/>
+    <where archive="server:Xml.m2d" entry="pet/{id}.xml"/>
+  </ids>
+
+  <edit archive="client:Xml.m2d" entry="table/pet.xml">
+    <!-- bigger-pets sets 65: a conflict -->
+    <change at="pet[id=100]"><set name="hp" value="80"/></change>
+    <!-- bigger-pets changes a row inside this one: a conflict -->
+    <delete at="pet[id=101]"/>
+    <!-- 905 is free in this table and taken by pet/905.xml on the server: an error -->
+    <add><xml><pet id="905" name="Keeper" hp="1" glow="yes"/></xml></add>
+  </edit>
+</mod>
