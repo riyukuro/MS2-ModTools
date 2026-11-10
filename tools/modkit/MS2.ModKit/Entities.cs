@@ -787,6 +787,27 @@ namespace MS2.ModKit
             return FileIndex().ContainsKey(id);
         }
 
+        /// <summary>
+        /// A companion file of the id (CompanionFiles) that the data ships although the id is free, as
+        /// "archive entry", else null. Shipped data has such files of no entity (an emotion file of an npc id that
+        /// has no npc); a clone to that id would replace them, so the id counts as used. The gms-client is looked at
+        /// too: the server's files are mirrored there.
+        /// </summary>
+        public string ShippedCompanion(long id)
+        {
+            var archives = new List<string>(Sides());
+            foreach (string a in Sides())
+                if (a.StartsWith("server:", StringComparison.Ordinal) && Data.Exists("gms-client:" + a.Substring(7))) archives.Add("gms-client:" + a.Substring(7));
+            foreach (string archive in archives)
+            {
+                if (!Data.Exists(archive)) continue;
+                M2dArchive ar = Data.Open(archive);
+                foreach (string c in CompanionFiles(id))
+                    if (ar.Find(c) != null) return archive + " " + c;
+            }
+            return null;
+        }
+
         // ---- one id ----
 
         protected abstract EntityDraft NewDraft(long id);
@@ -936,7 +957,7 @@ namespace MS2.ModKit
             long end = BlockOf(sourceId) * 100000 + 99999;
             var added = new HashSet<long>(AddedIds());
             for (long id = Math.Max(from, sourceId + 1); id <= end; id++)
-                if (!added.Contains(id) && !Exists(id)) return id;
+                if (!added.Contains(id) && !Exists(id) && ShippedCompanion(id) == null) return id;
             throw new ModKitException("no id is free from " + Math.Max(from, sourceId + 1) + " to " + end);
         }
 
@@ -953,6 +974,8 @@ namespace MS2.ModKit
                 throw new ModKitException("the new id " + newId + " is not in the block of " + Entity + " " + sourceId + " (" + (BlockOf(sourceId) * 100000) + " to " + (BlockOf(sourceId) * 100000 + 99999) + "); the client reads an " + Entity + " from the file of its block");
             if (AddedIds().Contains(newId) || FileAdd(newId) != null) throw new ModKitException("the mod already adds an " + Entity + " " + newId);
             if (Exists(newId)) throw new ModKitException("the id " + newId + " is already used in the data");
+            string orphan = ShippedCompanion(newId);
+            if (orphan != null) throw new ModKitException("the id " + newId + " has no " + Entity + ", but " + orphan + " ships already (a file of no " + Entity + "); a clone would replace it, choose another id");
             if (AddedIds().Contains(sourceId)) throw new ModKitException(Entity + " " + sourceId + " is itself new in this mod; clone the shipped " + Entity + " it was copied from");
 
             DocInfo b = BundleXml == null ? null : Doc(BundleXml, BundleEntry(sourceId));

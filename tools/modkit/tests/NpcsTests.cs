@@ -82,6 +82,8 @@ namespace MS2.ModKit.Tests
                     E("npc/02/90/02900001.xml", File(2900001, 5, 5, 100)), E("npc/02/90/02900002.xml", File(2900002, 7, 0, 40)),
                     E("emotion/npc/02900001.xml", Emotion), E("script/npc/02900001.xml", Script),
                 };
+                // an emotion file of an id that has no npc, as shipped data has some
+                if (!server2) l.Add(E("emotion/npc/02900060.xml", Emotion));
                 if (server2) Strings(l, "en", "es"); else Strings(l, "en");
                 M2dWriter.Create(Path.Combine(dir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, l);
             }
@@ -222,6 +224,20 @@ namespace MS2.ModKit.Tests
                 Assert.That(Fake.Text(p, G, "string/en/npctitle.xml"), Does.Contain("<key id=\"02900051\" name=\"Boss\" />"), "mirrored");
                 Assert.That(ed.Open(2900051).SetTitle("Boss"), Is.EqualTo(7), "no second row");
                 Assert.That(string.Join("\n", ed.Registration(2900051).ToArray()), Does.Contain("gms-client:Xml.m2d  the server's lines above, mirrored"));
+            }
+        }
+
+        [Test]
+        public void AnIdWithAShippedFileOfNoNpcIsNotFree()
+        {
+            using (var f = new FakeNpcs(true, true, true))
+            {
+                NpcEditor ed = f.Editor();
+                Assert.That(ed.Exists(2900060), Is.False);
+                Assert.That(ed.ShippedCompanion(2900060), Is.EqualTo("gms-client:Xml.m2d emotion/npc/02900060.xml"));
+                Assert.That(ed.NextFreeId(2900001, 2900060), Is.EqualTo(2900061));
+                var ex = Assert.Throws<ModKitException>(() => ed.Clone(2900001, 2900060, null, 0, 0));
+                Assert.That(ex.Message, Does.Contain("ships already"));
             }
         }
 
