@@ -438,7 +438,7 @@ namespace MS2.ModKit
                 return ix.TryGetValue(value, out hit) ? hit : new List<XmlElem>();
             }
 
-            // the rows whose key is the number (string files write "02040998" for npc 2040998)
+            // the rows whose key is the number (string files write "02900001" for npc 2900001)
             internal List<XmlElem> RowsOf(string key, long id)
             {
                 Dictionary<long, List<XmlElem>> ix;
