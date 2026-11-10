@@ -174,7 +174,8 @@ modkit status --game <game folder>
   conflict or an error nothing is written (exit code 1). `--allow-conflicts` applies anyway, and the later mod wins.
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
-- Point the game and the server at the copies yourself (or copy them over a **copy** of the game folder).
+- Point the game at the copies yourself (or copy them over a **copy** of the game folder). For the server see
+  [How the game gets the changes](#how-the-game-gets-the-changes).
 - `--game` takes the folder of a **copy** of the client (the folder that holds `Data`) and writes the client's part
   as loose files there, which the client reads without anything else being done; see
   [How the game gets the changes](#how-the-game-gets-the-changes). The archives of the game folder are not changed.
@@ -326,9 +327,14 @@ game folder stay as they are. Start the copy of the client; nothing else is to b
 (only the archives a mod touches). Copy them over the files of the same name in the `Data` folder of a copy of the
 client after each apply; after Revert put the original files back the same way.
 
-**Local server.** The server reads its own archive and has no loose files. Apply always writes
-`<workspace>/server/Xml.m2d` when a mod touches it. Point the server's data path at a folder that holds that file in
-place of the original one (a copy of the server data folder with the file replaced), and restart the server.
+**Local server.** The server has no loose files. When a mod touches a server archive, Apply always writes the
+changed archive to the workspace (`<workspace>/server/Xml.m2d`), whichever target the client's tables go to. What
+is left to do depends on the server:
+
+- A server that reads the archives directly takes the changed archive by copy: put it in place of the file of the
+  same name in a copy of the server's data folder.
+- A server that builds a database from the archives needs its ingest step run again on the changed archive before
+  a change shows. modkit does not touch a database.
 
 The original data folders in the settings are never written. Switching **Apply to** and applying again removes what
 the other target left behind.
@@ -372,8 +378,10 @@ section is missing and the mod holds the client half only.
    once, so the item reads the same whichever one your client uses.
 5. The stat row is shared. Changing it changes every item that names its code. **Own stat row** copies the row to
    the code you type (one that is not used yet) and points this item at the copy, so the edit stays with this item.
-6. **Save mod** is the Tables view's Save. Plan, Apply and Revert are in the **MS2 Mods** menu and in the Tables
-   view.
+6. **Save mod** is the Tables view's Save. **Apply to**, **Plan**, **Apply** and **Revert** at the top of the view
+   are the ones of the Tables view (the same target, mods and background run), with the result in the Items view's
+   own output box; the Tables view does not have to be open. The **MS2 Mods** menu commands write to the output
+   box of the view you used last.
 
 ### A new item: Clone to new id
 
@@ -397,10 +405,10 @@ taken; or type one.
 - **Decided by the server**: whether an item id exists at all, who gets it, what it sells for, its level and job
   limits when you try to equip it, and the stats an item is rolled with. The server works from its own tables. A
   changed number in the client's tables alone changes at most what a tooltip says, not what happens.
-- **How the server gets its half** depends on the server. Apply writes the patched server archive to the
-  workspace. A server that reads `Xml.m2d` when it starts takes it from there (see above). A server that was built
-  from the archives once, into a database, has to be built again from the patched archive before it knows a changed
-  or new item; that is the server's own procedure, and modkit does not touch a database.
+- **How the server gets its half**: Apply writes the changed server archive to the workspace, and the server
+  takes it by copy or by its ingest step, as said under
+  [How the game gets the changes](#how-the-game-gets-the-changes). Until then the server does not know a changed
+  or new item.
 - **A new item shows nowhere by itself.** After Apply the client knows the clone, and nothing more happens until
   the server knows the id too and gives the item to a character (a shop, a drop, a reward or a server command).
 
