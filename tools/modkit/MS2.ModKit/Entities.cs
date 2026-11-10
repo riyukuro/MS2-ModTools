@@ -902,6 +902,12 @@ namespace MS2.ModKit
             return n;
         }
 
+        /// <summary>
+        /// Other files named by the id that a clone gets a copy of on every side where the source has one (the npc's
+        /// emotion and script files). The same order for every id.
+        /// </summary>
+        protected virtual string[] CompanionFiles(long id) { return new string[0]; }
+
         /// <summary>The block of 100000 ids a new id has to share with the id it copies (the bundle file the client reads it from).</summary>
         public static long BlockOf(long id) { return id / 100000; }
 
@@ -953,6 +959,13 @@ namespace MS2.ModKit
             {
                 Mod.Ops.Add(new EntryOp { Archive = FileXml, Name = NewFileEntry(newId), Copy = src });
                 file = true;
+            }
+            string[] from = CompanionFiles(sourceId), to = CompanionFiles(newId);
+            foreach (string archive in Sides())
+            {
+                M2dArchive ar = Data.Open(archive);
+                for (int i = 0; i < from.Length; i++)
+                    if (ar.Find(from[i]) != null) Mod.Ops.Add(new EntryOp { Archive = archive, Name = to[i], Copy = from[i] });
             }
             Reserve(newId, rows.Count > 0, file);
             return OpenAny(newId);
@@ -1026,6 +1039,13 @@ namespace MS2.ModKit
                 Mod.Ops.Remove(en);
                 foreach (EditOp ed in Edits(FileXml, en.Name.Replace('\\', '/'))) Mod.Ops.Remove(ed);
             }
+            foreach (string c in CompanionFiles(id))
+                for (int i = Mod.Ops.Count - 1; i >= 0; i--)
+                {
+                    var eo = Mod.Ops[i] as EntryOp; var eu = Mod.Ops[i] as EditOp;
+                    string name = eo != null ? eo.Name : eu != null ? eu.Entry : null;
+                    if (name != null && string.Equals(name.Replace('\\', '/'), c, StringComparison.OrdinalIgnoreCase)) Mod.Ops.RemoveAt(i);
+                }
             for (int i = Mod.Ids.Count - 1; i >= 0; i--)
             {
                 IdRange r = Mod.Ids[i];

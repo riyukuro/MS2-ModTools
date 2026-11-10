@@ -121,6 +121,14 @@ namespace MS2.ModKit
             return e;
         }
 
+        /// <summary>The npc editor over the data and the mod being edited (see Npcs.cs). Ask again after the mod is replaced.</summary>
+        public NpcEditor Npcs()
+        {
+            var e = new NpcEditor(Data, Mod);
+            if (Maps != null) e.Maps = Maps;
+            return e;
+        }
+
         /// <summary>The sync report of one id of an entity that has a field map ("item"), over the enabled mods and the mod being edited; plan = null: the data as it is.</summary>
         public SyncReport Sync(string entity, long id, Plan plan)
         {
