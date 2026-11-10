@@ -129,6 +129,14 @@ namespace MS2.ModKit
             return e;
         }
 
+        /// <summary>The shop and drop box editor over the data and the mod being edited (see GroupEditor.cs). Ask again after the mod is replaced.</summary>
+        public GroupEditor Groups()
+        {
+            var e = new GroupEditor(Data, Mod);
+            if (Maps != null) e.Maps = Maps;
+            return e;
+        }
+
         /// <summary>The sync report of one id of an entity that has a field map ("item"), over the enabled mods and the mod being edited; plan = null: the data as it is.</summary>
         public SyncReport Sync(string entity, long id, Plan plan)
         {
