@@ -26,7 +26,7 @@ namespace MS2.Tables
                     if (dc == null) continue;
                     DockPanel p = dc.DockPanel;
                     if (p == null) return false;
-                    if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) return true;
+                    if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) { WholeWindow.Collapse(p); return true; }
                     dc.DockAreas |= DockAreas.Document;
                     // Show(panel, Document) keeps the pane the window already has (the right one), so the window
                     // joins the document pane that is there as a tab, or makes the document pane when there is none.
@@ -40,6 +40,7 @@ namespace MS2.Tables
                     if (doc != null) dc.Show(doc, null);
                     else dc.DockTo(p, DockStyle.Fill);
                     dc.Activate();
+                    WholeWindow.Collapse(p);
                     return true;
                 }
             }

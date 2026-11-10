@@ -49,6 +49,11 @@
         <display-name>Server target folder</display-name>
         <description>Optional. After a successful Apply, every server archive the mods changed (the .m2d and its .m2h) is copied from the workspace into this folder, for example the data folder a server reads. The files it replaces are kept and put back by Revert. Plan names the folder before anything is written. Empty = the environment variable MS2_SERVER_TARGET; both empty = no copy.</description>
       </setting>
+      <setting scope="PerUser" id="MS2.Mods.UseWholeWindow" path="MS2 Mods" property-type="Boolean" visible="true">
+        <value>True</value>
+        <display-name>Use the whole window</display-name>
+        <description>When an MS2 Mods view opens, the Game Solution and Output View panes are collapsed to their edge tabs (auto-hide), once per Toolbench session and only when they are docked and showing. Also in the menu MS2 Mods.</description>
+      </setting>
       <setting scope="PerUser" id="MS2.Mods.AfterApply" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
         <display-name>Command after apply</display-name>
@@ -87,6 +92,7 @@
       <menuitem id="MS2.Tables.Menu.ShowItems" action="MS2.Tables.ShowItemsAction" path="MS2 Mods" priority="15"/>
       <menuitem id="MS2.Tables.Menu.ShowNpcs" action="MS2.Tables.ShowNpcsAction" path="MS2 Mods" priority="17"/>
       <menuitem id="MS2.Tables.Menu.ShowGroups" action="MS2.Tables.ShowGroupsAction" path="MS2 Mods" priority="18"/>
+      <menufactory id="MS2.Tables.Menu.WholeWindow" label="Use the whole window" class="MS2.Tables.WholeWindowMenu" path="MS2 Mods" priority="19"/>
       <menuitem id="MS2.Tables.Menu.Plan" action="MS2.Tables.PlanAction" path="MS2 Mods" priority="20"/>
       <menuitem id="MS2.Tables.Menu.Apply" action="MS2.Tables.ApplyAction" path="MS2 Mods" priority="30"/>
       <menuitem id="MS2.Tables.Menu.Revert" action="MS2.Tables.RevertAction" path="MS2 Mods" priority="40"/>
