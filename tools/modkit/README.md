@@ -528,6 +528,10 @@ default, and then nothing more happens.
 - The command is yours: modkit runs what the setting says, with your rights. If the command writes a database, point
   it at a database you can lose.
 
+### Testing the server half on a private server
+
+To see what the server does with a mod, use a server of your own that nothing else depends on. That means a copy of the server, with its own data folder (a copy of the shipped server archives), its own database instance and its own ports. Point the copy's settings at that database and check them before every ingest. Set the server target folder to the copy's data folder and the command after apply to the copy's ingest step. A Maple2 server reads its game data from the database when it starts, so stop it before apply, run the ingest, and start it again. A server that keeps running still uses the data it loaded at start. The ingest re-reads all the tables but rewrites only those whose content changed, so one changed item file still takes a full ingest run. Check which server the client talks to before you log in, because a client can carry a built-in default address that points at another server. Then test one thing on both sides: the client's display (a tooltip, for example) and what the server does (the meso a sale credits, for example). Record each of three states: as shipped, with the mod, and after revert. Revert puts the original archives back into the target folder and runs the ingest again, and the copy should then match the shipped files byte for byte.
+
 ## Tests
 
 ```sh
