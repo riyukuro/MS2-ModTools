@@ -92,6 +92,8 @@ namespace MS2.Tables
             npcBar.Controls.Add(Lbl("hp"));
             npcBar.Controls.Add(cloneHpBox);
             npcBar.Controls.Add(Btn("Remove clone", "Takes the chosen new npc out of the mod again, with every row and file the clone added", delegate { RemoveClone(); }));
+            npcBar.Controls.Add(Btn("Open shop", "Opens the npc's shop (shopId, as the mod leaves it) in the MS2 Shops and Drops view", delegate { OpenShop(); }));
+            npcBar.Controls.Add(Btn("Open drop box", "Opens the npc's first drop box (individualDropBoxId, else the other drop box ids, as the mod leaves them) in the MS2 Shops and Drops view", delegate { OpenBox(); }));
             npcBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             FlowLayoutPanel textBar = Bar();
@@ -518,6 +520,57 @@ namespace MS2.Tables
             ShowNpc(made);
             host.SayOutside("npc " + id + " added as a copy of npc " + source + ". Save mod, then Plan shows it per target.\r\n\r\n" + Describe(made)
                 + (ed.HasServer ? "" : "\r\nno server data folder is set: a server will not know the npc"));
+        }
+
+        // ---- the npc's shop and drop box, in the MS2 Shops and Drops view ----
+
+        static readonly string[] BoxFields = { "dropiteminfo@individualDropBoxId", "dropiteminfo@individualHitDropBoxId", "dropiteminfo@globalDropBoxId", "dropiteminfo@globalDeadDropBoxId", "dropiteminfo@globalHitDropBoxId" };
+
+        static long FirstId(string value)
+        {
+            if (value == null) return 0;
+            foreach (string part in value.Split(','))
+            {
+                long v;
+                if (long.TryParse(part.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out v) && v != 0) return v;
+            }
+            return 0;
+        }
+
+        static GroupsView GroupsViewShown()
+        {
+            IViewService views = Platform.GetService<IViewService>();
+            GroupsView v = views == null ? null : views.CreateOrFindView(GroupsView.ViewId) as GroupsView;
+            if (v == null) throw new ModKitException("the MS2 Shops and Drops view could not be opened");
+            views.ShowView(v);
+            return v;
+        }
+
+        void OpenShop()
+        {
+            NpcDraft d = Draft();
+            grid.EndEdit();
+            long id = FirstId(d.GetField("@shopId"));
+            if (id == 0) throw new ModKitException("npc " + d.Id + " has no shop (shopId is empty or 0)");
+            GroupsViewShown().OpenGroup(GroupKind.Shop, id);
+        }
+
+        void OpenBox()
+        {
+            NpcDraft d = Draft();
+            grid.EndEdit();
+            var said = new List<string>();
+            long first = 0;
+            foreach (string f in BoxFields)
+            {
+                string v = d.GetField(f);
+                if (FirstId(v) == 0) continue;
+                said.Add(f + " = " + v);
+                if (first == 0) first = FirstId(v);
+            }
+            if (first == 0) throw new ModKitException("npc " + d.Id + " has no drop box id");
+            GroupsViewShown().OpenGroup(GroupKind.DropBox, first);
+            if (said.Count > 1) host.SayOutside(outputBox.Text + "\r\n\r\nnpc " + d.Id + " names more than one box:\r\n  " + string.Join("\r\n  ", said.ToArray()));
         }
 
         void RemoveClone()

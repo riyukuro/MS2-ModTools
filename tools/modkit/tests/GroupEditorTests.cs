@@ -65,6 +65,10 @@ namespace MS2.ModKit.Tests
                 Mod back = Mod.Parse(m.ToXml(), "again");
                 Assert.That(back.ToXml(), Is.EqualTo(m.ToXml()));
                 Assert.That(m.ToXml(), Does.Not.Contain("price=\"200\""), "no copy of shipped rows");
+
+                // the view's "shipped value" column: an editor with an empty mod shows the group as shipped
+                var shipped = new GroupEditor(f.Data, Mod.Parse("<mod id=\"shipped\" name=\"shipped\" version=\"1\"></mod>", "shipped"));
+                Assert.That(shipped.Open(GroupKind.Shop, 9001).Sides[0].Rows[0].Get("price"), Is.EqualTo("100"));
             }
         }
 

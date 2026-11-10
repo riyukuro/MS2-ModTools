@@ -1,6 +1,6 @@
 // MS2.Tables: Gamebryo Toolbench plugin with the table editor of the mod kit. Usage: tools/modkit/README.md.
 //
-// This file: the plugin class, the six folder settings and the menu actions. TablesView.cs, ItemsView.cs and NpcsView.cs
+// This file: the plugin class, the six folder settings and the menu actions. TablesView.cs, ItemsView.cs, NpcsView.cs and GroupsView.cs
 // are the views. All the work (reading archives, the mod.xml model, plan, apply, revert) is in MS2.ModKit.dll, which sits beside this DLL.
 // Targets .NET 3.5 / C# 7.3 (Toolbench is a CLR 2 x86 host).
 using System;
@@ -126,6 +126,12 @@ namespace MS2.Tables
     {
         protected override string ViewId { get { return NpcsView.ViewId; } }
         protected override string Title { get { return "MS2 NPCs"; } }
+    }
+
+    public class ShowGroupsAction : ShowEntityViewAction
+    {
+        protected override string ViewId { get { return GroupsView.ViewId; } }
+        protected override string Title { get { return "MS2 Shops and Drops"; } }
     }
 
     public class ShowAction : TablesAction
