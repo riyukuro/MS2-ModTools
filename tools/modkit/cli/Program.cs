@@ -28,6 +28,11 @@ namespace MS2.ModKit.Cli
   modkit apply -w <workspace> <mod>...         write modded copies of the touched archives into the workspace
   modkit revert -w <workspace> [mod id]        rebuild the copies without one mod, or remove them all
   modkit status -w <workspace>                 what is applied in a workspace
+  modkit apply --game <game folder> <mod>...   write the client's changed tables as plain files under
+                                               <game folder>/Data (the game reads them before its archives);
+                                               with -w too, the server's archives go into the workspace
+  modkit revert --game <game folder>           remove the files that apply --game wrote (with -w: the copies too)
+  modkit status --game <game folder>           the files that apply --game wrote
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
@@ -38,7 +43,8 @@ options
   --client DIR, --server DIR     data roots (default: MS2_CLIENT_DATA / MS2_SERVER_DATA, then modtools.toml)
   --schema DIR                   schema cache (default: <MS2_OUT>/modkit/schema)
   --notes FILE                   schema notes (default: tools/modkit/schema-notes.xml)
-  --allow-conflicts              apply although mods conflict
+  --allow-conflicts              apply although mods conflict (a file in the game folder that this tool did
+                                 not write is never overwritten)
   --verify-all                   apply: compare every untouched entry with the original after writing
   --also-copy ARCHIVE            apply: copy this archive into the workspace even if nothing touches it
   --json                         validate, diff, apply, revert: print the result as JSON
@@ -55,7 +61,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             public string Get(string k) { string v; return Opt.TryGetValue(k, out v) ? v : null; }
         }
 
-        static readonly string[] ValueOpts = { "--client", "--server", "--schema", "--notes", "-w", "--also-copy" };
+        static readonly string[] ValueOpts = { "--client", "--server", "--schema", "--notes", "-w", "--game", "--also-copy" };
         static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help" };
 
         static int Main(string[] argv)
@@ -166,8 +172,17 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             public Workspace Ws()
             {
                 string w = A.Get("-w");
-                if (w == null) throw new UsageException("missing -w <workspace>");
+                if (w == null) throw new UsageException("missing -w <workspace> (or --game <game folder>)");
                 return new Workspace(w);
+            }
+
+            /// <summary>The loose-file target of --game, or null without the option.</summary>
+            public LooseTarget Game()
+            {
+                string g = A.Get("--game");
+                if (g == null) return null;
+                if (!Directory.Exists(System.IO.Path.Combine(g, "Data"))) throw new ModKitException(g + " has no Data folder; --game takes the folder that holds the game's Data");
+                return new LooseTarget(g);
             }
         }
 
@@ -333,7 +348,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             {
                 applied = r.Applied, reason = r.Reason, plan = PlanJson(r.Plan),
                 outputs = r.Outputs.Select(o => new { archive = o.Archive, path = o.Path, header = o.HeaderPath, kept = o.Kept, replaced = o.Replaced, added = o.Added, deleted = o.Deleted, copied = o.Copied, verified = o.Verified, ms = o.Milliseconds }).ToArray(),
-                removed = r.Removed.ToArray(),
+                removed = r.Removed.ToArray(), written = r.Written.ToArray(), left = r.Left.ToArray(),
             };
         }
 
@@ -346,7 +361,9 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 Console.WriteLine(o.Copied
                     ? o.Archive + " -> " + o.Path + " (copied as it is)"
                     : o.Archive + " -> " + o.Path + ": " + o.Replaced + " replaced, " + o.Added + " added, " + o.Deleted + " deleted, " + o.Kept + " kept as stored; read back " + o.Verified + "; " + o.Milliseconds + " ms");
+            foreach (string f in r.Written) Console.WriteLine("wrote " + f);
             foreach (string f in r.Removed) Console.WriteLine("removed " + f);
+            foreach (string f in r.Left) Console.WriteLine("left as it is (changed since it was written): " + f);
             Console.WriteLine("done in " + ms + " ms");
             return 0;
         }
@@ -356,12 +373,52 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress };
             opt.AlsoCopy.AddRange(x.A.AlsoCopy);
             var sw = Stopwatch.StartNew();
-            ApplyResult r = x.Ws().Apply(x.Data, x.Mods(0), opt);
+            LooseTarget game = x.Game();
+            if (game == null) return PrintResult(x, x.Ws().Apply(x.Data, x.Mods(0), opt), sw.ElapsedMilliseconds);
+
+            // the client's part as plain files; what the mods change in other roots goes to the workspace, if one is given
+            if (opt.AlsoCopy.Count > 0) throw new UsageException("--also-copy goes with -w, not with --game");
+            List<Mod> mods = x.Mods(0);
+            Plan plan = Planner.Build(x.Data, mods, new PlanOptions { Schemas = opt.Schemas, Progress = opt.Progress });
+            bool other = plan.Archives.Any(pa => !LooseTarget.Serves(pa.Archive));
+            if (other && !x.A.Has("-w"))
+                Console.Error.WriteLine("modkit: the mods also change archives that are not the client's; those are not written without -w <workspace>");
+            ApplyResult r = game.Apply(mods, plan, opt);
+            if (r.Applied && x.A.Has("-w"))
+            {
+                Workspace ws = x.Ws();
+                if (other || ws.ReadState() != null)
+                {
+                    opt.Roots = x.Data.Roots.Where(root => root != LooseTarget.Root).ToList();
+                    ApplyResult w = ws.Apply(x.Data, mods, plan, opt);
+                    r.Outputs.AddRange(w.Outputs);
+                    r.Removed.AddRange(w.Removed);
+                }
+            }
             return PrintResult(x, r, sw.ElapsedMilliseconds);
         }
 
         static int Revert(Ctx x)
         {
+            LooseTarget game = x.Game();
+            if (game != null)
+            {
+                if (x.A.Pos.Count > 0) throw new UsageException("revert --game removes every file apply --game wrote; to drop one mod, apply --game again without it");
+                ApplyResult g = game.Revert();
+                if (x.A.Has("-w") && x.Ws().ReadState() != null)
+                {
+                    ApplyResult w = x.Ws().Revert(x.Data, null, null);
+                    if (w != null) g.Removed.AddRange(w.Removed);
+                }
+                if (x.Json) WriteJson(new { applied = true, removedAll = true, removed = g.Removed.ToArray(), left = g.Left.ToArray() });
+                else
+                {
+                    foreach (string f in g.Removed) Console.WriteLine("removed " + f);
+                    foreach (string f in g.Left) Console.WriteLine("left as it is (changed since it was written): " + f);
+                    Console.WriteLine("the loose files are removed from " + game.GameDir);
+                }
+                return 0;
+            }
             Workspace ws = x.Ws();
             var opt = new ApplyOptions { AllowConflicts = x.A.Has("--allow-conflicts"), VerifyAll = x.A.Has("--verify-all"), Schemas = x.Schemas(), Progress = x.Progress };
             var sw = Stopwatch.StartNew();
@@ -381,6 +438,19 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
         static int Status(Ctx x)
         {
+            LooseTarget game = x.Game();
+            if (game != null)
+            {
+                LooseState ls = game.ReadState();
+                if (ls == null) Console.WriteLine("no loose files of this tool in " + game.GameDir);
+                else
+                {
+                    Console.WriteLine("applied " + ls.Applied + " (loose files in " + game.GameDir + ")");
+                    foreach (WorkspaceMod m in ls.Mods) Console.WriteLine("mod " + m.Id + " " + m.Version + "\t" + m.Path);
+                    foreach (LooseFile f in ls.Files) Console.WriteLine("file " + f.Archive + " " + f.Entry + "\t" + game.FullPath(f.Path) + (File.Exists(game.FullPath(f.Path)) ? "" : "\tMISSING"));
+                }
+                if (!x.A.Has("-w")) return 0;
+            }
             Workspace ws = x.Ws();
             WorkspaceState st = ws.ReadState();
             if (st == null) { Console.WriteLine("nothing is applied in " + ws.Dir); return 0; }
