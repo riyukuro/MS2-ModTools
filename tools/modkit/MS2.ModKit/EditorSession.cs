@@ -35,10 +35,17 @@ namespace MS2.ModKit
         /// <param name="modsDir">folder of mod folders; needed to save and apply</param>
         /// <param name="workspaceDir">folder the patched copies go to; needed to apply and revert</param>
         public EditorSession(string clientData, string serverData, string modsDir, string workspaceDir)
+            : this(clientData, null, serverData, modsDir, workspaceDir) { }
+
+        /// <summary>A session over any of the three profiles (see Profile.cs): the Korean client's, the global client's and the server's data folder.</summary>
+        /// <param name="kmsClientData">folder with the Korean client's Xml.m2d (the "client" root); null or "" when not set</param>
+        /// <param name="gmsClientData">folder with the global client's Xml.m2d (the "gms-client" root); null or "" when not set</param>
+        /// <param name="serverData">folder with the server's Xml.m2d; null or "" when not set</param>
+        public EditorSession(string kmsClientData, string gmsClientData, string serverData, string modsDir, string workspaceDir)
         {
-            if (string.IsNullOrEmpty(clientData) && string.IsNullOrEmpty(serverData))
-                throw new ModKitException("neither the client data folder nor the server data folder is set");
-            Data = new DataSet(clientData, serverData);
+            if (string.IsNullOrEmpty(kmsClientData) && string.IsNullOrEmpty(gmsClientData) && string.IsNullOrEmpty(serverData))
+                throw new ModKitException("no data folder is set (Korean client, global client or server)");
+            Data = new DataSet(kmsClientData, gmsClientData, serverData);
             ModsDir = string.IsNullOrEmpty(modsDir) ? null : Path.GetFullPath(modsDir);
             WorkspaceDir = string.IsNullOrEmpty(workspaceDir) ? null : Path.GetFullPath(workspaceDir);
             NewMod("my.mod");
@@ -200,7 +207,7 @@ namespace MS2.ModKit
             {
                 Loose().Check(p);
                 if (WorkspaceDir == null && HasOtherRoot(p))
-                    p.Msg(p.Warnings, null, null, null, "the workspace folder is not set: the server's archives would not be written");
+                    p.Msg(p.Warnings, null, null, null, "the workspace folder is not set: the archives of the server and the global client would not be written");
             }
             foreach (string line in Server.Describe(p, WorkspaceDir)) p.Msg(p.Notes, null, null, null, line);
             return p;
@@ -226,10 +233,11 @@ namespace MS2.ModKit
         {
             if (!Server.Enabled) return;
             bool changed = false;
-            foreach (ApplyOutput o in r.Outputs) if (!LooseTarget.Serves(o.Archive)) changed = true;
+            foreach (ApplyOutput o in r.Outputs) if (!LooseTarget.Serves(o.Archive) && DataSet.RootOf(DataSet.NormalizeRef(o.Archive)) != Profile.GmsClient.Root) changed = true;
             if (WorkspaceDir != null)
                 foreach (string root in OtherRoots())
                 {
+                    if (root == Profile.GmsClient.Root) continue;
                     string under = Path.Combine(WorkspaceDir, root) + Path.DirectorySeparatorChar;
                     foreach (string f in r.Removed) if (f.StartsWith(under, StringComparison.OrdinalIgnoreCase)) changed = true;
                 }
@@ -270,7 +278,7 @@ namespace MS2.ModKit
                 }
             }
             else if (HasOtherRoot(plan))
-                plan.Msg(plan.Warnings, null, null, null, "the workspace folder is not set: the server's archives were not written");
+                plan.Msg(plan.Warnings, null, null, null, "the workspace folder is not set: the archives of the server and the global client were not written");
             return res;
         }
 
@@ -316,6 +324,26 @@ namespace MS2.ModKit
             foreach (PlanMessage m in p.Warnings) sb.Append("warning: ").Append(m).Append("\r\n");
             foreach (PlanMessage m in p.Notes) sb.Append("note: ").Append(m).Append("\r\n");
             foreach (PlanChange c in p.Changes) sb.Append("  ").Append(c).Append("\r\n");
+            return sb.ToString();
+        }
+
+        /// <summary>The targets of the session's data, one line per target with what the plan does there, then Report(p).</summary>
+        public string Describe(Plan p)
+        {
+            var sb = new StringBuilder(Targets.Line(Data)).Append("\r\n");
+            foreach (string l in Targets.PlanLines(p, Data)) sb.Append("  ").Append(l).Append("\r\n");
+            return sb.Append(Report(p)).ToString();
+        }
+
+        /// <summary>The targets of the session's data, what the apply or revert wrote or removed on each, then the plan and the server step.</summary>
+        public string Describe(ApplyResult r)
+        {
+            var sb = new StringBuilder(Targets.Line(Data)).Append("\r\n");
+            if (r.Plan != null) foreach (string l in Targets.PlanLines(r.Plan, Data)) sb.Append("  plan, ").Append(l).Append("\r\n");
+            if (!r.Applied) return sb.Append(Report(r)).ToString();
+            foreach (string l in Targets.ResultLines(r, Data, WorkspaceDir)) sb.Append("  ").Append(l).Append("\r\n");
+            if (r.Plan != null) sb.Append(Report(r.Plan));
+            sb.Append(ServerStep.Report(r.Server));
             return sb.ToString();
         }
 

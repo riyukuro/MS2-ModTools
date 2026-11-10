@@ -48,7 +48,12 @@ namespace MS2.ModKit
         public bool HasCommand { get { return !string.IsNullOrEmpty(Command) && Command.Trim().Length > 0; } }
         public bool Enabled { get { return HasTarget || HasCommand; } }
 
-        static bool IsServer(string archive) { return !LooseTarget.Serves(archive); }
+        // an archive of the server profile (or of a root that is no profile and not the client); the global client's is not one
+        static bool IsServer(string archive)
+        {
+            Profile p = Profile.OfArchive(DataSet.NormalizeRef(archive));
+            return p == null ? !LooseTarget.Serves(archive) : p.IsServer;
+        }
 
         string Fill(string text, string workspaceDir)
         {

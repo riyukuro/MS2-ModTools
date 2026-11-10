@@ -17,6 +17,7 @@ namespace MS2.ModKit.Cli
     {
         const string Usage = @"modkit: row-level mods for MapleStory2 game tables. Originals are only read.
 
+  modkit targets                               the targets (data profiles) of the data set and their folders
   modkit archives                              the .m2d archives of the data roots
   modkit ls <archive> [pattern]                entries (pattern: * within a folder, ** across folders)
   modkit cat <archive> <entry>                 one entry to stdout, as stored in the archive
@@ -41,11 +42,15 @@ namespace MS2.ModKit.Cli
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
-  <archive> is <root>:<path>, for example client:Xml.m2d, server:Xml.m2d, server:Server.m2d.
+  <archive> is <root>:<path>, for example client:Xml.m2d, gms-client:Xml.m2d, server:Xml.m2d, server:Server.m2d.
+  The roots are the targets: client (the Korean client, also written kms-client), gms-client (the global
+  client, also gms) and server. One mod is applied to every target the data set has (see Profiles in the README).
   <mod> is a folder with a mod.xml (or the mod.xml itself). Later mods win where two set the same thing.
 
 options
-  --client DIR, --server DIR     data roots (default: MS2_CLIENT_DATA / MS2_SERVER_DATA, then modtools.toml)
+  --client DIR (or --kms DIR)    the Korean client's data folder (default: MS2_CLIENT_DATA, then modtools.toml)
+  --gms DIR                      the global client's data folder (default: MS2_GMS_CLIENT_DATA, then modtools.toml)
+  --server DIR                   the server's data folder (default: MS2_SERVER_DATA, then modtools.toml)
   --schema DIR                   schema cache (default: <MS2_OUT>/modkit/schema)
   --notes FILE                   schema notes (default: tools/modkit/schema-notes.xml)
   --allow-conflicts              apply although mods conflict (a file in the game folder that this tool did
@@ -74,7 +79,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             public string Get(string k) { string v; return Opt.TryGetValue(k, out v) ? v : null; }
         }
 
-        static readonly string[] ValueOpts = { "--client", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply" };
+        static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply" };
         static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all" };
 
         static int Main(string[] argv)
@@ -117,14 +122,19 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             Settings set = Settings.Load();
             using (var data = new DataSet())
             {
-                string c = a.Get("--client") ?? set.Path("MS2_CLIENT_DATA"), s = a.Get("--server") ?? set.Path("MS2_SERVER_DATA");
-                if (!string.IsNullOrEmpty(c)) data.AddRoot("client", c);
-                if (!string.IsNullOrEmpty(s)) data.AddRoot("server", s);
+                if (a.Has("--client") && a.Has("--kms")) throw new UsageException("--client and --kms name the same folder; give one");
+                string c = a.Get("--kms") ?? a.Get("--client") ?? set.Path(Profile.KmsClient.EnvVar),
+                       g = a.Get("--gms") ?? set.Path(Profile.GmsClient.EnvVar),
+                       s = a.Get("--server") ?? set.Path(Profile.Server.EnvVar);
+                if (!string.IsNullOrEmpty(c)) data.AddTarget(Profile.KmsClient, c);
+                if (!string.IsNullOrEmpty(g)) data.AddTarget(Profile.GmsClient, g);
+                if (!string.IsNullOrEmpty(s)) data.AddTarget(Profile.Server, s);
                 if (data.Roots.Count == 0)
-                    throw new ModKitException("no data root: set MS2_CLIENT_DATA and/or MS2_SERVER_DATA (environment or modtools.toml), or pass --client / --server");
+                    throw new ModKitException("no data root: set MS2_CLIENT_DATA, MS2_GMS_CLIENT_DATA and/or MS2_SERVER_DATA (environment or modtools.toml), or pass --client / --gms / --server");
                 var ctx = new Ctx { A = a, Data = data, Set = set, Json = a.Has("--json"), Quiet = a.Has("-q") || Console.IsErrorRedirected };
                 switch (cmd)
                 {
+                    case "targets": return TargetsCmd(ctx);
                     case "archives": return Archives(ctx);
                     case "ls": return Ls(ctx);
                     case "cat": return Cat(ctx);
@@ -237,6 +247,18 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
         // ---- looking at the data ----
 
+        static int TargetsCmd(Ctx x)
+        {
+            Console.WriteLine(Targets.Line(x.Data));
+            foreach (string r in Targets.Roots(x.Data))
+            {
+                Profile p = Profile.Find(r);
+                string what = p == null || p.Root != r ? "" : "\t" + (p.Bundles ? "bundles" : "one file per id") + ", table/" + p.Region + ", strings " + string.Join(" ", p.Languages);
+                Console.WriteLine(Targets.NameOf(r) + "\t" + r + ":\t" + x.Data.RootFolder(r) + what);
+            }
+            return 0;
+        }
+
         static int Archives(Ctx x)
         {
             foreach (string r in x.Data.ListArchives())
@@ -292,7 +314,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 var names = new List<string>();
                 for (int i = 1; i < x.A.Pos.Count; i++) names.Add(DataSet.NormalizeRef(x.A.Pos[i]));
                 if (names.Count == 0)
-                    foreach (string d in new[] { "client:Xml.m2d", "server:Xml.m2d", "server:Server.m2d" })
+                    foreach (string d in new[] { "client:Xml.m2d", "gms-client:Xml.m2d", "server:Xml.m2d", "server:Server.m2d" })
                         if (x.Data.Roots.Contains(DataSet.RootOf(d)) && x.Data.Exists(d)) names.Add(d);
                 if (names.Count == 0) throw new ModKitException("no archive to read");
                 foreach (string n in names)
@@ -335,7 +357,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
         // ---- mods ----
 
-        static void PrintPlan(Plan p, bool changes)
+        static void PrintPlan(Ctx x, Plan p, bool changes)
         {
             var o = new StringBuilder();
             if (changes) foreach (PlanChange c in p.Changes) o.Append(c).Append('\n');
@@ -347,17 +369,21 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (PlanArchive a in p.Archives) entries += a.Put.Count + a.Delete.Count;
             o.Append(p.Mods.Count).Append(" mod(s): ").Append(p.Changes.Count).Append(" change(s) in ").Append(entries).Append(" entr").Append(entries == 1 ? "y" : "ies").Append(" of ")
              .Append(p.Archives.Count).Append(" archive(s); ").Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ").Append(p.Warnings.Count).Append(" warning(s)\n");
+            o.Append(Targets.Line(x.Data)).Append('\n');
+            foreach (string l in Targets.PlanLines(p, x.Data)) o.Append("  ").Append(l).Append('\n');
             Console.Write(o);
         }
 
         static object Msgs(List<PlanMessage> l) { return l.Select(m => new { mod = m.ModId, archive = m.Archive, entry = m.Entry, text = m.Text }).ToArray(); }
+
+        static string TargetOf(string archive) { return archive == null || archive.IndexOf(':') <= 0 ? null : Targets.NameOf(DataSet.RootOf(DataSet.NormalizeRef(archive))); }
 
         static object PlanJson(Plan p)
         {
             return new
             {
                 mods = p.Mods.Select(m => new { id = m.Id, name = m.Name, version = m.Version, dir = m.Dir }).ToArray(),
-                changes = p.Changes.Select(c => new { kind = c.Kind.ToString(), mod = c.ModId, archive = c.Archive, entry = c.Entry, row = c.Row, name = c.Name, old = c.OldValue, @new = c.NewValue }).ToArray(),
+                changes = p.Changes.Select(c => new { kind = c.Kind.ToString(), mod = c.ModId, target = TargetOf(c.Archive), synced = c.Synced, mirrored = c.Mirrored, archive = c.Archive, entry = c.Entry, row = c.Row, name = c.Name, old = c.OldValue, @new = c.NewValue }).ToArray(),
                 errors = Msgs(p.Errors), conflicts = Msgs(p.Conflicts), warnings = Msgs(p.Warnings), notes = Msgs(p.Notes),
                 archives = p.Archives.Select(a => new { archive = a.Archive, put = a.Put.Select(k => k.Key).ToArray(), delete = a.Delete.ToArray() }).ToArray(),
             };
@@ -371,7 +397,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             ServerStep step = x.Step();
             if (step.Enabled && !x.A.Has("-w")) p.Note("--server-target and --after-apply need -w <workspace>: the server's archives are written there first");
             else foreach (string line in step.Describe(p, x.WsDir)) p.Note(line);
-            if (x.Json) WriteJson(PlanJson(p)); else PrintPlan(p, changes);
+            if (x.Json) WriteJson(PlanJson(p)); else PrintPlan(x, p, changes);
             return p.HasErrors || (p.HasConflicts && !x.A.Has("--allow-conflicts")) ? 1 : 0;
         }
 
@@ -380,7 +406,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             return new
             {
                 applied = r.Applied, reason = r.Reason, plan = PlanJson(r.Plan),
-                outputs = r.Outputs.Select(o => new { archive = o.Archive, path = o.Path, header = o.HeaderPath, kept = o.Kept, replaced = o.Replaced, added = o.Added, deleted = o.Deleted, copied = o.Copied, verified = o.Verified, ms = o.Milliseconds }).ToArray(),
+                outputs = r.Outputs.Select(o => new { target = TargetOf(o.Archive), archive = o.Archive, path = o.Path, header = o.HeaderPath, kept = o.Kept, replaced = o.Replaced, added = o.Added, deleted = o.Deleted, copied = o.Copied, verified = o.Verified, ms = o.Milliseconds }).ToArray(),
                 removed = r.Removed.ToArray(), written = r.Written.ToArray(), left = r.Left.ToArray(),
                 server = r.Server == null ? null : new { copied = r.Server.Copied.ToArray(), restored = r.Server.Restored.ToArray(), command = r.Server.Command, workDir = r.Server.WorkDir, ran = r.Server.Ran, exitCode = r.Server.ExitCode, output = r.Server.Output, problem = r.Server.Problem },
             };
@@ -390,7 +416,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
         {
             int code = r.Server != null && !r.Server.Ok ? 3 : 0;
             if (x.Json) { WriteJson(ResultJson(r)); return r.Applied ? code : 1; }
-            PrintPlan(r.Plan, false);
+            PrintPlan(x, r.Plan, false);
             if (!r.Applied) { Console.WriteLine("nothing written: " + r.Reason); return 1; }
             foreach (ApplyOutput o in r.Outputs)
                 Console.WriteLine(o.Copied
@@ -399,6 +425,8 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (string f in r.Written) Console.WriteLine("wrote " + f);
             foreach (string f in r.Removed) Console.WriteLine("removed " + f);
             foreach (string f in r.Left) Console.WriteLine("left as it is (changed since it was written): " + f);
+            Console.WriteLine("per target:");
+            foreach (string l in Targets.ResultLines(r, x.Data, x.A.Has("-w") ? x.Ws().Dir : null)) Console.WriteLine("  " + l);
             Console.Write(ServerStep.Report(r.Server).Replace("\r\n", "\n"));
             Console.WriteLine("done in " + ms + " ms");
             return code;
@@ -447,7 +475,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 Workspace ws = x.Ws();
                 if (other || ws.ReadState() != null)
                 {
-                    opt.Roots = x.Data.Roots.Where(root => root != LooseTarget.Root).ToList();
+                    opt.Roots = x.Data.Roots.Where(root => root != LooseTarget.Root).ToList();     // gms-client and server
                     ApplyResult w = ws.Apply(x.Data, mods, plan, opt);
                     r.Outputs.AddRange(w.Outputs);
                     r.Removed.AddRange(w.Removed);
@@ -490,7 +518,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 if (x.Json) WriteJson(new { applied = true, removedAll = true, removed = r == null ? new string[0] : r.Removed.ToArray() });
                 else
                 {
-                    if (r != null) foreach (string f in r.Removed) Console.WriteLine("removed " + f);
+                    if (r != null) foreach (string l in Targets.ResultLines(r, x.Data, ws.Dir)) Console.WriteLine(l);
                     Console.WriteLine("no mod is left: the copies are removed from " + ws.Dir);
                     if (r != null) Console.Write(ServerStep.Report(r.Server).Replace("\r\n", "\n"));
                 }
@@ -538,7 +566,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             EntityMap em = (x.Maps() ?? FieldMaps.Default).Entity("item");
             if (em == null) throw new ModKitException("the field maps hold no entity \"item\"");
             Plan plan = mods.Count == 0 ? null : Planner.Build(x.Data, mods, x.PlanOpt(false));
-            if (plan != null && plan.HasErrors) { PrintPlan(plan, false); return 1; }
+            if (plan != null && plan.HasErrors) { PrintPlan(x, plan, false); return 1; }
             foreach (long id in ids)
             {
                 SyncReport r = SyncReport.ForId(x.Data, plan, em, id);

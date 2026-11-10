@@ -277,5 +277,36 @@ namespace MS2.ModKit.Tests
                 foreach (string k in before.Keys) Assert.That(after[k], Is.EqualTo(before[k]), k);
             }
         }
+
+        [Test]
+        public void LinesPerTarget()
+        {
+            using (var f = new FakeTargets(gms: true))
+            using (var s = new EditorSession(f.KmsDir, f.GmsDir, f.ServerDir, Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+            {
+                Assert.That(Targets.Line(f.Data), Is.EqualTo("targets: kms-client (Korean client), gms-client (global client), server"));
+                s.Maps = FakeItems.Maps;
+                s.Adopt(Mod.Parse("<mod id=\"m\" name=\"t\" version=\"1\">" + Edit(S, Five, "environment/drop", "rate", "5") + Edit(S, Five, "environment/property", "sellPrice", "99") + "</mod>", "test"));
+                Plan p = s.Plan();
+                List<string> lines = Targets.PlanLines(p, s.Data);
+                Assert.That(lines, Is.EqualTo(new[]
+                {
+                    "kms-client: 1 change(s) (1 synced by the field maps) in 1 entry of 1 archive(s)",
+                    "gms-client: 1 change(s) (1 mirrored) in 1 entry of 1 archive(s); 0 error(s), 0 conflict(s), 1 warning(s)",
+                    "server: 2 change(s) in 1 entry of 1 archive(s)",
+                }), Fake.Dump(p));
+                ApplyResult r = s.Apply();
+                Assert.That(r.Applied, Is.True, s.Describe(r));
+                string text = s.Describe(r);
+                Assert.That(text, Does.Contain("  gms-client: wrote " + Path.Combine(f.Dir, "ws", "gms-client", "Xml.m2d") + " (1 replaced"));
+                Assert.That(text, Does.Contain("  kms-client: wrote " + Path.Combine(f.Dir, "ws", "client", "Xml.m2d")));
+                r = s.Revert();
+                text = s.Describe(r);
+                Assert.That(text, Does.Contain("  server: removed " + Path.Combine(f.Dir, "ws", "server", "Xml.m2d")), text);
+                Assert.That(text, Does.Contain("  gms-client: removed " + Path.Combine(f.Dir, "ws", "gms-client", "Xml.m2d")), text);
+            }
+            using (var f = new FakeTargets(gms: false))
+                Assert.That(Targets.Line(f.Data), Is.EqualTo("targets: kms-client (Korean client), server; not in this data set: gms-client (global client)"));
+        }
     }
 }
