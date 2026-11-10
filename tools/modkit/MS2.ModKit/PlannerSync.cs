@@ -54,7 +54,7 @@ namespace MS2.ModKit
             Dictionary<string, PlanChange> twinSet = TwinChanges(run, snapshot);
             foreach (PlanChange ch in snapshot)
             {
-                if (ch.State == null || ch.Mod == null || ch.Mirrored) continue;
+                if (ch.State == null || ch.Mod == null || ch.Mirrored || ch.OwnSides) continue;
                 if (!plan.Changes.Contains(ch)) continue;
                 bool attr = ch.Kind == ChangeKind.SetAttr || ch.Kind == ChangeKind.RemoveAttr;
                 if (!attr && ch.Kind != ChangeKind.AddRow) continue;
@@ -110,7 +110,7 @@ namespace MS2.ModKit
             var d = new Dictionary<string, PlanChange>();
             foreach (PlanChange c in changes)
             {
-                if (c.Mod == null || c.Mirrored || c.Synced) continue;
+                if (c.Mod == null || c.Mirrored || c.Synced || c.OwnSides) continue;
                 if (c.Kind != ChangeKind.SetAttr && c.Kind != ChangeKind.RemoveAttr) continue;
                 d[TwinKey(c.Archive, c.Entry, c.Row, c.Name)] = c;
             }

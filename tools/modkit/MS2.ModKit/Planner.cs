@@ -32,6 +32,8 @@ namespace MS2.ModKit
         internal RowOp Op;
         internal AttrOp AttrOp;
         internal Mod Mod;
+        /// <summary>A skill op change: planned on each side by itself, never synced.</summary>
+        internal bool OwnSides;
 
         public override string ToString() { return Text() + (Synced ? "  (synced from the other side)" : Mirrored ? "  (mirrored from " + MirroredFrom + ")" : ""); }
 
@@ -238,7 +240,7 @@ namespace MS2.ModKit
 
             List<MirrorOp> mirrored = MirrorOps(run, mods);
             int total = mirrored.Count, done = 0;
-            foreach (Mod m in mods) total += m.Ops.Count * 2 + m.Groups.Count;
+            foreach (Mod m in mods) total += m.Ops.Count * 2 + m.Groups.Count + m.Skills.Count + m.JobSkills.Count;
 
             // whole entries first: an edit may then work on an entry that a mod adds
             foreach (Mod m in mods)
@@ -262,6 +264,12 @@ namespace MS2.ModKit
                 {
                     ProgressUtil.Report(options.Progress, "plan", m.Id, ++done, total);
                     DoGroup(run, m, g);
+                }
+            foreach (Mod m in mods)
+                if (m.Skills.Count + m.JobSkills.Count > 0)
+                {
+                    ProgressUtil.Report(options.Progress, "plan", m.Id, done += m.Skills.Count + m.JobSkills.Count, total);
+                    DoSkills(run, m);
                 }
             foreach (MirrorOp mo in mirrored)
                 if (mo.Op is EditOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
