@@ -269,8 +269,15 @@ namespace MS2.ModKit
             return ed.Apply();
         }
 
+        /// <summary>The row with one attribute set. A new attribute goes first, where the shipped rows keep sn.</summary>
         static string WithAttr(string text, string name, string value, string label)
         {
+            if (XmlDoc.ParseFragment(text, label).Root.Attr(name) == null)
+            {
+                int i = text.IndexOf('<') + 1;
+                while (i < text.Length && !char.IsWhiteSpace(text[i]) && text[i] != '/' && text[i] != '>') i++;
+                return text.Substring(0, i) + " " + name + "=\"" + XmlDoc.EscapeAttr(value, '"') + "\"" + text.Substring(i);
+            }
             var a = new List<AttrOp> { new AttrOp { Kind = AttrOpKind.Set, Name = name, Value = value } };
             return Edited(text, a, label);
         }

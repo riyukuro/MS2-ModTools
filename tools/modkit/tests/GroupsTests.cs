@@ -211,7 +211,7 @@ namespace MS2.ModKit.Tests
                     "-\t\t<item sn=\"1\" id=\"5001\" grade=\"1\" price=\"100\" category=\"AA\" />",
                     "+\t\t<item sn=\"1\" id=\"5001\" grade=\"1\" price=\"777\" category=\"AA\" />",
                     "-\t\t<item sn=\"3\" id=\"5003\" grade=\"1\" price=\"300\" paymentType=\"1\" paymentItemID=\"5002:tag\" category=\"BB\" />",
-                    "+\t\t<item id=\"5002\" grade=\"1\" price=\"5\" category=\"AA\" sn=\"4\" />",
+                    "+\t\t<item sn=\"4\" id=\"5002\" grade=\"1\" price=\"5\" category=\"AA\" />",
                 }), dump);
                 Assert.That(stock.StartsWith("﻿"), "the BOM is kept");
                 Assert.That(Text(p, SS, Planner.ShopInfoEntry), Does.Contain("<shop shopID=\"9001\" categoryID=\"1\" iconName=\"fake2\" />"));
@@ -263,9 +263,9 @@ namespace MS2.ModKit.Tests
                 string dump = Fake.Dump(p);
                 Assert.That(p.Errors, Is.Empty, dump);
                 string stock = Text(p, SS, Planner.ShopStockEntry), info = Text(p, SS, Planner.ShopInfoEntry);
-                Assert.That(stock, Does.Contain("\t<shop shopID=\"900000001\">\n\t\t<item id=\"5001\" grade=\"1\" price=\"1\" category=\"AA\" sn=\"1\" />\n\t\t<item id=\"5999\""), dump);
-                Assert.That(stock, Does.Contain("sn=\"3\" />\n\t</shop>"), "a new shop numbers from 1");
-                Assert.That(stock, Does.Contain("\t<shop shopID=\"900000002\">\n\t\t<item sn=\"1\" id=\"5001\" grade=\"1\" price=\"10\" category=\"AA\" />\n\t\t<item sn=\"2\" id=\"5003\" grade=\"1\" price=\"21\" category=\"AA\" />\n\t\t<item id=\"5002\" grade=\"1\" price=\"3\" category=\"AA\" sn=\"3\" />\n\t</shop>"), dump);
+                Assert.That(stock, Does.Contain("\t<shop shopID=\"900000001\">\n\t\t<item sn=\"1\" id=\"5001\" grade=\"1\" price=\"1\" category=\"AA\" />\n\t\t<item sn=\"2\" id=\"5999\""), dump);
+                Assert.That(stock, Does.Contain("<item sn=\"3\" id=\"5002\""), "a new shop numbers from 1");
+                Assert.That(stock, Does.Contain("\t<shop shopID=\"900000002\">\n\t\t<item sn=\"1\" id=\"5001\" grade=\"1\" price=\"10\" category=\"AA\" />\n\t\t<item sn=\"2\" id=\"5003\" grade=\"1\" price=\"21\" category=\"AA\" />\n\t\t<item sn=\"3\" id=\"5002\" grade=\"1\" price=\"3\" category=\"AA\" />\n\t</shop>"), dump);
                 Assert.That(Count(stock, "shopID=\"9002\""), Is.EqualTo(1), "the source is unchanged");
                 Assert.That(info, Does.Contain("<shop shopID=\"900000001\" categoryID=\"1\" iconName=\"fake\" />"));
                 Assert.That(info, Does.Contain("<shop shopID=\"900000002\" categoryID=\"42\" iconName=\"fake\" />"));
