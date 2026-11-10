@@ -2,6 +2,8 @@
 // and mods that change one side, both sides, or one side on purpose.
 using System.Collections.Generic;
 using MS2.ModKit;
+using MS2.ModKit.M2d;
+using MS2.ModKit.Xml;
 using NUnit.Framework;
 
 namespace MS2.ModKit.Tests
@@ -254,6 +256,36 @@ namespace MS2.ModKit.Tests
             Assert.That(FieldMaps.Default.Find(C, "table/pet.xml", out client), Is.Null);
             Assert.Throws<ModKitException>(() => FieldMaps.Parse("<fieldmaps><entity name=\"x\"><client archive=\"client:Xml.m2d\" entry=\"a/{nope}.xml\" under=\"e\"/></entity></fieldmaps>"));
         }
+        [Test]
+        public void TheRowsOfOtherTablesThatBelongToAnItemAreFound()
+        {
+            using (var f = new FakeItems(true))
+            {
+                EntityMap em = FakeItems.Maps.Entity("item");
+                RefList five = ServerRefs.Find(f.Data, em, 1200005, 10);
+                string text = five.ToText();
+                Assert.That(five.Hits.Count, Is.EqualTo(3), text);
+                Assert.That(text, Does.Contain("rate rows (code = 4):"));
+                Assert.That(text, Does.Contain("server:Xml.m2d rates/a.xml  rate[code=4]"), text);
+                Assert.That(text, Does.Contain("code=\"4\" grade=\"1\" bonus=\"3\""));
+                Assert.That(text, Does.Contain("bag rows (item = 1200005):"));
+                Assert.That(text, Does.Contain("bag[id=2]/v"), text);
+                // the selector of a hit opens the row
+                RefHit bag = five.Hits[five.Hits.Count - 1];
+                M2dArchive arch = f.Data.Open(bag.Archive);
+                XmlDoc doc = XmlDoc.Parse(arch.Read(arch.Find(bag.Entry)), "bags");
+                Assert.That(RowPath.Parse(bag.Selector).Resolve(doc.Root).Attr("count"), Is.EqualTo("9"));
+
+                RefList capped = ServerRefs.Find(f.Data, em, 1200005, 1);
+                Assert.That(capped.Hits.Count, Is.EqualTo(2));
+                Assert.That(capped.ToText(), Does.Contain("bag rows: 1 more row(s) are not listed"));
+                Assert.That(ServerRefs.Find(f.Data, em, 1200002, 10).ToText(), Does.Not.Contain("bag rows ("));
+                string none = ServerRefs.Find(f.Data, em, 1200009, 10).ToText();
+                Assert.That(none, Does.Contain("no row of another table refers to it"));
+                Assert.That(none, Does.Contain("the server has no entry of this id"));
+            }
+        }
+
         [Test]
         public void TheSyncReportListsWhatDiffersBeforeAndAfter()
         {

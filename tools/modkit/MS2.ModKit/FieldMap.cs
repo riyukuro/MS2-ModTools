@@ -241,6 +241,8 @@ namespace MS2.ModKit
         public EntitySide Client, Server;
         public readonly List<FieldMapEntry> Entries = new List<FieldMapEntry>();        // map and candidate lines
         public readonly List<string> ClientOnly = new List<string>(), ServerOnly = new List<string>();
+        /// <summary>Tables whose rows belong to an id of this entity (see ServerRefs).</summary>
+        public readonly List<RefRule> Refs = new List<RefRule>();
         readonly Dictionary<string, FieldMapEntry> byClient = new Dictionary<string, FieldMapEntry>(StringComparer.Ordinal);
         readonly Dictionary<string, FieldMapEntry> byServer = new Dictionary<string, FieldMapEntry>(StringComparer.Ordinal);
         readonly Dictionary<string, FieldMapEntry> candClient = new Dictionary<string, FieldMapEntry>(StringComparer.Ordinal);
@@ -502,6 +504,10 @@ namespace MS2.ModKit
                         }
                         case "clientOnly": em.AddOnly(true, Need(c, "field", label)); break;
                         case "serverOnly": em.AddOnly(false, Need(c, "field", label)); break;
+                        case "ref":
+                            em.Refs.Add(new RefRule { Name = Need(c, "name", label), Archive = DataSet.NormalizeRef(Need(c, "archive", label)), Entries = Need(c, "entries", label),
+                                Attribute = Need(c, "attribute", label), Key = c.Attr("key"), Of = Int(c, "of"), Hit = Int(c, "hit") });
+                            break;
                         default: throw new ModKitException(label + " line " + c.Line + ": <" + c.Name + "> is not known in a field map");
                     }
                 }

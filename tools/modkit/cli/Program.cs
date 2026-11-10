@@ -36,6 +36,8 @@ namespace MS2.ModKit.Cli
   modkit sync <id>... [mod...]                 the fields of an item that the client and the server both hold:
                                                where the two sides differ, as shipped and after the mods
                                                (--all: every mapped field)
+  modkit refs <id>...                          the rows of server-only tables that belong to an item (option,
+                                               drop and shop rows), as shipped
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
@@ -134,6 +136,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                     case "revert": return Revert(ctx);
                     case "status": return Status(ctx);
                     case "sync": return Sync(ctx);
+                    case "refs": return Refs(ctx);
                     case "next-id": return NextId(ctx);
                     default: throw new UsageException("unknown command " + cmd);
                 }
@@ -540,6 +543,21 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             {
                 SyncReport r = SyncReport.ForId(x.Data, plan, em, id);
                 Console.Write(r.ToText(x.A.Has("--all")).Replace("\r\n", "\n"));
+            }
+            return 0;
+        }
+
+        static int Refs(Ctx x)
+        {
+            EntityMap em = (x.Maps() ?? FieldMaps.Default).Entity("item");
+            if (em == null) throw new ModKitException("the field maps hold no entity \"item\"");
+            if (x.A.Pos.Count == 0) throw new UsageException("refs <id>...");
+            foreach (string a in x.A.Pos)
+            {
+                long id;
+                if (!long.TryParse(a, out id)) throw new UsageException("bad id " + a);
+                Console.WriteLine("item " + id + ":");
+                Console.Write(ServerRefs.Find(x.Data, em, id, 50).ToText().Replace("\r\n", "\n"));
             }
             return 0;
         }

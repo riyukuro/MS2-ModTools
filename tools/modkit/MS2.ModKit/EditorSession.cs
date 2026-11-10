@@ -122,6 +122,14 @@ namespace MS2.ModKit
             return SyncReport.ForId(Data, plan, em, id);
         }
 
+        /// <summary>The rows of other tables that belong to an id (the ref lines of the entity's field map), in the data as shipped.</summary>
+        public RefList Refs(string entity, long id, int maxPerRule)
+        {
+            EntityMap em = (Maps ?? FieldMaps.Default).Entity(entity);
+            if (em == null) throw new ModKitException("no field map for \"" + entity + "\"");
+            return ServerRefs.Find(Data, em, id, maxPerRule);
+        }
+
         public TableDraft OpenTable(string archive, string entry, string parentSelector)
         {
             return new TableDraft(Data, Mod, archive, entry, parentSelector);

@@ -107,6 +107,8 @@ namespace MS2.ModKit.Tests
             "<map client=\"look@icon\" server=\"look@iconPath\" convert=\"affix\" prefix=\"./img/\" suffix=\".png\" />" +
             "<map client=\"worth@coin\" server=\"worth@coins\" convert=\"pick\" index=\"worth@tier\" />" +
             "<candidate client=\"option@constantID\" server=\"drop@rate\" compared=\"10\" agree=\"6\" />" +
+            "<ref name=\"rate rows\" archive=\"server:Xml.m2d\" entries=\"rates/*.xml\" attribute=\"code\" key=\"drop@rate\" />" +
+            "<ref name=\"bag rows\" archive=\"server:Xml.m2d\" entries=\"table/bags.xml\" attribute=\"item\" />" +
             "<clientOnly field=\"property@tradable\" /><clientOnly field=\"option@optionLevel\" />" +
             "<serverOnly field=\"drop@rate\" /><serverOnly field=\"worth@tier\" />" +
             "</entity></fieldmaps>";
@@ -142,6 +144,9 @@ namespace MS2.ModKit.Tests
                     new KeyValuePair<string, byte[]>("item/0/12/01200001.xml", Fake.Crlf(ServerItem(40, 10))),
                     new KeyValuePair<string, byte[]>("item/0/12/01200002.xml", Fake.Crlf(ServerItem(8, 1))),
                     new KeyValuePair<string, byte[]>("item/0/12/01200005.xml", Fake.Crlf(ServerFive)),
+                    new KeyValuePair<string, byte[]>("table/bags.xml", Fake.Crlf(Head + "<ms2>\n\t<bag id=\"1\">\n\t\t<v item=\"1200005\" count=\"2\" />\n\t\t<v item=\"1200001\" count=\"1\" />\n\t</bag>\n" +
+                        "\t<bag id=\"2\">\n\t\t<v item=\"1200005\" count=\"9\" />\n\t</bag>\n</ms2>\n")),
+                    new KeyValuePair<string, byte[]>("rates/a.xml", Fake.Crlf(Head + "<ms2>\n\t<rate code=\"4\" grade=\"1\" bonus=\"3\" />\n\t<rate code=\"5\" grade=\"1\" bonus=\"1\" />\n</ms2>\n")),
                 };
                 M2dWriter.Create(Path.Combine(s, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, srv);
             }

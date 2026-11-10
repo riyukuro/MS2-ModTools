@@ -16,6 +16,9 @@
      candidate   a pair with different names that agrees too rarely to be trusted; reported, never synced
      clientOnly  no counterpart in the server file
      serverOnly  no counterpart in the client table
+     ref         a table whose rows belong to an item: "attribute" of a row (at any depth) holds the item's id, or
+                 the value of the server file's field "key". of/hit: items with a key, and how many of the keys
+                 were found in these tables. Shown for an item; nothing is synced from it.
 
      convert     same     equal text
                  bool     client true/false, server 1/0
@@ -250,5 +253,13 @@
     <serverOnly field="slots/slot@name" seen="27579" />
     <serverOnly field="title@maxCount" seen="30798" />
     <serverOnly field="tool@itemPresetPath" seen="30798" />
+    <ref name="constant option rows" archive="server:Xml.m2d" entries="itemoption/constant/*.xml" attribute="code" key="option@constant" of="30798" hit="27871" />
+    <ref name="static option rows" archive="server:Xml.m2d" entries="itemoption/option/static/*.xml" attribute="code" key="option@static" of="8783" hit="5473" />
+    <ref name="random option rows" archive="server:Xml.m2d" entries="itemoption/option/random/*.xml" attribute="code" key="option@random" of="8928" hit="6650" />
+    <ref name="option pick rows" archive="server:Xml.m2d" entries="table/itemoptionpick.xml" attribute="optionPickID" key="option@optionID" of="8796" hit="8750" />
+    <ref name="drop rows" archive="server:Xml.m2d" entries="table/**individualitemdrop*.xml" attribute="item" />
+    <ref name="drop rows (server tables)" archive="server:Server.m2d" entries="table/Server/individualItemDrop_Final.xml" attribute="itemID" />
+    <ref name="shop rows" archive="server:Server.m2d" entries="table/Server/shop_game.xml" attribute="id" />
+    <ref name="premium shop rows" archive="server:Server.m2d" entries="table/Server/shop_merat.xml" attribute="id" />
   </entity>
 </fieldmaps>
