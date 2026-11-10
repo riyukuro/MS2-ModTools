@@ -489,6 +489,26 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ReservedPlaceOnATargetWithoutData()
+        {
+            using (var f = new FakeGroups())
+            using (var data = new DataSet(System.IO.Path.Combine(f.Dir, "kms"), null, System.IO.Path.Combine(f.Dir, "server")))
+            {
+                // a mod made with all three data sets, planned with the Korean client and the server only
+                Mod m = FakeGroups.ModOf("<dropbox id=\"900010000\" new=\"true\"><xml><dropBox><group dropGroupID=\"1\"><v itemID=\"5001\" /></group></dropBox></xml></dropbox>");
+                IdSpaces.Reserve(m, IdSpaces.DropBoxSpace, 900010000);
+                Mod back = Mod.Parse(m.ToXml(), "again");
+                Assert.That(back.Ids[0].Places.Count, Is.EqualTo(4));
+                Plan p = Planner.Build(data, new[] { back }, new PlanOptions());
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Has(p.Warnings, "is added in"), Is.False, "the box is in every place this run has\n" + dump);
+                Assert.That(Has(p.Warnings, "gms-client"), Is.False, dump);
+                Assert.That(IdSpaces.NextFreeGroupIds(data, new[] { back }, IdSpaces.DropBoxSpace, 1, null), Is.EqualTo(new long[] { 900010001 }));
+            }
+        }
+
+        [Test]
         public void ModXmlRoundTrip()
         {
             const string body = "<shop id=\"900000009\" clone=\"9001\"><header feature=\"F1\"><set name=\"iconName\" value=\"a\"/></header>" +

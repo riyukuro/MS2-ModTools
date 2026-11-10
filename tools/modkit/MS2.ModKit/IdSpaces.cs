@@ -111,6 +111,9 @@ namespace MS2.ModKit
 
         sealed class Taken { internal Mod Mod; internal IdRange Range; internal readonly List<int> Places = new List<int>(); }
 
+        /// <summary>The place is on a known target whose data is not set (a mod made with more data than this run has).</summary>
+        static bool Absent(DataSet data, IdPlace p) { Profile pr = Profile.OfArchive(p.Archive); return pr != null && !data.Has(pr); }
+
         internal static void Check(DataSet data, Plan plan, Action<ProgressInfo> progress)
         {
             // ranges of one space must not overlap between mods
@@ -151,6 +154,7 @@ namespace MS2.ModKit
                         }
                         foreach (IdPlace q in r.Places)
                         {
+                            if (Absent(data, q)) continue;   // a target whose data is not set is not checked
                             HashSet<long> used;
                             try { used = UsedIds(data, q, progress); }
                             catch (ModKitException x) { plan.Msg(plan.Errors, n.Mod, q.Archive, null, "ids space \"" + r.Space + "\": " + x.Message); continue; }
@@ -173,11 +177,17 @@ namespace MS2.ModKit
             foreach (KeyValuePair<string, Taken> kv in taken)
             {
                 Taken t = kv.Value;
-                if (t.Places.Count == t.Range.Places.Count) continue;
                 string id = kv.Key.Substring(kv.Key.LastIndexOf('\n') + 1);
                 var missing = new List<string>();
-                for (int i = 0; i < t.Range.Places.Count; i++) if (!t.Places.Contains(i)) missing.Add(Describe(t.Range.Places[i]));
-                plan.Msg(plan.Warnings, t.Mod, null, null, "id " + id + " of space \"" + t.Range.Space + "\" is added in " + t.Places.Count + " of " + t.Range.Places.Count + " places; nothing is added in " + string.Join("; ", missing.ToArray()));
+                int present = 0;
+                for (int i = 0; i < t.Range.Places.Count; i++)
+                {
+                    if (Absent(data, t.Range.Places[i])) continue;   // places of a target that is not set do not count
+                    present++;
+                    if (!t.Places.Contains(i)) missing.Add(Describe(t.Range.Places[i]));
+                }
+                if (missing.Count == 0) continue;
+                plan.Msg(plan.Warnings, t.Mod, null, null, "id " + id + " of space \"" + t.Range.Space + "\" is added in " + (present - missing.Count) + " of " + present + " places; nothing is added in " + string.Join("; ", missing.ToArray()));
             }
         }
 
