@@ -193,7 +193,7 @@ namespace MS2.ModKit
         public ApplyResult Apply(DataSet data, IList<Mod> mods, ApplyOptions options)
         {
             if (options == null) options = new ApplyOptions();
-            Plan plan = Planner.Build(data, mods, new PlanOptions { Schemas = options.Schemas, Progress = options.Progress });
+            Plan plan = Planner.Build(data, mods, options.PlanOptions());
             return Apply(mods, plan, options);
         }
 

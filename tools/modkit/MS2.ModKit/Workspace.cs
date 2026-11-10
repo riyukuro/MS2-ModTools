@@ -16,6 +16,13 @@ namespace MS2.ModKit
 {
     public sealed class ApplyOptions
     {
+        /// <summary>Field maps for the two-sided sync; null = the maps inside the library.</summary>
+        public FieldMaps Maps;
+        /// <summary>true: the plan writes nothing to the other side of a mapped field.</summary>
+        public bool NoSync;
+
+        public PlanOptions PlanOptions() { return new PlanOptions { Schemas = Schemas, Progress = Progress, Maps = Maps, NoSync = NoSync }; }
+
         /// <summary>Write even when two mods touch the same row or attribute (the later mod wins).</summary>
         public bool AllowConflicts;
         /// <summary>Archives to copy into the workspace although no mod touches them.</summary>
@@ -142,7 +149,7 @@ namespace MS2.ModKit
         {
             if (options == null) options = new ApplyOptions();
             Guard(data);
-            return Apply(data, mods, Planner.Build(data, mods, new PlanOptions { Schemas = options.Schemas, Progress = options.Progress }), options);
+            return Apply(data, mods, Planner.Build(data, mods, options.PlanOptions()), options);
         }
 
         /// <summary>The same with a plan that was built already from these mods.</summary>

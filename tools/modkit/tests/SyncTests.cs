@@ -1,0 +1,258 @@
+// Two-sided sync on made-up data: a made-up field map (FakeItems.MapXml) with one line per kind of conversion,
+// and mods that change one side, both sides, or one side on purpose.
+using System.Collections.Generic;
+using MS2.ModKit;
+using NUnit.Framework;
+
+namespace MS2.ModKit.Tests
+{
+    [TestFixture]
+    public class SyncTests
+    {
+        const string C = ItemEditor.ClientXml, S = ItemEditor.ServerXml;
+        const string Bucket = "itemdata/012.xml", Five = "item/0/12/01200005.xml";
+
+        static string Client(string rows) { return "<edit archive=\"" + C + "\" entry=\"" + Bucket + "\">" + rows + "</edit>"; }
+        static string Server(string rows) { return "<edit archive=\"" + S + "\" entry=\"" + Five + "\">" + rows + "</edit>"; }
+        static string Set(string at, string name, string value) { return "<change at=\"" + at + "\"><set name=\"" + name + "\" value=\"" + value + "\"/></change>"; }
+
+        static Plan Build(FakeItems f, string ops, bool noSync = false)
+        {
+            Mod m = Mod.Parse("<mod id=\"sync.test\" name=\"t\" version=\"1\">" + ops + "</mod>", "test mod");
+            m = Mod.Parse(m.ToXml(), "round trip");
+            return Planner.Build(f.Data, new[] { m }, new PlanOptions { Maps = FakeItems.Maps, NoSync = noSync });
+        }
+
+        static int Synced(Plan p) { int n = 0; foreach (PlanChange c in p.Changes) if (c.Synced) n++; return n; }
+
+        [Test]
+        public void AClientChangeIsWrittenToTheServerInItsForm()
+        {
+            using (var f = new FakeItems(true))
+            {
+                const string env = "item[id=1200005]/environment/";
+                Plan p = Build(f, Client(
+                    Set(env + "property", "slotMax", "9") + Set(env + "trade", "locked", "false") + Set(env + "shape", "box", "4,5.5,6") +
+                    Set(env + "look", "icon", "drum") + Set(env + "worth", "coin", "55")));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings, Is.Empty, dump);
+                Assert.That(Synced(p), Is.EqualTo(5), dump);
+                Assert.That(dump, Does.Contain("(synced from the other side)"));
+                string srv = Fake.Text(p, S, Five);
+                Assert.That(srv, Does.Contain("<property slotMax=\"9\" sellPrice=\"8\" />"));
+                Assert.That(srv, Does.Contain("<trade locked=\"0\" />"));
+                Assert.That(srv, Does.Contain("<shape box=\"4.000000, 5.500000, 6.000000\" />"));
+                Assert.That(srv, Does.Contain("<look iconPath=\"./img/drum.png\" />"));
+                Assert.That(srv, Does.Contain("<worth coins=\"10,55,90\" tier=\"2\" />"));
+                Assert.That(Fake.Text(p, S, "item/0/12/01200001.xml"), Is.Null, "other items are untouched");
+            }
+        }
+
+        [Test]
+        public void AServerChangeIsWrittenToTheClientInItsForm()
+        {
+            using (var f = new FakeItems(true))
+            {
+                Plan p = Build(f, Server(
+                    Set("environment/trade", "locked", "0") + Set("environment/shape", "box", "7.000000, 8.250000, 9.000000") +
+                    Set("environment/look", "iconPath", "./img/kite.png") + Set("environment/worth", "coins", "10,77,90")));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings, Is.Empty, dump);
+                Assert.That(Synced(p), Is.EqualTo(4), dump);
+                string c = Fake.Text(p, C, Bucket);
+                Assert.That(c, Does.Contain("<trade locked=\"false\" />"));
+                Assert.That(c, Does.Contain("<shape box=\"7,8.25,9\" />"));
+                Assert.That(c, Does.Contain("<look icon=\"kite\" />"));
+                Assert.That(c, Does.Contain("<worth coin=\"77\" />"));
+                Assert.That(c, Does.Contain("<property slotMax=\"1\" sellPrice=\"40\" />"), "the other rows of the file are as shipped");
+            }
+        }
+
+        [Test]
+        public void ARemovedClientAttributeBecomesTheMapsDefault()
+        {
+            using (var f = new FakeItems(true))
+            {
+                Plan p = Build(f, Client("<change at=\"item[id=1200005]/environment/trade\"><unset name=\"locked\"/></change>" +
+                    "<change at=\"item[id=1200005]/environment/look\"><unset name=\"icon\"/></change>"));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Fake.Text(p, S, Five), Does.Contain("<trade locked=\"0\" />"));
+                Assert.That(Fake.Text(p, S, Five), Does.Contain("<look iconPath=\"./img/whistle.png\" />"));
+                Assert.That(p.Warnings.Count, Is.EqualTo(1), dump);
+                Assert.That(dump, Does.Contain("@icon is changed on the client only: the client attribute is removed and the map gives no server value for that"));
+            }
+        }
+
+        [Test]
+        public void BothSidesSetByTheMod()
+        {
+            using (var f = new FakeItems(true))
+            {
+                // the two values correspond: nothing to say, nothing synced
+                Plan p = Build(f, Client(Set("item[id=1200005]/environment/look", "icon", "drum")) + Server(Set("environment/look", "iconPath", "./img/drum.png")));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Warnings, Is.Empty, Fake.Dump(p));
+                Assert.That(Synced(p), Is.EqualTo(0));
+
+                // they do not: both are written as the mod says, with one warning
+                p = Build(f, Client(Set("item[id=1200005]/environment/look", "icon", "drum")) + Server(Set("environment/look", "iconPath", "./img/bell.png")));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings.Count, Is.EqualTo(1), dump);
+                Assert.That(dump, Does.Contain("explicit one-sided override: item 1200005 look@icon is set to \"drum\" on the client and look@iconPath to \"./img/bell.png\" on the server"));
+                Assert.That(Fake.Text(p, C, Bucket), Does.Contain("<look icon=\"drum\" />"));
+                Assert.That(Fake.Text(p, S, Five), Does.Contain("<look iconPath=\"./img/bell.png\" />"));
+            }
+        }
+
+        [Test]
+        public void SyncOffForALineARowAnEditOrTheWholePlan()
+        {
+            using (var f = new FakeItems(true))
+            {
+                const string at = "item[id=1200005]/environment/trade";
+                string[] ops =
+                {
+                    Client("<change at=\"" + at + "\"><set name=\"locked\" value=\"false\" sync=\"false\"/></change>"),
+                    Client("<change at=\"" + at + "\" sync=\"false\"><set name=\"locked\" value=\"false\"/></change>"),
+                    "<edit archive=\"" + C + "\" entry=\"" + Bucket + "\" sync=\"false\">" + Set(at, "locked", "false") + "</edit>",
+                    Client(Set(at, "locked", "false")),
+                };
+                for (int i = 0; i < ops.Length; i++)
+                {
+                    Plan p = Build(f, ops[i], i == 3);
+                    string dump = Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Warnings.Count, Is.EqualTo(1), dump);
+                    Assert.That(dump, Does.Contain("explicit one-sided override: " + at + " @locked = \"false\" on the client only (sync is off for it); server trade@locked stays \"1\""));
+                    Assert.That(p.Find(S) == null || Fake.Text(p, S, Five) == null, Is.True, "case " + i);
+                }
+            }
+        }
+
+        [Test]
+        public void SidesThatDisagreeInTheShippedDataAreNotSynced()
+        {
+            using (var f = new FakeItems(true))
+            {
+                Plan p = Build(f, Client(Set("item[id=1200005]/environment/property", "sellPrice", "70")));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings.Count, Is.EqualTo(1), dump);
+                Assert.That(dump, Does.Contain("@sellPrice is changed on the client only: the shipped values do not correspond (client \"7\", server property@sellPrice \"8\")"));
+                Assert.That(p.Find(S) == null || Fake.Text(p, S, Five) == null, Is.True);
+            }
+        }
+
+        [Test]
+        public void FieldsWithoutAMapLine()
+        {
+            using (var f = new FakeItems(true))
+            {
+                const string env = "item[id=1200005]/environment/";
+                Plan p = Build(f, Client(Set(env + "odd", "a", "2") + Set(env + "option", "constantID", "78") + Set(env + "option", "optionLevel", "3") +
+                    Set(env + "property", "tradable", "0")));
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings.Count, Is.EqualTo(2), dump);     // client-only fields are silent
+                Assert.That(dump, Does.Contain("odd@a is changed on the client only: the field map of \"item\" has no entry for it"));
+                Assert.That(dump, Does.Contain("option@constantID is changed on the client only: the field map of \"item\" has no entry for it (server drop@rate is a candidate that agreed on 6 of 10 compared ids; it is not written)"));
+                Assert.That(Synced(p), Is.EqualTo(0));
+
+                // an item with no server file
+                p = Build(f, Client(Set("item[id=1200003]/environment/property", "slotMax", "2")));
+                Assert.That(p.Warnings.Count, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(Fake.Dump(p), Does.Contain("item 1200003 has no entry in server:Xml.m2d; changed on the client only"));
+            }
+            // no server archive in the data set: one line for the mod, not one per field
+            using (var f = new FakeItems(false))
+            {
+                Plan p = Build(f, Client(Set("item[id=1200005]/environment/trade", "locked", "false") + Set("item[id=1200005]/environment/look", "icon", "drum")));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Dump(p), Does.Contain("is not in the data set: the mapped fields this mod changes are written on the client side only"));
+            }
+        }
+
+        [Test]
+        public void AClonedItemIsSyncedToo()
+        {
+            using (var f = new FakeItems(true))
+            {
+                ItemDraft n = f.Editor().Clone(1200001, 1250000, "Glass Whistle", "It hums.");
+                n.Set(FakeItems.Section(n, "item", "environment/limit"), "levelLimit", "30");       // the client row only
+                Plan p = f.Plan();
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings, Is.Empty, dump);
+                Assert.That(Fake.Text(p, C, Bucket), Does.Contain("<limit levelLimit=\"30\" />"));
+                Assert.That(Fake.Text(p, S, "item/0/12/01250000.xml"), Does.Contain("<limit levelLimit=\"30\" />"));
+            }
+        }
+
+        [Test]
+        public void TheItemDraftMirrorsThroughTheMap()
+        {
+            using (var f = new FakeItems(true))
+            {
+                ItemDraft d = f.Editor().Open(1200005);
+                ItemSection look = FakeItems.Section(d, "item", "environment/look");
+                string field; FieldMapEntry e;
+                ItemSection other = d.Mirror(look, "icon", out field, out e);
+                Assert.That(other.Part.Kind, Is.EqualTo("server"));
+                Assert.That(field, Is.EqualTo("iconPath"));
+                Assert.That(e.Convert, Is.EqualTo("affix"));
+                Assert.That(d.Set(look, "icon", "drum", true), Is.SameAs(other));
+                Assert.That(d.Get(other, "iconPath"), Is.EqualTo("./img/drum.png"));
+
+                ItemSection worth = FakeItems.Section(d, "server", "environment/worth");
+                ItemSection cw = d.Set(worth, "coins", "10,41,90", true);
+                Assert.That(cw.Part.Kind, Is.EqualTo("item"));
+                Assert.That(d.Get(cw, "coin"), Is.EqualTo("41"));
+                Assert.That(d.Mirror(worth, "tier"), Is.Null, "server-only");
+                Assert.That(d.Mirror(FakeItems.Section(d, "item", "environment/odd"), "a"), Is.Null, "no map line");
+                // the shipped prices differ: nothing to mirror to
+                Assert.That(d.Set(FakeItems.Section(d, "item", "environment/property"), "sellPrice", "70", true), Is.Null);
+
+                // not mirrored on purpose: the line is marked, and Plan says so instead of writing the server
+                d.Set(FakeItems.Section(d, "item", "environment/trade"), "locked", "false", false);
+                Assert.That(f.Mod.ToXml(), Does.Contain("<set name=\"locked\" value=\"false\" sync=\"false\" />"));
+                Plan p = f.Plan();
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Fake.Text(p, S, Five), Does.Contain("<trade locked=\"1\" />"));
+                Assert.That(Fake.Text(p, S, Five), Does.Contain("<look iconPath=\"./img/drum.png\" />"));
+                Assert.That(dump, Does.Contain("(sync is off for it)"));
+                Assert.That(dump, Does.Contain("the shipped values do not correspond"));
+                Assert.That(p.Warnings.Count, Is.EqualTo(2), dump);
+            }
+        }
+
+        [Test]
+        public void TheShippedMapNamesFieldsOnly()
+        {
+            EntityMap item = FieldMaps.Default.Entity("item");
+            Assert.That(item, Is.Not.Null);
+            Assert.That(item.Client.Row, Is.EqualTo("item"));
+            Assert.That(item.Server.Row, Is.Null);
+            Assert.That(item.Entries.Count, Is.GreaterThan(50));
+            var seen = new Dictionary<string, bool>();
+            foreach (FieldMapEntry e in item.Entries)
+            {
+                Assert.That(e.Client, Does.Contain("@"));
+                Assert.That(e.Server, Does.Contain("@"));
+                Assert.That(e.Confidence, Is.Not.Empty, e.Client);
+                if (!e.Candidate) { Assert.That(seen.ContainsKey(e.Client), Is.False, e.Client); seen[e.Client] = true; }
+            }
+            bool client;
+            Assert.That(FieldMaps.Default.Find(C, "itemdata/012.xml", out client), Is.SameAs(item));
+            Assert.That(client, Is.True);
+            Assert.That(FieldMaps.Default.Find(S, "item/1/23/12300000.xml", out client), Is.SameAs(item));
+            Assert.That(client, Is.False);
+            Assert.That(FieldMaps.Default.Find(C, "table/pet.xml", out client), Is.Null);
+            Assert.Throws<ModKitException>(() => FieldMaps.Parse("<fieldmaps><entity name=\"x\"><client archive=\"client:Xml.m2d\" entry=\"a/{nope}.xml\" under=\"e\"/></entity></fieldmaps>"));
+        }
+    }
+}

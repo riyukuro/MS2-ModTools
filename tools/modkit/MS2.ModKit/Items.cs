@@ -116,34 +116,105 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// Sets a field and, when asked, the same field of the item's other side (client item row and server item
-        /// file): the element of the same name path, if it has that attribute and held the same value before.
-        /// Returns the section that was set too, or null.
+        /// Sets a field and, when asked, the corresponding field of the item's other side (client item row and
+        /// server item file). Which field corresponds, and how the value is converted, comes from the editor's field
+        /// map; the other side is set only when the two sides corresponded before. Without mirror, a mapped field is
+        /// marked sync="false", so Plan leaves the other side alone and says so. Returns the section that was set
+        /// too, or null.
         /// </summary>
         public ItemSection Set(ItemSection s, string field, string value, bool mirror)
         {
             string before = Get(s, field);
             Set(s, field, value);
-            if (!mirror) return null;
-            ItemSection m = Mirror(s, field);
-            if (m == null || Get(m, field) != before) return null;
-            Set(m, field, value);
+            string otherField;
+            FieldMapEntry e;
+            ItemSection m = Mirror(s, field, out otherField, out e);
+            if (!mirror)
+            {
+                if (m != null) MarkOneSided(s, field);
+                return null;
+            }
+            if (m == null) return null;
+            string otherNow = Get(m, otherField);
+            if (e == null)
+            {
+                if (otherNow != before) return null;
+                Set(m, otherField, value);
+                return m;
+            }
+            bool client = s.Part.Kind == "item";
+            string index = e.Index == null ? null : ServerValue(client ? m : s, e.Index);
+            if (!(client ? e.Corresponds(before, otherNow, index) : e.Corresponds(otherNow, before, index))) return null;
+            string conv, why;
+            if (!(client ? e.TryToServer(value, otherNow, index, out conv, out why) : e.TryToClient(value, otherNow, index, out conv, out why))) return null;
+            Set(m, otherField, conv);
             return m;
         }
 
-        /// <summary>The same field on the item's other side (see Set), or null.</summary>
+        void MarkOneSided(ItemSection s, string field)
+        {
+            RowOp op = s.Part.Add ?? Editor.FindChange(s.Part, s.Elem, false);
+            string path = s.Part.Add != null ? s.Path : "";
+            if (op == null) return;
+            foreach (AttrOp a in op.Attrs) if (IsField(a, path, field)) a.Sync = false;
+        }
+
+        static string EnvLink(string chain) { int i = chain.IndexOf('/'); return i < 0 ? chain : chain.Substring(0, i); }
+        static string BelowEnv(string chain) { int i = chain.IndexOf('/'); return i < 0 ? "" : chain.Substring(i + 1); }
+
+        // the value of a server field ("element@attribute" under the environment) beside a server section
+        string ServerValue(ItemSection server, string field)
+        {
+            string want = EnvLink(server.Chain) + "/" + FieldMapEntry.ElemOf(field);
+            foreach (ItemSection t in Sections)
+                if (t.Part == server.Part && t.Chain == want) return Get(t, FieldMapEntry.AttrOf(field));
+            return null;
+        }
+
+        /// <summary>The section of the item's other side that holds the corresponding field (see Set), or null.</summary>
         public ItemSection Mirror(ItemSection s, string field)
         {
+            string f; FieldMapEntry e;
+            return Mirror(s, field, out f, out e);
+        }
+
+        /// <summary>As Mirror; otherField is the attribute there, entry the map line (null: no map, same name).</summary>
+        public ItemSection Mirror(ItemSection s, string field, out string otherField, out FieldMapEntry entry)
+        {
+            otherField = field; entry = null;
             string other = s.Part.Kind == "item" ? "server" : s.Part.Kind == "server" ? "item" : null;
             if (other == null) return null;
+            if (!s.Chain.StartsWith("environment[", StringComparison.Ordinal)) return null;
+            string env = EnvLink(s.Chain), below = BelowEnv(s.Chain), otherBelow = below;
+            EntityMap em = Editor.Maps == null ? null : Editor.Maps.Entity(ItemEditor.IdSpace);
+            if (em != null)
+            {
+                if (em.Classify(other == "server", below + "@" + field, out entry) != FieldKind.Mapped) { entry = null; return null; }
+                string of = other == "server" ? entry.Server : entry.Client;
+                otherBelow = FieldMapEntry.ElemOf(of);
+                otherField = FieldMapEntry.AttrOf(of);
+            }
+            // the environment of the other side: the one of the same feature and locale, or the only one of each side
+            var mine = new List<string>(); var theirs = new List<string>();
+            foreach (ItemSection t in Sections)
+            {
+                if (!t.Chain.StartsWith("environment[", StringComparison.Ordinal)) continue;
+                string link = EnvLink(t.Chain);
+                if (t.Part == s.Part) { if (!mine.Contains(link)) mine.Add(link); }
+                else if (t.Part.Kind == other && !theirs.Contains(link)) theirs.Add(link);
+            }
+            string theirEnv = env;
+            if (!theirs.Contains(env) && mine.Count == 1 && theirs.Count == 1) theirEnv = theirs[0];
+            string want = otherBelow.Length == 0 ? theirEnv : theirEnv + "/" + otherBelow;
             ItemSection hit = null;
             foreach (ItemSection t in Sections)
             {
-                if (t.Part.Kind != other || t.Chain != s.Chain) continue;
+                if (t.Part.Kind != other || t.Chain != want) continue;
                 if (hit != null) return null;       // two elements of that path: no telling which
                 hit = t;
             }
-            if (hit == null || hit.Elem.Attr(field) == null) return null;
+            if (hit == null) return null;
+            if (em == null && hit.Elem.Attr(field) == null) return null;
             foreach (ItemSection t in Sections)
                 if (t != s && t.Part == s.Part && t.Chain == s.Chain) return null;
             return hit;
@@ -253,6 +324,8 @@ namespace MS2.ModKit
 
         public readonly DataSet Data;
         public readonly Mod Mod;
+        /// <summary>The field maps the mirror of ItemDraft.Set follows; null: fields of the same name only.</summary>
+        public FieldMaps Maps = FieldMaps.Default;
         /// <summary>The language folders that hold an item name file.</summary>
         public readonly List<string> Languages = new List<string>();
         /// <summary>The language names are searched and shown in. Edits of a name go to every language.</summary>

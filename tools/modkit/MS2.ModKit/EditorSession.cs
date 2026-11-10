@@ -135,6 +135,12 @@ namespace MS2.ModKit
         /// <summary>The game folder (the one that holds Data) that loose files are written into; needed for ApplyTarget.LooseFiles.</summary>
         public string GameDir;
 
+        /// <summary>Field maps for the two-sided sync; null = the maps inside the library.</summary>
+        public FieldMaps Maps;
+
+        /// <summary>true: a plan writes nothing to the other side of a mapped field (it warns instead).</summary>
+        public bool NoSync;
+
         /// <summary>The mods folder as a list with order and enabled states.</summary>
         public ModList ModList() { return MS2.ModKit.ModList.Load(ModsDir); }
 
@@ -165,7 +171,7 @@ namespace MS2.ModKit
 
         public Plan Plan(Action<ProgressInfo> progress)
         {
-            Plan p = Planner.Build(Data, ActiveMods(), new PlanOptions { Progress = progress });
+            Plan p = Planner.Build(Data, ActiveMods(), new PlanOptions { Progress = progress, Maps = Maps, NoSync = NoSync });
             if (Target == ApplyTarget.LooseFiles)
             {
                 Loose().Check(p);
@@ -191,7 +197,7 @@ namespace MS2.ModKit
             if (Mod.Ops.Count > 0) SaveMod();
             List<Mod> mods = ActiveMods();
             if (mods.Count == 0) throw new ModKitException("no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
-            var options = new ApplyOptions { Progress = progress };
+            var options = new ApplyOptions { Progress = progress, Maps = Maps, NoSync = NoSync };
 
             if (loose == null)
             {
@@ -204,7 +210,7 @@ namespace MS2.ModKit
                 return r;
             }
 
-            Plan plan = Planner.Build(Data, mods, new PlanOptions { Progress = progress });
+            Plan plan = Planner.Build(Data, mods, new PlanOptions { Progress = progress, Maps = Maps, NoSync = NoSync });
             ApplyResult res = loose.Apply(mods, plan, options);
             if (!res.Applied) return res;
             if (WorkspaceDir != null)

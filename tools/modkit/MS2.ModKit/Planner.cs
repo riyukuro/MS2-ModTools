@@ -19,8 +19,19 @@ namespace MS2.ModKit
         public string Row = "";         // selector of the row from the entry's root element
         public string Name;             // attribute name
         public string OldValue, NewValue;
+        /// <summary>Written by the two-sided sync (PlannerSync.cs), not by a line of the mod.</summary>
+        public bool Synced;
 
-        public override string ToString()
+        // for the sync pass
+        internal XmlElem Elem, Source;
+        internal object State;
+        internal RowOp Op;
+        internal AttrOp AttrOp;
+        internal Mod Mod;
+
+        public override string ToString() { return Text() + (Synced ? "  (synced from the other side)" : ""); }
+
+        string Text()
         {
             string where = Archive + " " + Entry + (Row.Length > 0 ? " " + Row : "");
             switch (Kind)
@@ -88,6 +99,10 @@ namespace MS2.ModKit
         /// <summary>Schemas to check new values against (warnings only). May be null.</summary>
         public SchemaSet Schemas;
         public Action<ProgressInfo> Progress;
+        /// <summary>Field maps for the two-sided sync; null = the maps inside the library.</summary>
+        public FieldMaps Maps;
+        /// <summary>true: nothing is written to the other side; every one-sided change of a mapped field is a warning.</summary>
+        public bool NoSync;
     }
 
     public sealed class Plan
@@ -136,9 +151,9 @@ namespace MS2.ModKit
         internal string Archive, Entry, ElementPath, Attr, Value;
     }
 
-    public static class Planner
+    public static partial class Planner
     {
-        sealed class Claim { internal Mod Mod; internal XmlElem Elem; internal string What, Value; }
+        sealed class Claim { internal Mod Mod; internal XmlElem Elem; internal string What, Value; internal bool Synced; }
 
         sealed class EntryState
         {
@@ -223,6 +238,7 @@ namespace MS2.ModKit
                     var ed = op as EditOp;
                     if (ed != null) DoEditOp(run, m, ed);
                 }
+            SyncPass(run, options);
 
             foreach (EntryState st in run.Order)
             {
@@ -330,15 +346,7 @@ namespace MS2.ModKit
             }
             if (st.BaseMod != null && st.BaseMod != mod)
                 plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "edits an entry that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds"));
-            if (st.DocFailed) return;
-            if (st.Doc == null)
-            {
-                try { st.Doc = XmlDoc.Parse(st.Base, op.Archive + " " + st.Name); }
-                catch (ModKitException x) { st.DocFailed = true; plan.Msg(plan.Errors, mod, op.Archive, st.Name, "cannot be edited as XML: " + x.Message); return; }
-                if (st.Doc.EncodingFallback)
-                    plan.Msg(plan.Notes, mod, op.Archive, st.Name, "the text is not valid in its declared encoding; edited as " + st.Doc.EncodingName);
-                st.Ed = new XmlEditor(st.Doc);
-            }
+            if (!EnsureDoc(plan, mod, st)) return;
             foreach (RowOp r in op.Rows)
             {
                 try
@@ -355,6 +363,20 @@ namespace MS2.ModKit
                     plan.Msg(plan.Errors, mod, op.Archive, st.Name, msg + " (mod.xml line " + r.Line + ")");
                 }
             }
+        }
+
+        static bool EnsureDoc(Plan plan, Mod mod, EntryState st)
+        {
+            if (st.DocFailed) return false;
+            if (st.Doc == null)
+            {
+                try { st.Doc = XmlDoc.Parse(st.Base, st.Archive + " " + st.Name); }
+                catch (ModKitException x) { st.DocFailed = true; plan.Msg(plan.Errors, mod, st.Archive, st.Name, "cannot be edited as XML: " + x.Message); return false; }
+                if (st.Doc.EncodingFallback)
+                    plan.Msg(plan.Notes, mod, st.Archive, st.Name, "the text is not valid in its declared encoding; edited as " + st.Doc.EncodingName);
+                st.Ed = new XmlEditor(st.Doc);
+            }
+            return true;
         }
 
         static string Suggest(M2dArchive arch, string name)
@@ -413,7 +435,7 @@ namespace MS2.ModKit
                     continue;
                 }
                 st.Claims[key] = new Claim { Mod = mod, Elem = el, What = what, Value = value };
-                var ch = new PlanChange { ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, Name = a.Name, OldValue = old, NewValue = value };
+                var ch = new PlanChange { ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, Name = a.Name, OldValue = old, NewValue = value, Elem = el, State = st, Op = r, AttrOp = a, Mod = mod };
                 if (a.Kind == AttrOpKind.Set) { st.Ed.SetAttr(el, a.Name, a.Value); ch.Kind = ChangeKind.SetAttr; }
                 else if (a.Kind == AttrOpKind.Unset) { st.Ed.RemoveAttr(el, a.Name); ch.Kind = ChangeKind.RemoveAttr; }
                 else { st.Ed.SetText(el, a.Value); ch.Kind = ChangeKind.SetText; }
@@ -550,7 +572,7 @@ namespace MS2.ModKit
             else if (before) st.Ed.InsertBefore(anchor, frag, fromIndent);
             else st.Ed.InsertAfter(anchor, frag, fromIndent);
 
-            plan.Changes.Add(new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, NewValue = frag });
+            plan.Changes.Add(new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, NewValue = frag, Elem = made, Source = src, State = st, Op = r, Mod = mod });
             var attrs = new Dictionary<string, string>();
             foreach (XmlAttr a in made.Attrs) attrs[a.Name] = a.Value;
             string names = RowPath.NamePath(parent, false);

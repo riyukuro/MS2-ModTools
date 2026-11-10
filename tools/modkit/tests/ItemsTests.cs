@@ -41,6 +41,17 @@ namespace MS2.ModKit.Tests
             "\t\t\t<property slotMax=\"1\" sellPrice=\"1\" />\n" +
             "\t\t</environment>\n" +
             "\t</item>\n" +
+            "\t<item id=\"1200005\">\n" +
+            "\t\t<environment>\n" +
+            "\t\t\t<property slotMax=\"3\" sellPrice=\"7\" />\n" +
+            "\t\t\t<trade locked=\"true\" />\n" +
+            "\t\t\t<shape box=\"1,2,3\" />\n" +
+            "\t\t\t<look icon=\"whistle\" />\n" +
+            "\t\t\t<worth coin=\"40\" />\n" +
+            "\t\t\t<odd a=\"1\" />\n" +
+            "\t\t\t<option constantID=\"77\" optionLevel=\"1\" />\n" +
+            "\t\t</environment>\n" +
+            "\t</item>\n" +
             "</ms2>\n";
 
         static string Names(string suffix)
@@ -72,6 +83,36 @@ namespace MS2.ModKit.Tests
             "\t</option>\n" +
             "</ms2>\n";
 
+        /// <summary>The server file of item 1200005: every mapped field in the server's own form.</summary>
+        public const string ServerFive =
+            Head + "<ms2>\n\t<environment>\n" +
+            "\t\t<property slotMax=\"3\" sellPrice=\"8\" />\n" +
+            "\t\t<trade locked=\"1\" />\n" +
+            "\t\t<shape box=\"1.000000, 2.000000, 3.000000\" />\n" +
+            "\t\t<look iconPath=\"./img/whistle.png\" />\n" +
+            "\t\t<worth coins=\"10,40,90\" tier=\"2\" />\n" +
+            "\t\t<drop rate=\"4\" />\n" +
+            "\t</environment>\n</ms2>\n";
+
+        /// <summary>A made-up field map for the made-up items: one line per kind of conversion.</summary>
+        public const string MapXml =
+            "<fieldmaps version=\"1\"><entity name=\"item\" sample=\"0\">" +
+            "<client archive=\"client:Xml.m2d\" entry=\"itemdata/{id/100000}.xml\" row=\"item\" key=\"id\" under=\"environment\" />" +
+            "<server archive=\"server:Xml.m2d\" entry=\"item/*/*/{id}.xml\" under=\"environment\" />" +
+            "<map client=\"property@slotMax\" server=\"property@slotMax\" />" +
+            "<map client=\"property@sellPrice\" server=\"property@sellPrice\" />" +
+            "<map client=\"limit@levelLimit\" server=\"limit@levelLimit\" />" +
+            "<map client=\"trade@locked\" server=\"trade@locked\" convert=\"bool\" default=\"0\" />" +
+            "<map client=\"shape@box\" server=\"shape@box\" convert=\"numlist\" />" +
+            "<map client=\"look@icon\" server=\"look@iconPath\" convert=\"affix\" prefix=\"./img/\" suffix=\".png\" />" +
+            "<map client=\"worth@coin\" server=\"worth@coins\" convert=\"pick\" index=\"worth@tier\" />" +
+            "<candidate client=\"option@constantID\" server=\"drop@rate\" compared=\"10\" agree=\"6\" />" +
+            "<clientOnly field=\"property@tradable\" /><clientOnly field=\"option@optionLevel\" />" +
+            "<serverOnly field=\"drop@rate\" /><serverOnly field=\"worth@tier\" />" +
+            "</entity></fieldmaps>";
+
+        public static readonly FieldMaps Maps = FieldMaps.Parse(MapXml);
+
         static string ServerItem(int price, int level)
         {
             return Head + "<ms2>\n\t<environment>\n\t\t<property slotMax=\"1\" sellPrice=\"" + price + "\" />\n\t\t<limit levelLimit=\"" + level + "\" />\n\t\t<drop rate=\"4\" />\n\t</environment>\n</ms2>\n";
@@ -100,6 +141,7 @@ namespace MS2.ModKit.Tests
                 {
                     new KeyValuePair<string, byte[]>("item/0/12/01200001.xml", Fake.Crlf(ServerItem(40, 10))),
                     new KeyValuePair<string, byte[]>("item/0/12/01200002.xml", Fake.Crlf(ServerItem(8, 1))),
+                    new KeyValuePair<string, byte[]>("item/0/12/01200005.xml", Fake.Crlf(ServerFive)),
                 };
                 M2dWriter.Create(Path.Combine(s, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, srv);
             }
@@ -107,13 +149,13 @@ namespace MS2.ModKit.Tests
             Mod = Mod.Parse("<mod id=\"items.test\" name=\"t\" version=\"1\"/>", "test mod");
         }
 
-        public ItemEditor Editor() { return new ItemEditor(Data, Mod); }
+        public ItemEditor Editor() { return new ItemEditor(Data, Mod) { Maps = Maps }; }
 
         /// <summary>The mod written out and read back, planned alone.</summary>
         public Plan Plan()
         {
             Mod again = Mod.Parse(Mod.ToXml(), "round trip");
-            return Planner.Build(Data, new[] { again }, null);
+            return Planner.Build(Data, new[] { again }, new PlanOptions { Maps = Maps });
         }
 
         public static ItemSection Section(ItemDraft d, string kind, string path)

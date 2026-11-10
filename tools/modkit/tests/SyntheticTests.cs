@@ -609,7 +609,10 @@ namespace MS2.ModKit.Tests
                 Plan p = Planner.Build(f.Data, new[] { m }, new PlanOptions { Schemas = loaded });
                 string dump = Fake.Dump(p);
                 Assert.That(p.Errors, Is.Empty, dump);
-                Assert.That(p.Warnings.Count, Is.EqualTo(5), dump);
+                // 5 from the schema, and 5 for the attributes set in the client's copy of a table the server holds too
+                Assert.That(p.Warnings.Count, Is.EqualTo(10), dump);
+                Assert.That(dump, Does.Contain("@speed is changed in 1 row(s) (first: pet[id=100]) on this side only; server:Xml.m2d holds the same table and there is no field map for it"));
+                Assert.That(dump, Does.Not.Contain("@hp is changed in"), "hp is set on both sides");
                 Assert.That(dump, Does.Contain("ms2/pet @hp=\"lots\" is text; the shipped table/pet.xml only has int 50..70, for example \"50\""));
                 Assert.That(dump, Does.Contain("attribute colour is never set on ms2/pet in the shipped table/pet.xml"));
                 Assert.That(dump, Does.Contain("attribute glow of ms2/pet is not in the shipped table/pet.xml; known from Maple2 only, unverified (PetTable)"));

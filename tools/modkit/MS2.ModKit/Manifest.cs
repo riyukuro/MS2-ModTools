@@ -49,6 +49,8 @@ namespace MS2.ModKit
         public string Name;
         public string Value;
         public string At;           // selector under the row of the op, or null
+        /// <summary>false (sync="false" on the line): this attribute is not carried to the other side by the field maps.</summary>
+        public bool Sync = true;
         public int Line;
     }
 
@@ -60,6 +62,8 @@ namespace MS2.ModKit
         public string Xml;          // Add: literal element text
         public string After, Before, In;    // Add: where (at most one)
         public readonly List<AttrOp> Attrs = new List<AttrOp>();
+        /// <summary>false (sync="false" in mod.xml): what this row changes is not carried to the other side by the field maps.</summary>
+        public bool Sync = true;
         public int Line;
     }
 
@@ -202,15 +206,16 @@ namespace MS2.ModKit
 
             EditOp ReadEdit(XmlElem e)
             {
-                Only(e, "archive", "entry");
+                Only(e, "archive", "entry", "sync");
                 var op = new EditOp { Archive = ArchiveRef(e), Entry = Need(e, "entry").Replace('\\', '/'), Line = e.Line };
+                bool sync = Flag(e, "sync", true);
                 foreach (XmlElem c in e.Children)
                 {
-                    var r = new RowOp { Line = c.Line };
+                    var r = new RowOp { Line = c.Line, Sync = Flag(c, "sync", sync) };
                     switch (c.Name)
                     {
                         case "change":
-                            Only(c, "at");
+                            Only(c, "at", "sync");
                             r.Kind = RowOpKind.Change; r.At = c.Attr("at") ?? "";
                             ReadAttrOps(c, r, false);
                             if (r.Attrs.Count == 0) throw Bad(c, "<change> without <set>, <unset> or <text>");
@@ -221,7 +226,7 @@ namespace MS2.ModKit
                             if (c.Children.Count > 0) throw Bad(c, "<delete> has no child elements");
                             break;
                         case "add":
-                            Only(c, "copy", "after", "before", "in");
+                            Only(c, "copy", "after", "before", "in", "sync");
                             r.Kind = RowOpKind.Add; r.Copy = c.Attr("copy"); r.After = c.Attr("after"); r.Before = c.Attr("before"); r.In = c.Attr("in");
                             if ((r.After != null ? 1 : 0) + (r.Before != null ? 1 : 0) + (r.In != null ? 1 : 0) > 1) throw Bad(c, "<add> takes at most one of after, before, in");
                             ReadAttrOps(c, r, true);
@@ -244,8 +249,8 @@ namespace MS2.ModKit
                     var a = new AttrOp { Line = s.Line };
                     switch (s.Name)
                     {
-                        case "set": Only(s, "name", "value", "at"); a.Kind = AttrOpKind.Set; a.Name = Need(s, "name"); a.Value = s.Attr("value"); if (a.Value == null) throw Bad(s, "<set> needs value=\"...\" (it may be empty)"); break;
-                        case "unset": Only(s, "name", "at"); a.Kind = AttrOpKind.Unset; a.Name = Need(s, "name"); break;
+                        case "set": Only(s, "name", "value", "at", "sync"); a.Sync = Flag(s, "sync", true); a.Kind = AttrOpKind.Set; a.Name = Need(s, "name"); a.Value = s.Attr("value"); if (a.Value == null) throw Bad(s, "<set> needs value=\"...\" (it may be empty)"); break;
+                        case "unset": Only(s, "name", "at", "sync"); a.Sync = Flag(s, "sync", true); a.Kind = AttrOpKind.Unset; a.Name = Need(s, "name"); break;
                         case "text": Only(s, "value", "at"); a.Kind = AttrOpKind.Text; a.Value = s.Attr("value"); if (a.Value == null) throw Bad(s, "<text> needs value=\"...\""); break;
                         case "xml":
                             if (!allowXml) throw Bad(s, "<xml> belongs in <add>");
@@ -312,6 +317,7 @@ namespace MS2.ModKit
                     sb.Append("    <").Append(tag);
                     if (r.Kind == RowOpKind.Change) A(sb, "at", r.At);
                     else { A(sb, "copy", r.Copy); A(sb, "after", r.After); A(sb, "before", r.Before); A(sb, "in", r.In); }
+                    if (!r.Sync) A(sb, "sync", "false");
                     sb.Append(">\n");
                     if (r.Xml != null)
                     {
@@ -324,6 +330,7 @@ namespace MS2.ModKit
                         A(sb, "at", a.At);
                         if (a.Kind != AttrOpKind.Text) A(sb, "name", a.Name);
                         if (a.Kind != AttrOpKind.Unset) A(sb, "value", a.Value);
+                        if (!a.Sync && a.Kind != AttrOpKind.Text) A(sb, "sync", "false");
                         sb.Append(" />\n");
                     }
                     sb.Append("    </").Append(tag).Append(">\n");
