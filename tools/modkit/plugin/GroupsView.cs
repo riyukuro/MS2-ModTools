@@ -158,6 +158,11 @@ namespace MS2.Tables
             Controls.Add(applyBar);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, applyBar, hitList, right });
+            // the header form gets 40 % of the height beside the rows, the output box 18 % of the view (both splitters
+            // set a new share when dragged)
+            ViewLayout.KeepHeightShare(formGrid, right, 0.4, 70);
+            ViewLayout.KeepHeightShare(outputBox, this, 0.18, 60);
+            ViewLayout.CentreOnFirstShow(this);
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
             searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
@@ -210,9 +215,9 @@ namespace MS2.Tables
 
         static Label Lbl(string text) { return new Label { Text = text, AutoSize = true, Margin = new Padding(6, 8, 0, 0) }; }
 
-        static DataGridViewTextBoxColumn Col(string header, int width, bool readOnly)
+        static DataGridViewColumn Col(string header, int width, bool readOnly)
         {
-            return new DataGridViewTextBoxColumn { HeaderText = header, ReadOnly = readOnly, Width = width, SortMode = DataGridViewColumnSortMode.NotSortable };
+            return ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = header, ReadOnly = readOnly, Width = width, SortMode = DataGridViewColumnSortMode.NotSortable });
         }
 
         static void SetupGrid(DataGridView g)
@@ -224,7 +229,7 @@ namespace MS2.Tables
             g.RowHeadersVisible = false;
             g.MultiSelect = false;
             g.SelectionMode = DataGridViewSelectionMode.CellSelect;
-            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
+            g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             g.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
             g.BackgroundColor = SystemColors.AppWorkspace;
             g.DefaultCellStyle.BackColor = SystemColors.Window;
@@ -575,9 +580,11 @@ namespace MS2.Tables
             foreach (GroupRowView r in gridRows)
                 foreach (KeyValuePair<string, string> kv in r.Fields)
                     if (!seen.ContainsKey(kv.Key)) { seen[kv.Key] = true; columns.Add(kv.Key); }
+            rowGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.None;
             rowGrid.Columns.Add(Col("row", 230, true));
             rowGrid.Columns.Add(Col(side.Flat ? "split" : "entry", 170, true));
             foreach (string c in columns) rowGrid.Columns.Add(Col(c, Math.Max(60, Math.Min(160, c.Length * 9)), false));
+            rowGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             rowGrid.RowCount = gridRows.Count;
             rowGrid.Invalidate();
         }
