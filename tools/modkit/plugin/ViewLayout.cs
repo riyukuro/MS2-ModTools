@@ -101,13 +101,23 @@ namespace MS2.Tables
         /// </summary>
         public static void KeepHeightShare(Control pane, Control container, double share, int min)
         {
+            KeepHeightShare(pane, container, share, min, null);
+        }
+
+        /// <summary>
+        /// As above, and the pane also leaves the rest the pixels keep() gives (the other panes and bars of the container
+        /// with the least the pane beside it needs), so in a low window the pane gives way first.
+        /// </summary>
+        public static void KeepHeightShare(Control pane, Control container, double share, int min, Func<int> keep)
+        {
             bool adjusting = false;
             EventHandler fit = delegate
             {
                 int h = container.ClientSize.Height;
                 if (h <= 0) return;
                 int want = (int)Math.Round(h * share);
-                want = Math.Max(Math.Min(want, h - min), Math.Min(min, h / 2));
+                int rest = keep != null ? Math.Max(min, keep()) : min;
+                want = Math.Max(Math.Min(want, h - rest), Math.Min(min, h / 2));
                 if (want == pane.Height) return;
                 adjusting = true;
                 try { pane.Height = want; }

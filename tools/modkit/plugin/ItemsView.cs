@@ -36,7 +36,7 @@ namespace MS2.Tables
         readonly TextBox searchBox = new TextBox { Width = 200 };
         readonly ComboBox languageBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 60 };
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
-        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 300, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 36 };
+        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 260, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 36 };
         readonly IconBox iconBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };
         // the icon entry of each listed item as the mod has it (null: none); filled when the row is drawn
         readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();
@@ -45,8 +45,8 @@ namespace MS2.Tables
         readonly TextBox optionBox = new TextBox { Width = 80 };
         readonly CheckBox mirrorBox = new CheckBox { Text = "Sync the other side", AutoSize = true, Checked = true, Margin = new Padding(8, 6, 3, 0) };
         readonly TextBox nameBox = new TextBox { Width = 260 };
-        readonly TextBox tooltipBox = new TextBox { Width = 340, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
-        readonly TextBox guideBox = new TextBox { Width = 240, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
+        readonly TextBox tooltipBox = new TextBox { Width = 240, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
+        readonly TextBox guideBox = new TextBox { Width = 180, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 110 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
@@ -138,17 +138,32 @@ namespace MS2.Tables
             var head = new Panel { Dock = DockStyle.Top, Height = 104 };
             head.Controls.Add(bars);
             head.Controls.Add(iconPad);
-            bars.Layout += delegate
-            {
-                int h = itemBar.Height + textBar.Height + descriptionBar.Height;
-                int want = Math.Max(iconBox.Width + iconPad.Padding.Vertical, h);
-                if (head.Height != want) head.Height = want;
-            };
             tips.SetToolTip(iconBox, "The item's icon (property@slotIcon), read from Resource/Image.m2d of your client or server data; a box with a cross: no data folder has that image");
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
             right.Controls.Add(head);
+            // in a low window the icon is drawn at its own size (64) instead of 96, and the bars never take more than
+            // the height that leaves the grid a header and four rows
+            bool fitting = false;
+            EventHandler fitHead = delegate
+            {
+                if (fitting) return;
+                fitting = true;
+                try
+                {
+                int icon = right.ClientSize.Height < 480 ? 64 : 96;
+                if (iconBox.Width != icon) { iconBox.Width = icon; iconPad.Width = icon + iconPad.Padding.Horizontal; }
+                int h = itemBar.Height + textBar.Height + descriptionBar.Height;
+                int want = Math.Max(icon + iconPad.Padding.Vertical, h);
+                int room = right.ClientSize.Height - (grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 4);
+                if (room > 0) want = Math.Min(want, Math.Max(icon + iconPad.Padding.Vertical, room));
+                if (head.Height != want) head.Height = want;
+                }
+                finally { fitting = false; }
+            };
+            right.Resize += fitHead;
+            bars.Layout += delegate { fitHead(bars, EventArgs.Empty); };
 
             Controls.Add(right);
             Controls.Add(new Splitter { Dock = DockStyle.Left, Width = 4 });
@@ -158,7 +173,7 @@ namespace MS2.Tables
             Controls.Add(applyBar);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, applyBar, hitList, right });
-            ViewLayout.KeepHeightShare(outputBox, this, 0.18, 60);
+            ViewLayout.KeepHeightShare(outputBox, this, 0.15, 48);
             ViewLayout.CentreOnFirstShow(this);
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
