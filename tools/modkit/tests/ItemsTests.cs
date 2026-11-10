@@ -163,9 +163,9 @@ namespace MS2.ModKit.Tests
             return Planner.Build(Data, new[] { again }, new PlanOptions { Maps = Maps });
         }
 
-        public static ItemSection Section(ItemDraft d, string kind, string path)
+        public static EntitySection Section(ItemDraft d, string kind, string path)
         {
-            foreach (ItemSection s in d.Sections) if (s.Part.Kind == kind && s.Path == path) return s;
+            foreach (EntitySection s in d.Sections) if (s.Part.Kind == kind && s.Path == path) return s;
             throw new AssertionException("no section " + kind + " " + path);
         }
 
@@ -190,7 +190,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.Languages, Is.EqualTo(new[] { "en", "zz" }));
                 Assert.That(ed.Language, Is.EqualTo("en"));
                 Assert.That(ed.HasServer, Is.True);
-                List<ItemHit> h = ed.Find("drum", 50);
+                List<EntityHit> h = ed.Find("drum", 50);
                 Assert.That(h.Count, Is.EqualTo(1));
                 Assert.That(h[0].Id, Is.EqualTo(1200002));
                 Assert.That(h[0].Name, Is.EqualTo("Clay Drum"));
@@ -214,20 +214,20 @@ namespace MS2.ModKit.Tests
             {
                 ItemDraft d = f.Editor().Open(1200001);
                 var kinds = new List<string>();
-                foreach (ItemPart p in d.Parts) kinds.Add(p.Kind + (p.Language != null ? ":" + p.Language : ""));
-                Assert.That(kinds, Is.EqualTo(new[] { "item", "name:en", "name:zz", "plural:en", "description:en", "description:zz", "option", "server" }));
+                foreach (EntityPart p in d.Parts) kinds.Add(p.Kind + (p.Language != null ? ":" + p.Language : ""));
+                Assert.That(kinds, Is.EqualTo(new[] { "item", "name:en", "name:zz", "plural:en", "description:en", "description:zz", "option", "file" }));
                 Assert.That(d.Name, Is.EqualTo("Tin Whistle"));
                 Assert.That(d.Tooltip, Is.EqualTo("A shrill little whistle."));
                 Assert.That(d.Guide, Is.EqualTo("Blow gently."));
                 Assert.That(d.OptionCodes(), Is.EqualTo(new[] { "77" }));
                 Assert.That(d.IsNew, Is.False);
-                ItemSection prop = FakeItems.Section(d, "item", "environment/property");
+                EntitySection prop = FakeItems.Section(d, "item", "environment/property");
                 Assert.That(prop.Fields, Is.EqualTo(new[] { "slotMax", "sellPrice" }));
                 Assert.That(d.Get(prop, "sellPrice"), Is.EqualTo("40"));
-                ItemSection opt = FakeItems.Section(d, "option", "rank/v[name=hp]");
+                EntitySection opt = FakeItems.Section(d, "option", "rank/v[name=hp]");
                 Assert.That(opt.Part.Shared, Is.True);
                 Assert.That(d.Get(opt, "value"), Is.EqualTo("20"));
-                Assert.That(FakeItems.Section(d, "server", "environment/drop").Part.Entry, Is.EqualTo("item/0/12/01200001.xml"));
+                Assert.That(FakeItems.Section(d, "file", "environment/drop").Part.Entry, Is.EqualTo("item/0/12/01200001.xml"));
                 Assert.Throws<ModKitException>(() => f.Editor().Open(555));
             }
         }
@@ -239,14 +239,14 @@ namespace MS2.ModKit.Tests
             {
                 ItemEditor ed = f.Editor();
                 ItemDraft d = ed.Open(1200001);
-                ItemSection prop = FakeItems.Section(d, "item", "environment/property");
-                ItemSection mirrored = d.Set(prop, "sellPrice", "55", true);
+                EntitySection prop = FakeItems.Section(d, "item", "environment/property");
+                EntitySection mirrored = d.Set(prop, "sellPrice", "55", true);
                 Assert.That(mirrored, Is.Not.Null);
-                Assert.That(mirrored.Part.Kind, Is.EqualTo("server"));
+                Assert.That(mirrored.Part.Kind, Is.EqualTo("file"));
                 Assert.That(d.IsEdited(prop, "sellPrice"), Is.True);
                 Assert.That(d.GetOriginal(prop, "sellPrice"), Is.EqualTo("40"));
                 d.Set(FakeItems.Section(d, "option", "rank/v[name=str]"), "value", "9");
-                d.Set(FakeItems.Section(d, "server", "environment/drop"), "rate", null);
+                d.Set(FakeItems.Section(d, "file", "environment/drop"), "rate", null);
                 Assert.That(d.SetName("Brass Whistle"), Is.EqualTo(2));
                 Assert.That(d.SetTooltip("Louder."), Is.EqualTo(2));
 
@@ -274,14 +274,14 @@ namespace MS2.ModKit.Tests
                 d = f.Editor().Open(1200001);
                 d.Set(FakeItems.Section(d, "item", "environment/property"), "sellPrice", "40", true);
                 d.Set(FakeItems.Section(d, "option", "rank/v[name=str]"), "value", "3");
-                d.Set(FakeItems.Section(d, "server", "environment/drop"), "rate", "4");
-                foreach (ItemPart part in d.Parts)
+                d.Set(FakeItems.Section(d, "file", "environment/drop"), "rate", "4");
+                foreach (EntityPart part in d.Parts)
                     if (part.Kind == "name")
-                        foreach (ItemSection s in d.Sections)
+                        foreach (EntitySection s in d.Sections)
                             if (s.Part == part) d.Set(s, "name", d.GetOriginal(s, "name"));
-                foreach (ItemPart part in d.Parts)
+                foreach (EntityPart part in d.Parts)
                     if (part.Kind == "description")
-                        foreach (ItemSection s in d.Sections)
+                        foreach (EntitySection s in d.Sections)
                             if (s.Part == part) d.Set(s, "tooltipDescription", d.GetOriginal(s, "tooltipDescription"));
                 Assert.That(f.Mod.Ops, Is.Empty, f.Mod.ToXml());
             }
@@ -294,7 +294,7 @@ namespace MS2.ModKit.Tests
             {
                 ItemDraft d = f.Editor().Open(1200002);
                 // two environments on the client: no telling which one the server's is
-                ItemSection prop = FakeItems.Section(d, "item", "environment[feature=]/property");
+                EntitySection prop = FakeItems.Section(d, "item", "environment[feature=]/property");
                 Assert.That(d.Set(prop, "slotMax", "7", true), Is.Null);
                 Plan p = f.Plan();
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
@@ -303,11 +303,11 @@ namespace MS2.ModKit.Tests
             using (var f = new FakeItems(true))
             {
                 ItemDraft d = f.Editor().Open(1200001);
-                ItemSection lim = FakeItems.Section(d, "server", "environment/limit");
-                ItemSection m = d.Set(lim, "levelLimit", "12", true);
+                EntitySection lim = FakeItems.Section(d, "file", "environment/limit");
+                EntitySection m = d.Set(lim, "levelLimit", "12", true);
                 Assert.That(m, Is.Not.Null);
                 Assert.That(m.Part.Kind, Is.EqualTo("item"));
-                ItemSection drop = FakeItems.Section(d, "server", "environment/drop");
+                EntitySection drop = FakeItems.Section(d, "file", "environment/drop");
                 Assert.That(d.Set(drop, "rate", "5", true), Is.Null, "the client item has no drop element");
             }
         }
@@ -329,7 +329,7 @@ namespace MS2.ModKit.Tests
                 n.Set(FakeItems.Section(n, "item", "environment/property"), "tradable", "0");
                 Assert.Throws<ModKitException>(() => n.Set(FakeItems.Section(n, "item", ""), "id", "5"));
 
-                List<ItemHit> hits = f.Editor().Find("glass", 9);
+                List<EntityHit> hits = f.Editor().Find("glass", 9);
                 Assert.That(hits.Count, Is.EqualTo(1));
                 Assert.That(hits[0].Added, Is.True);
                 Assert.That(f.Editor().NextFreeId(1200001, 1250000), Is.EqualTo(1250001));
@@ -424,7 +424,7 @@ namespace MS2.ModKit.Tests
                 Assert.Throws<ModKitException>(() => d.GiveOwnOption("5", "900"));
                 d.GiveOwnOption("77", "900");
                 Assert.That(d.OptionCodes(), Is.EqualTo(new[] { "900" }));
-                ItemSection hp = FakeItems.Section(d, "option", "rank/v[name=hp]");
+                EntitySection hp = FakeItems.Section(d, "option", "rank/v[name=hp]");
                 Assert.That(hp.Part.Shared, Is.False);
                 d.Set(hp, "value", "99");
                 Plan p = f.Plan();

@@ -23,7 +23,7 @@ namespace MS2.Tables
 
         sealed class GridRow
         {
-            internal ItemSection Section;
+            internal EntitySection Section;
             internal string Field;      // null: the section's heading row
         }
 
@@ -40,7 +40,7 @@ namespace MS2.Tables
         readonly Label itemLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly TextBox cloneIdBox = new TextBox { Width = 80 };
         readonly TextBox optionBox = new TextBox { Width = 80 };
-        readonly CheckBox mirrorBox = new CheckBox { Text = "Client and server together", AutoSize = true, Checked = true, Margin = new Padding(8, 6, 3, 0) };
+        readonly CheckBox mirrorBox = new CheckBox { Text = "Sync the other side", AutoSize = true, Checked = true, Margin = new Padding(8, 6, 3, 0) };
         readonly TextBox nameBox = new TextBox { Width = 260 };
         readonly TextBox tooltipBox = new TextBox { Width = 340, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
         readonly TextBox guideBox = new TextBox { Width = 240, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
@@ -88,7 +88,7 @@ namespace MS2.Tables
             itemBar.Controls.Add(Btn("Own stat row", "Stat rows are shared between items. This copies the item's stat row to the code in the box and points the item at the copy, so a stat change touches this item only", delegate { OwnOption(); }));
             itemBar.Controls.Add(optionBox);
             itemBar.Controls.Add(mirrorBox);
-            tips.SetToolTip(mirrorBox, "A field changed in the client's item row is changed in the server's item file too (and the other way round) when the two corresponded before; the field map says which field corresponds and how the value is written there. Unticked, the change stays on one side and Plan says so. On Plan, a global client (gms-client) in the workspace gets the server's item change as well, since its item files are the same as the server's; Plan lists what each target gets");
+            tips.SetToolTip(mirrorBox, "A change is written once, where you make it, the same way a mod file has it. On Plan, a field changed in the kms-client's item row reaches the per-id item file (server, gms-client) too, and the other way round, when the two sides corresponded before; the field map says which field corresponds and how the value is written there. A server change reaches the gms-client as well, since its item files are the same as the server's. Unticked, the change stays on one side and Plan says so. Plan lists what each target gets");
             itemBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             FlowLayoutPanel textBar = Bar();
@@ -280,7 +280,7 @@ namespace MS2.Tables
                 foreach (string l in editor.Languages) languageBox.Items.Add(l);
                 languageBox.SelectedItem = editor.Language;
                 filling = false;
-                mirrorBox.Enabled = editor.HasServer;
+                mirrorBox.Enabled = editor.TwoSided;
             }
             return editor;
         }
@@ -329,13 +329,13 @@ namespace MS2.Tables
         /// <summary>Lists the hits of the search text; the item with the id given stays selected when it is among them.</summary>
         void FillHits(long keep)
         {
-            List<ItemHit> hits = Editor().Find(searchBox.Text, MaxHits);
+            List<EntityHit> hits = Editor().Find(searchBox.Text, MaxHits);
             filling = true;
             try
             {
                 hitList.BeginUpdate();
                 hitList.Items.Clear();
-                foreach (ItemHit h in hits)
+                foreach (EntityHit h in hits)
                 {
                     hitList.Items.Add(h);
                     if (h.Id == keep) hitList.SelectedIndex = hitList.Items.Count - 1;
@@ -346,17 +346,17 @@ namespace MS2.Tables
             hitsLabel.Text = hits.Count + (hits.Count >= MaxHits ? "+" : "") + " item(s)";
         }
 
-        ItemHit SelectedHit() { return hitList.SelectedItem as ItemHit; }
+        EntityHit SelectedHit() { return hitList.SelectedItem as EntityHit; }
 
         void OpenSelected()
         {
-            ItemHit h = SelectedHit();
+            EntityHit h = SelectedHit();
             if (h == null) return;
             grid.EndEdit();
             ShowItem(Editor().Open(h.Id));
             var sb = new System.Text.StringBuilder();
             sb.Append("item ").Append(draft.Id).Append(draft.IsNew ? " (new in mod " + editor.Mod.Id + ")" : "").Append(": ");
-            foreach (ItemPart p in draft.Parts)
+            foreach (EntityPart p in draft.Parts)
                 sb.Append("\n  ").Append(p.Label).Append(": ").Append(p.Archive).Append(' ').Append(p.Entry).Append(p.Shared ? "  (shared with other items)" : "").Append(p.IsNew ? "  (new)" : "");
             host.SayOutside(sb.ToString());
         }
@@ -375,7 +375,7 @@ namespace MS2.Tables
                 nameBox.Text = tooltipBox.Text = guideBox.Text = cloneIdBox.Text = optionBox.Text = "";
                 return;
             }
-            foreach (ItemSection s in d.Sections)
+            foreach (EntitySection s in d.Sections)
             {
                 rows.Add(new GridRow { Section = s });
                 foreach (string f in s.Fields) rows.Add(new GridRow { Section = s, Field = f });
@@ -423,9 +423,9 @@ namespace MS2.Tables
             if (value == draft.Get(r.Section, r.Field)) return;
             Guard(delegate
             {
-                ItemSection also = draft.Set(r.Section, r.Field, value, mirrorBox.Checked && mirrorBox.Enabled);
+                EntitySection also = draft.Set(r.Section, r.Field, value, mirrorBox.Checked && mirrorBox.Enabled);
                 Edited();
-                host.SayOutside(r.Section.Title + "  " + r.Field + " = " + value + (also != null ? "\nalso set in: " + also.Title : "")
+                host.SayOutside(r.Section.Title + "  " + r.Field + " = " + value + (also != null ? "\nPlan carries it to: " + also.Title : "")
                     + (r.Section.Part.Shared ? "\nnote: this row is shared; every item that uses it changes" : ""));
             });
         }
@@ -483,7 +483,7 @@ namespace MS2.Tables
             FillHits(id);
             ShowItem(made);
             host.SayOutside("item " + id + " added as a copy of item " + source + ". Give it its own name and description, then Save mod."
-                + (ed.HasServer ? "" : "\nno server data folder is set: the server's item file was not copied, and a server will not know the item"));
+                + (ed.HasServer ? "" : "\nno server data folder is set: a server will not know the item"));
         }
 
         void RemoveClone()

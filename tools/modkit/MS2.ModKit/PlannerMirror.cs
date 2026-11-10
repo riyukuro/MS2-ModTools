@@ -53,6 +53,13 @@ namespace MS2.ModKit
 
         static string Key(string archive, string entry) { return archive + "\n" + entry.Replace('\\', '/').ToLowerInvariant(); }
 
+        // string/<lang>/<file>.xml: the text files of one language
+        static bool IsStringFile(string entry)
+        {
+            string[] p = entry.Replace('\\', '/').Split('/');
+            return p.Length == 3 && string.Equals(p[0], "string", StringComparison.OrdinalIgnoreCase);
+        }
+
         static List<MirrorOp> MirrorOps(Run run, IList<Mod> mods)
         {
             var list = new List<MirrorOp>();
@@ -121,7 +128,10 @@ namespace MS2.ModKit
                 string table = SchemaSet.TableOf(name);
                 if (ed != null)
                 {
-                    plan.Msg(plan.Warnings, mo.Mod, mo.Op.Archive, name, prefix + mo.To.Name + " has no such entry, so this change has no place there");
+                    // a string file of a language the other side does not ship: nothing reads it there
+                    if (IsStringFile(name))
+                        plan.Msg(plan.Notes, mo.Mod, mo.Op.Archive, name, prefix + mo.To.Name + " ships no " + name + " (a language it does not read)");
+                    else plan.Msg(plan.Warnings, mo.Mod, mo.Op.Archive, name, prefix + mo.To.Name + " has no such entry, so this change has no place there");
                     return;
                 }
                 if (!HasTable(run, mo.Op.Archive, table))

@@ -200,19 +200,19 @@ namespace MS2.ModKit.Tests
             using (var f = new FakeItems(true))
             {
                 ItemDraft d = f.Editor().Open(1200005);
-                ItemSection look = FakeItems.Section(d, "item", "environment/look");
+                EntitySection look = FakeItems.Section(d, "item", "environment/look");
                 string field; FieldMapEntry e;
-                ItemSection other = d.Mirror(look, "icon", out field, out e);
-                Assert.That(other.Part.Kind, Is.EqualTo("server"));
+                EntitySection other = d.Mirror(look, "icon", out field, out e);
+                Assert.That(other.Part.Kind, Is.EqualTo("file"));
                 Assert.That(field, Is.EqualTo("iconPath"));
                 Assert.That(e.Convert, Is.EqualTo("affix"));
                 Assert.That(d.Set(look, "icon", "drum", true), Is.SameAs(other));
-                Assert.That(d.Get(other, "iconPath"), Is.EqualTo("./img/drum.png"));
+                Assert.That(d.IsEdited(other, "iconPath"), Is.False, "the edit is written once; the plan carries it");
 
-                ItemSection worth = FakeItems.Section(d, "server", "environment/worth");
-                ItemSection cw = d.Set(worth, "coins", "10,41,90", true);
+                EntitySection worth = FakeItems.Section(d, "file", "environment/worth");
+                EntitySection cw = d.Set(worth, "coins", "10,41,90", true);
                 Assert.That(cw.Part.Kind, Is.EqualTo("item"));
-                Assert.That(d.Get(cw, "coin"), Is.EqualTo("41"));
+                Assert.That(d.IsEdited(cw, "coin"), Is.False);
                 Assert.That(d.Mirror(worth, "tier"), Is.Null, "server-only");
                 Assert.That(d.Mirror(FakeItems.Section(d, "item", "environment/odd"), "a"), Is.Null, "no map line");
                 // the shipped prices differ: nothing to mirror to
@@ -226,6 +226,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Errors, Is.Empty, dump);
                 Assert.That(Fake.Text(p, S, Five), Does.Contain("<trade locked=\"1\" />"));
                 Assert.That(Fake.Text(p, S, Five), Does.Contain("<look iconPath=\"./img/drum.png\" />"));
+                Assert.That(Fake.Text(p, C, Bucket), Does.Contain("coin=\"41\""));
                 Assert.That(dump, Does.Contain("(sync is off for it)"));
                 Assert.That(dump, Does.Contain("the shipped values do not correspond"));
                 Assert.That(p.Warnings.Count, Is.EqualTo(2), dump);
