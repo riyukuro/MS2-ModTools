@@ -125,7 +125,10 @@ namespace MS2.ModKit.Tests
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
         static string Keys(string rows) { return Head + "<ms2>\n" + rows + "</ms2>\n"; }
 
-        public FakeSkills()
+        public FakeSkills() : this(new byte[] { 1, 2, 3 }) { }
+
+        /// <summary>icon: the bytes of the made-up icon image.</summary>
+        public FakeSkills(byte[] icon)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-skills-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
@@ -141,7 +144,7 @@ namespace MS2.ModKit.Tests
             });
             M2dWriter.Create(Path.Combine(k, "Resource", "Image.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                new KeyValuePair<string, byte[]>(Icons.ImageEntry(Icon), new byte[] { 1, 2, 3 }),
+                new KeyValuePair<string, byte[]>(Icons.ImageEntry(Icon), icon),
             });
             foreach (string d in new[] { g, s })
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
