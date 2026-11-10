@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Where the fields of a player skill and of an additional effect sit on each side (Skills.cs reads this).
+  bundle = kms-client (rows in skilldata/*.xml and additional/*.xml), files = gms-client and server (one file per id).
+  A field path is "sub/path@attribute" under the level, motion or attack element; the side's value is the neutral
+  value times its scale (times are written in seconds).
+-->
+<skillmap>
+  <entity name="skill">
+    <bundle entry="skilldata/*.xml" row="skill" key="id" level="level" level-key="@value" new-entry="skilldata/{id/100000}.xml" motion="motion" attack="attack" />
+    <files entry="skill/{id/1000000}/{id}.xml" level="level" level-key="@value" motion="motion" attack="attack" />
+    <field name="cooldown" unit="s" tooltip="true" bundle="@cooldown" bundle-scale="1000" bundle-whole="true" files="beginCondition@cooldownTime" />
+    <field name="sp" tooltip="true" bundle="@sp" files="consume/stat@sp" />
+    <field name="ep" tooltip="true" bundle="@ep" files="consume/stat@ep" />
+    <field name="speed" scope="motion" unit="x" bundle="@sequenceSpeed" files="motionProperty@sequenceSpeed" />
+    <field name="damage" scope="attack" unit="x" tooltip="true" bundle="damage@rate" files="damageProperty@rate" />
+    <field name="distance" scope="attack" bundle="range@distance" files="rangeProperty@distance" />
+    <field name="width" scope="attack" bundle="range@width" files="rangeProperty@width" />
+    <field name="height" scope="attack" bundle="range@height" files="rangeProperty@height" />
+    <field name="targets" scope="attack" bundle="@targetCount" files="@targetCount" />
+    <ref side="bundle" suffix="additionalID" to="effect" />
+    <ref side="bundle" suffix="skillID" to="skill" />
+    <ref side="files" element="conditionSkill" attr="skillID" to="either" />
+    <ref side="files" suffix="effectID" to="effect" />
+    <ref side="files" attr="skillIDs" to="skill" />
+    <ref side="files" suffix="skillID" to="skill" />
+    <string role="name" side="bundle" files="skillname.xml" attr="name" />
+    <string role="text" side="bundle" files="stringskilldescription.xml" attr="name" />
+    <string role="name" side="files" files="skillname*.xml" new-file="skillname.xml" attr="name" />
+    <string role="text" side="files" files="korskilldescription*.xml" new-file="korskilldescription.xml" leveled="true" attr="uiDescription" />
+  </entity>
+  <entity name="effect">
+    <bundle entry="additional/*.xml" row="additional" key="id" level="level" level-key="@level" new-entry="additional/{id/100000}.xml" />
+    <files entry="additionaleffect/{id}.xml" level="level" level-key="BasicProperty@level" />
+    <field name="duration" unit="s" tooltip="true" bundle="Basic@durationTick" bundle-scale="1000" bundle-whole="true" files="BasicProperty@durationTick" files-scale="1000" files-whole="true" />
+    <field name="interval" unit="s" tooltip="true" bundle="Basic@intervalTick" bundle-scale="1000" bundle-whole="true" files="BasicProperty@intervalTick" files-scale="1000" files-whole="true" />
+    <field name="stacks" bundle="Basic@maxBuffCount" files="BasicProperty@maxBuffCount" />
+    <ref side="bundle" suffix="additionalID" to="effect" />
+    <ref side="bundle" suffix="skillID" to="skill" />
+    <ref side="files" element="conditionSkill" attr="skillID" to="either" />
+    <ref side="files" suffix="effectID" to="effect" />
+    <ref side="files" attr="skillIDs" to="skill" />
+    <ref side="files" suffix="skillID" to="skill" />
+    <string role="text" side="bundle" files="stringadditionaldescription.xml" leveled="true" attr="tooltipDescription" />
+    <string role="name" side="bundle" files="stringadditionaldescription.xml" leveled="true" attr="name" />
+    <string role="text" side="files" files="koradditionaldescription*.xml" new-file="koradditionaldescription.xml" leveled="true" attr="tooltipDescription" />
+    <string role="name" side="files" files="koradditionaldescription*.xml" new-file="koradditionaldescription.xml" leveled="true" attr="name" />
+  </entity>
+</skillmap>

@@ -195,6 +195,8 @@ namespace MS2.ModKit
 
         public const string ShopSpace = "shop", DropBoxSpace = "dropbox";
         public const long ShopFrom = 900000000, ShopTo = 900009999, DropBoxFrom = 900010000, DropBoxTo = 900019999;
+        public const string SkillSpace = "skill", EffectSpace = "effect";
+        public const long SkillFrom = 78000000, SkillTo = 78099999, EffectFrom = 77100000, EffectTo = 77199999;
 
         /// <summary>The places a shop id or drop box id lives in, on every side.</summary>
         public static List<IdPlace> GroupPlaces(string space)
@@ -212,6 +214,13 @@ namespace MS2.ModKit
                 foreach (string a in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
                     l.Add(new IdPlace { Archive = a, Entry = "table/**individualitemdrop*.xml", Rows = "individualDropBox", Key = "individualDropBoxID" });
             }
+            else if (space == SkillSpace || space == EffectSpace)
+            {
+                bool sk = space == SkillSpace;
+                l.Add(new IdPlace { Archive = "client:Xml.m2d", Entry = sk ? "skilldata/*.xml" : "additional/*.xml", Rows = sk ? "skill" : "additional", Key = "id" });
+                foreach (string a in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    l.Add(new IdPlace { Archive = a, Entry = sk ? "skill/*/{id}.xml" : "additionaleffect/{id}.xml" });
+            }
             else throw new ModKitException("no default places for the id space \"" + space + "\"");
             return l;
         }
@@ -221,6 +230,8 @@ namespace MS2.ModKit
         {
             if (space == ShopSpace) { from = ShopFrom; to = ShopTo; }
             else if (space == DropBoxSpace) { from = DropBoxFrom; to = DropBoxTo; }
+            else if (space == SkillSpace) { from = SkillFrom; to = SkillTo; }
+            else if (space == EffectSpace) { from = EffectFrom; to = EffectTo; }
             else throw new ModKitException("no reserved range for the id space \"" + space + "\"");
         }
 

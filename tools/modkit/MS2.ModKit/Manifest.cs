@@ -95,7 +95,7 @@ namespace MS2.ModKit
         public readonly List<GroupOp> Groups = new List<GroupOp>();
 
         /// <summary>The mod changes nothing: no entry, edit, shop or drop box op.</summary>
-        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0; } }
+        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0 && Skills.Count == 0 && JobSkills.Count == 0; } }
 
         // ---- load ----
 
@@ -182,7 +182,10 @@ namespace MS2.ModKit
                         case "edit": m.Ops.Add(ReadEdit(e)); break;
                         case "shop": m.Groups.Add(ReadGroup(e, GroupKind.Shop)); break;
                         case "dropbox": m.Groups.Add(ReadGroup(e, GroupKind.DropBox)); break;
-                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox)");
+                        case "skill": m.Skills.Add(ReadSkill(e, SkillKind.Skill)); break;
+                        case "effect": m.Skills.Add(ReadSkill(e, SkillKind.Effect)); break;
+                        case "jobskill": m.JobSkills.Add(ReadJobSkill(e)); break;
+                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox, skill, effect, jobskill)");
                     }
                 }
                 return m;
@@ -351,6 +354,7 @@ namespace MS2.ModKit
                 sb.Append("  </edit>\n");
             }
             foreach (GroupOp g in Groups) WriteGroup(sb, g);
+            WriteSkills(sb);
             sb.Append("</mod>\n");
             return sb.ToString();
         }
