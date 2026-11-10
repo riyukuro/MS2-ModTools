@@ -9,6 +9,8 @@
 //   - not for an attribute that the other side's shipped table never has while this side's table has it (a
 //     server-only attribute): a warning per table and attribute, with the number of rows. Whole entries and new
 //     rows are written without such attributes.
+//   - a new row whose id, feature and locale the other side ships already (a string row one side lacks): that row
+//     gets the new row's attributes instead of a second row (a note).
 //
 // Which attributes and tables a side has comes from that side's shipped archive: its cached schema (modkit schema
 // build) when there is a current one, else a scan of the one table, kept for as long as the data set.

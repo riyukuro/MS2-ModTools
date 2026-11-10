@@ -135,6 +135,15 @@ namespace MS2.ModKit
 
         // ---- a table with the same name in both roots and no field map ----
 
+        static bool AddsRowWith(Run run, string archive, string entry, PlanChange ch)
+        {
+            foreach (PlanChange a in run.Plan.Changes)
+                if (a.Kind == ChangeKind.AddRow && a.Archive == archive && a.Row == ch.Row && a.Elem != null
+                    && string.Equals(a.Entry, entry, StringComparison.OrdinalIgnoreCase) && a.Elem.Attr(ch.Name) == ch.NewValue)
+                    return true;
+            return false;
+        }
+
         static void Loose(SyncRun sr, PlanChange ch)
         {
             Run run = sr.Run;
@@ -170,6 +179,8 @@ namespace MS2.ModKit
                     Claim c;
                     if (el != null && st.Claims.TryGetValue(el.Start + "\n@" + ch.Name, out c) && c.Value == ch.NewValue) continue;
                 }
+                // or adds that row there with the same value (a string row one side ships and the other lacks)
+                if (AddsRowWith(run, other, entry, ch)) continue;
                 string key = ch.ModId + "\n" + ch.Archive + "\n" + ch.Entry + "\n" + ch.Name + "\n" + other;
                 int n;
                 if (!sr.LooseCount.TryGetValue(key, out n)) { sr.LooseOrder.Add(key); sr.LooseFirst[key] = ch; sr.LooseOther[key] = other; }

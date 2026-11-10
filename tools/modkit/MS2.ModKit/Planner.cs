@@ -604,6 +604,16 @@ namespace MS2.ModKit
                 foreach (XmlElem c in parent.Children)
                     if (c.Name == made.Name && RowKey(c) == mk && DeletedBy(st, c) == null)
                     {
+                        // a mirrored add of a row this side ships already (the same id, feature and locale; a string
+                        // row the mod's side lacks, the other side has): that row gets the new row's attributes
+                        if (run.Mirror != null && made.Attr("id") != null && made.Children.Count == 0)
+                        {
+                            var set = new RowOp { Kind = RowOpKind.Change, At = RowPath.Canonical(c), Line = r.Line };
+                            foreach (XmlAttr a in made.Attrs) if (a.Name != "id" && a.Name != "feature" && a.Name != "locale") set.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = a.Name, Value = a.Value });
+                            plan.Msg(plan.Notes, mod, st.Archive, st.Name, "mirrored from " + run.Mirror.From + ": adds " + row + ", which this side ships already (line " + c.Line + "): its attributes are set instead");
+                            DoChange(run, mod, st, set);
+                            return;
+                        }
                         plan.Msg(plan.Warnings, mod, st.Archive, st.Name, "adds " + row + ", and a row with the same " + (made.Attr("id") != null ? "id, feature and locale" : "attributes") + " is already there (line " + c.Line + ")");
                         break;
                     }

@@ -50,18 +50,25 @@ namespace MS2.ModKit.Tests
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
-        static void Strings(List<KeyValuePair<string, byte[]>> l, params string[] langs)
+        static void Strings(List<KeyValuePair<string, byte[]>> l, bool keeperTitle, params string[] langs)
         {
             foreach (string lang in langs)
                 foreach (string f in new[] { "npcname.xml", "npcnameplural.xml", "npctitle.xml" })
-                    l.Add(E("string/" + lang + "/" + f, Names(f, lang == "en" ? "" : " (" + lang + ")")));
+                {
+                    string text = Names(f, lang == "en" ? "" : " (" + lang + ")");
+                    if (keeperTitle && lang == "en" && f == "npctitle.xml") text = text.Replace("</ms2>", "\t<key id=\"02900002\" name=\"Keeper\" />\n</ms2>");
+                    l.Add(E("string/" + lang + "/" + f, text));
+                }
         }
 
         const string Emotion = Head + "<ms2>\n\t<emotion type=\"1\" name=\"default\" />\n</ms2>\n";
         const string Script = Head + "<ms2>\n\t<talk id=\"1\" />\n</ms2>\n";
 
-        /// <summary>Languages: kms-client en and zz, gms-client en, server en and es.</summary>
-        public FakeNpcs(bool kms, bool gms, bool server)
+        /// <summary>
+        /// Languages: kms-client en and zz, gms-client en, server en and es. keeperTitle: the en title files of the
+        /// two clients have a row of 2900002, the server's has none (shipped string files differ so per side).
+        /// </summary>
+        public FakeNpcs(bool kms, bool gms, bool server, bool keeperTitle = false)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-npcs-" + Guid.NewGuid().ToString("N"));
             string k = null, g = null, s = null;
@@ -69,7 +76,7 @@ namespace MS2.ModKit.Tests
             {
                 k = Path.Combine(Dir, "kms"); Directory.CreateDirectory(k);
                 var l = new List<KeyValuePair<string, byte[]>> { E("npcdata/029.xml", Head + "<ms2>\n" + Row(2900001, 5, 100) + Row(2900002, 0, 40) + "</ms2>\n"), E("emotion/npc/02900001.xml", Emotion) };
-                Strings(l, "en", "zz");
+                Strings(l, keeperTitle, "en", "zz");
                 M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, l);
             }
             foreach (bool server2 in new[] { false, true })
@@ -84,7 +91,7 @@ namespace MS2.ModKit.Tests
                 };
                 // an emotion file of an id that has no npc, as shipped data has some
                 if (!server2) l.Add(E("emotion/npc/02900060.xml", Emotion));
-                if (server2) Strings(l, "en", "es"); else Strings(l, "en");
+                if (server2) Strings(l, false, "en", "es"); else Strings(l, keeperTitle, "en");
                 M2dWriter.Create(Path.Combine(dir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, l);
             }
             Data = new DataSet(k, g, s);
@@ -224,6 +231,26 @@ namespace MS2.ModKit.Tests
                 Assert.That(Fake.Text(p, G, "string/en/npctitle.xml"), Does.Contain("<key id=\"02900051\" name=\"Boss\" />"), "mirrored");
                 Assert.That(ed.Open(2900051).SetTitle("Boss"), Is.EqualTo(7), "no second row");
                 Assert.That(string.Join("\n", ed.Registration(2900051).ToArray()), Does.Contain("gms-client:Xml.m2d  the server's lines above, mirrored"));
+            }
+        }
+
+        [Test]
+        public void ATitleRowTheServerLacksAndTheGlobalClientShipsIsSetThereNotAddedTwice()
+        {
+            using (var f = new FakeNpcs(true, true, true, true))
+            {
+                NpcDraft d = f.Editor().Open(2900002);
+                Assert.That(d.Title, Is.EqualTo("Keeper"));
+                d.SetTitle("Gate Keeper");
+                Plan p = f.Plan();
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Warnings, Is.Empty, "neither a second row nor a one-sided change: " + dump);
+                Assert.That(Fake.Text(p, K, "string/en/npctitle.xml"), Does.Contain("<key id=\"02900002\" name=\"Gate Keeper\" />"));
+                Assert.That(Fake.Text(p, S, "string/en/npctitle.xml"), Does.Contain("<key id=\"02900002\" name=\"Gate Keeper\" />"), "added on the server");
+                string gms = Fake.Text(p, G, "string/en/npctitle.xml");
+                Assert.That(gms, Does.Contain("<key id=\"02900002\" name=\"Gate Keeper\" />"), "the mirrored add sets the shipped row");
+                Assert.That(gms.Split(new[] { "id=\"02900002\"" }, StringSplitOptions.None).Length, Is.EqualTo(2), "one row");
             }
         }
 
