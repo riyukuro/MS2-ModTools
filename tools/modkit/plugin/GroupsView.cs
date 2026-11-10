@@ -46,15 +46,15 @@ namespace MS2.Tables
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
         readonly TextBox searchBox = new TextBox { Width = 160 };
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
-        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 220, IntegralHeight = false };
+        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 170, IntegralHeight = false };
         readonly Label groupLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
-        readonly ComboBox sideBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 300 };
+        readonly ComboBox sideBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 180 };
         readonly TextBox cloneIdBox = new TextBox { Width = 90 };
         readonly TextBox fieldNameBox = new TextBox { Width = 130 };
         readonly TextBox fieldValueBox = new TextBox { Width = 130 };
         readonly TextBox fieldGroupBox = new TextBox { Width = 50 };
         readonly TextBox rowGroupBox = new TextBox { Width = 50 };
-        readonly TextBox rowAttrsBox = new TextBox { Width = 360 };
+        readonly TextBox rowAttrsBox = new TextBox { Width = 220 };
         readonly DataGridView formGrid = new DataGridView { Dock = DockStyle.Top, Height = 170 };
         readonly DataGridView rowGrid = new DataGridView { Dock = DockStyle.Fill };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 130 };
@@ -160,10 +160,12 @@ namespace MS2.Tables
             Controls.Add(applyBar);
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, applyBar, hitList, right });
-            // the header form gets 40 % of the height beside the rows, the output box 18 % of the view (both splitters
-            // set a new share when dragged)
-            ViewLayout.KeepHeightShare(formGrid, right, 0.4, 70);
-            ViewLayout.KeepHeightShare(outputBox, this, 0.18, 60);
+            // the header form gets 40 % of the height beside the rows, the output box 15 % of the view (both splitters
+            // set a new share when dragged); in a low window the header form gives way, so the rows keep a header and
+            // three rows
+            ViewLayout.KeepHeightShare(formGrid, right, 0.4, 60,
+                delegate { return groupBar.Height + fieldBar.Height + rowBar.Height + 4 + rowGrid.ColumnHeadersHeight + 3 * IconRow + 4; });
+            ViewLayout.KeepHeightShare(outputBox, this, 0.15, 48);
             ViewLayout.CentreOnFirstShow(this);
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
 
