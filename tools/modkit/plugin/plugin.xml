@@ -39,6 +39,16 @@
         <display-name>Game folder</display-name>
         <description>The folder of a COPY of your client that holds Data. With "Apply to: game folder", Apply writes the changed client tables there as plain files (Data/Xml/...), which the game reads before its archives; Revert removes exactly those files. Empty = the environment variable MS2_GAME_DIR.</description>
       </setting>
+      <setting scope="PerUser" id="MS2.Mods.ServerTarget" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Server target folder</display-name>
+        <description>Optional. After a successful Apply, every server archive the mods changed (the .m2d and its .m2h) is copied from the workspace into this folder, for example the data folder a server reads. The files it replaces are kept and put back by Revert. Plan names the folder before anything is written. Empty = the environment variable MS2_SERVER_TARGET; both empty = no copy.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.AfterApply" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Command after apply</display-name>
+        <description>Optional. A command line that is run after a successful Apply or Revert, meant for a server's own import step. Plan shows the command before it runs; its output and exit code appear in the view's output box. {target} and {workspace} in the line stand for the two folders. Empty = the environment variable MS2_AFTER_APPLY; both empty = nothing is run.</description>
+      </setting>
     </settings>
   </extension>
 

@@ -18,10 +18,10 @@ namespace MS2.Tables
         public override void Stop() { }
     }
 
-    /// <summary>The five folders. A setting that is empty falls back to its environment variable.</summary>
+    /// <summary>The folders and the command after an apply. A setting that is empty falls back to its environment variable.</summary>
     internal sealed class TablesSettings
     {
-        public string ClientData, ServerData, ModsDir, Workspace, GameDir;
+        public string ClientData, ServerData, ModsDir, Workspace, GameDir, ServerTarget, AfterApply;
 
         public static TablesSettings Load()
         {
@@ -32,6 +32,8 @@ namespace MS2.Tables
             t.ModsDir = Get(s, "MS2.Mods.ModsDir", "MS2_MODS");
             t.Workspace = Get(s, "MS2.Mods.Workspace", "MS2_MOD_WORKSPACE");
             t.GameDir = Get(s, "MS2.Mods.GameDir", "MS2_GAME_DIR");
+            t.ServerTarget = Get(s, "MS2.Mods.ServerTarget", "MS2_SERVER_TARGET");
+            t.AfterApply = Get(s, "MS2.Mods.AfterApply", "MS2_AFTER_APPLY");
             return t;
         }
 

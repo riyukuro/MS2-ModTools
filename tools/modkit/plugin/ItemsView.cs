@@ -76,6 +76,9 @@ namespace MS2.Tables
             applyBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
             applyBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change", delegate { return host.DoApply(); }));
             applyBar.Controls.Add(Job("Revert", "Removes what Apply wrote", delegate { return host.DoRevert(); }));
+            applyBar.Controls.Add(Job("Sync report", "For the chosen item: the fields the client and the server both hold, where the two disagree as shipped and after the mods, and what the mods change", delegate { return host.DoSync(draft != null ? draft.Id : 0, false); }));
+            applyBar.Controls.Add(Job("All fields", "The sync report with every mapped field of the chosen item, also those that agree or that one side does not carry", delegate { return host.DoSync(draft != null ? draft.Id : 0, true); }));
+            applyBar.Controls.Add(Job("Server rows", "Lists the rows of server-only tables that belong to the chosen item (option, drop and shop rows) with the archive, entry and row to open in the MS2 Tables view", delegate { return host.DoRefs(draft != null ? draft.Id : 0); }));
 
             FlowLayoutPanel itemBar = Bar();
             itemBar.Controls.Add(itemLabel);
@@ -85,7 +88,7 @@ namespace MS2.Tables
             itemBar.Controls.Add(Btn("Own stat row", "Stat rows are shared between items. This copies the item's stat row to the code in the box and points the item at the copy, so a stat change touches this item only", delegate { OwnOption(); }));
             itemBar.Controls.Add(optionBox);
             itemBar.Controls.Add(mirrorBox);
-            tips.SetToolTip(mirrorBox, "A field changed in the client's item row is changed in the server's item file too (and the other way round) when both held the same value");
+            tips.SetToolTip(mirrorBox, "A field changed in the client's item row is changed in the server's item file too (and the other way round) when the two corresponded before; the field map says which field corresponds and how the value is written there. Unticked, the change stays on one side and Plan says so");
             itemBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             FlowLayoutPanel textBar = Bar();

@@ -273,6 +273,8 @@ namespace MS2.Tables
                 TablesSettings s = TablesSettings.Load();
                 session = new EditorSession(s.ClientData, s.ServerData, s.ModsDir, s.Workspace);
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
+                session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
+                session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;
                 if (keep != null && keep.Ops.Count > 0) session.Adopt(keep);
                 else MarkSaved();
                 filling = true;
@@ -298,6 +300,8 @@ namespace MS2.Tables
                 ShowMod();
                 Say("client data: " + Shown(s.ClientData) + "\nserver data: " + Shown(s.ServerData) + "\nmods folder: " + Shown(s.ModsDir)
                     + "\nworkspace:   " + Shown(s.Workspace) + "\ngame folder: " + Shown(s.GameDir)
+                    + "\nserver target folder: " + (session.Server.HasTarget ? session.Server.TargetDir : "(not set: the server archive stays in the workspace)")
+                    + "\ncommand after apply:  " + (session.Server.HasCommand ? session.Server.Command : "(not set: nothing is run)")
                     + "\napply to:    " + targetBox.Text + "\n" + archiveBox.Items.Count + " archive(s), " + modsList.Items.Count + " mod(s)" + resumed);
                 if (archiveBox.Items.Count > 0) archiveBox.SelectedIndex = PreferredArchive();
             });
@@ -834,6 +838,28 @@ namespace MS2.Tables
                     Say(EditorSession.Report(r));
                     if (r.Applied) Logger.Info("MS2 Tables: applied " + r.Plan.Mods.Count + " mod(s) to " + Where());
                     else Logger.Warning("MS2 Tables: nothing applied: " + r.Reason);
+                });
+        }
+
+        /// <summary>The sync report of one item over the enabled mods and the pending edits; into the output pane.</summary>
+        public bool DoSync(long id, bool all)
+        {
+            SyncReport r = null;
+            return Guard(delegate { FlushEdits(); Session(); if (id <= 0) throw new ModKitException("choose an item in the list first"); })
+                && RunJob("Sync report", delegate(Action<ProgressInfo> progress) { r = session.Sync("item", id, session.Plan(progress)); }, delegate
+                {
+                    Say(r.ToText(all));
+                });
+        }
+
+        /// <summary>The rows of server-only tables that belong to one item, as shipped; into the output pane.</summary>
+        public bool DoRefs(long id)
+        {
+            RefList r = null;
+            return Guard(delegate { Session(); if (id <= 0) throw new ModKitException("choose an item in the list first"); })
+                && RunJob("Server rows", delegate(Action<ProgressInfo> progress) { r = session.Refs("item", id, 20); }, delegate
+                {
+                    Say("item " + id + ", rows of server tables that belong to it (as shipped). To change one, open its archive and entry in the MS2 Tables view; the last column is the row.\r\n" + r.ToText());
                 });
         }
 
