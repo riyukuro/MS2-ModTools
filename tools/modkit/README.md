@@ -500,6 +500,112 @@ that a further mod changes.
 - The field map keeps the two sides together, so a mod normally changes both. A field changed on one side only is
   a warning in Plan.
 
+## Skills and effects
+
+A fourth view, **MS2 Skills** (menu **MS2 Mods > Skills**), changes player skills and their effects (buffs,
+damage over time and the like). It writes into the same mod as the other views, with the same Save, Plan, Apply,
+Revert and the same question when Toolbench is closed. The ids and names in this section are made up.
+
+### What one skill is made of
+
+| Piece | Where it is | What it holds |
+|-|-|-|
+| skill | `kms-client`: a `<skill id>` row in one of the `skilldata/*.xml` files | what the Korean client knows: every level, each level's motions (the moves the character makes) and each motion's attacks |
+| skill file | `gms-client` and `server`: `skill/<id / 1000000>/<id>.xml`, one file per skill | the same skill in the per-id format; the server decides the real damage and cooldown from it |
+| effect | `kms-client`: an `<additional id>` row in `additional/*.xml`; `gms-client` and `server`: `additionaleffect/<id>.xml` | a buff or debuff a skill puts on: how long it lasts, how often it ticks, how many times it stacks |
+| names, tooltips | `string/<language>/...` files of each target | the skill's name and the text of its tooltip, per level |
+| job tree | `table/job.xml` on each target | which skills a job has, and where each sits in the skill window |
+
+A level can be written more than once in one file (for one game feature or another, or for one country or another).
+The game reads one of them; the view shows that one, and Plan warns that the others are left as they are.
+
+### Using it
+
+1. Pick **Skills** or **Effects** at the top left. Type an id, or part of a name, and press Enter or **Find**. The
+   skills and effects the mod adds come first; a `*` marks the ones the mod changes.
+2. Pick one. The icon, the name and a **Level** list appear above the grid. The grid shows the level's fields, then
+   each motion (`Motion 1`, `Motion 2`, ...) with its fields, then each attack (`Motion 1 attack 1`, ...).
+3. Each target has its own column of shipped values. They are shown in the same units everywhere: seconds for times,
+   `x` for multipliers (a damage of `1.5` is 150 %). `-` means the target does not have that field there.
+4. Type into **mod value** to change a field for that level. A number sets it; `*1.2` multiplies each target's
+   shipped value by 1.2. An empty cell takes the change out of the mod. Changed rows turn yellow.
+5. **Tooltip of the level** sets the tooltip text of the chosen level: **kms param** is the value list the Korean
+   client fills into its tooltip, **gms text** the whole text the global client and the server show. When you
+   change a number the tooltip shows (damage, cooldown, cost, duration), Plan warns until the tooltip is set too.
+6. **Plan**, **Apply** and **Revert** work as in the other views, one line per target in the box at the bottom.
+
+The fields the view offers:
+
+| Skills | Effects |
+|-|-|
+| level: `cooldown` (s), `sp`, `ep` (the spirit and stamina cost) | level: `duration` (s), `interval` (s, time between ticks), `stacks` |
+| motion: `speed` (x, how fast the move plays) | |
+| attack: `damage` (x), `distance`, `width`, `height` (the area hit), `targets` (how many it hits) | |
+
+Motions and attacks have no names in the data; they are told apart by their place (the first, the second, ...). If
+the targets do not have the same number of motions or attacks in a level, Plan warns, because "motion 2" may then
+be a different move on each target.
+
+### A new skill: Clone to new id
+
+Select a shipped skill, fill the boxes beside **Clone to new id** and press it:
+
+- **id**: the new id. New skills belong in 78000000-78099999 and new effects in 77100000-77199999, the ranges kept
+  free for mods; another id works but Plan warns. A target that already ships the id is skipped with a warning.
+- **levels**: which levels to copy (`1-4`, `1,3`); empty copies all of them.
+- **name**: the new skill's name; empty keeps the source's.
+- **own effects**: `source=new` pairs, comma separated (for example `71000001=77100001`). Each named effect of the
+  source is copied to the new id too, and the clone points to its own copy, so changing the copy leaves the
+  original skill alone. Effects not named here stay shared with the source.
+
+**Remove clone** takes a clone out of the mod.
+
+### Job skill tree
+
+**Job**, **replace skill** or **position x,y**, **tier** and **Set job row** put a skill into a job's skill window:
+
+- With **replace skill**, the new skill takes that skill's slot (place, tier and requirements stay).
+- With **position x,y** (and tier 1 or 2), it gets a new slot at that place. Plan warns if the place is taken. How
+  large the window's grid is, is not known yet: a position far outside the shipped ones may not show.
+
+### What the client shows and what the server decides
+
+- The client draws the icon, name, tooltip and the move itself from its own files.
+- How much damage a hit does, how long a cooldown really is and how long an effect lasts are decided by the server
+  from its own files. The view changes both sides together; a field changed on one side only is a warning.
+
+### mod.xml for skills
+
+The view writes these elements; they can be written by hand too:
+
+```xml
+<skill id="70000001">
+  <level value="1-4" cooldown="6" sp="*0.5"/>
+  <motion level="1" index="1" speed="1.2"/>
+  <attack level="*" motion="1" index="1" damage="*1.2" distance="900"/>
+  <tooltip level="1" kms-param="..." gms-text="..."/>
+</skill>
+<skill id="78000001" clone="70000001" levels="1-4" name="My Slash">
+  <own effect="71000001" as="77100001"/>
+</skill>
+<effect id="71000001">
+  <level value="1" duration="20" stacks="3"/>
+</effect>
+<jobskill job="10" skill="78000001" replace="70000001"/>
+<jobskill job="10" skill="78000002" tier="1" position="5,6"/>
+```
+
+`level` takes one level, a list (`1,3`), a range (`2-4`) or `*` for all. A level, motion or attack a target does
+not have is skipped there with a warning.
+
+Two more elements are for hand-written mods only (the view does not offer them):
+
+- `<raw side="server" level="1" at="..."><set name="..." value="..."/></raw>` sets an attribute the field list does
+  not cover, on one target, at an element path inside the level. The value is written as it is, in that target's
+  own units.
+- `<swap level="1" motion="1" from-skill="70000002" from-level="2" from-motion="1"/>` replaces a motion (the move
+  and its attacks) by a copy of another skill's motion.
+
 ## Shops and drops
 
 A fourth view, **MS2 Shops and Drops** (menu **MS2 Mods > Shops and Drops**), edits shops and drop boxes. A shop
