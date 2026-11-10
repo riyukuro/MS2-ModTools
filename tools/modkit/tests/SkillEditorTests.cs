@@ -43,6 +43,58 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void NamesComeInTheChosenLanguageAndSayWhichOne()
+        {
+            using (var f = new FakeSkills())
+            {
+                var ed = new SkillEditor(f.Data, FakeSkills.ModOf(""));
+                // the kms-client has cn and kr names: its own language kr wins, not the first one (cn)
+                List<KeyValuePair<long, string>> hits = ed.Find(SkillKind.Skill, "slash", 10);
+                Assert.That(hits[0].Value, Is.EqualTo("Fake Slash"));
+                Assert.That(ed.NamesUsed, Does.Contain("kms-client kr"));
+                Assert.That(ed.NamesUsed, Does.Contain("gms-client en"));
+                Assert.That(ed.NameLanguages(SkillKind.Skill), Is.SupersetOf(new[] { "cn", "en", "kr" }));
+                ed.NameLanguage = "cn";
+                hits = ed.Find(SkillKind.Skill, "slash", 10);
+                Assert.That(ed.NamesUsed, Does.Contain("kms-client cn"));
+                Assert.That(ed.NamesUsed, Does.Contain("gms-client en"), "a target without cn names says it falls back");
+                Assert.That(ed.Open(SkillKind.Skill, 70000001).Sides.Find(x => x.Archive == K).Name, Is.EqualTo("Fake Slash cn"));
+            }
+        }
+
+        [Test]
+        public void ASpeedLeftOutIsShownAsTheDefault()
+        {
+            using (var f = new FakeSkills())
+            {
+                var ed = new SkillEditor(f.Data, FakeSkills.ModOf(""));
+                SkillSideInfo k = ed.Open(SkillKind.Skill, 70000001).Sides.Find(x => x.Archive == K);
+                Assert.That(k.Levels[1].Children[0].Values["speed"], Is.EqualTo("1"));
+                Assert.That(k.Levels[1].Children[0].Defaulted, Is.Empty);
+                Assert.That(k.Levels[2].Children[0].Values["speed"], Is.EqualTo("1"));
+                Assert.That(k.Levels[2].Children[0].Defaulted, Does.Contain("speed"));
+            }
+        }
+
+        [Test]
+        public void TooltipLanguageAndCloneCooldownGroupReachTheMod()
+        {
+            using (var f = new FakeSkills())
+            {
+                Mod m = FakeSkills.ModOf("");
+                var ed = new SkillEditor(f.Data, m);
+                ed.SetTooltip(SkillKind.Skill, 70000001, 1, null, "trifft 300%", "de");
+                ed.Clone(SkillKind.Skill, 70000001, 78000001, null, "Fake Cut", null, "own");
+                Assert.Throws<ModKitException>(() => ed.Clone(SkillKind.Skill, 70000001, 78000002, null, null, null, "mine"));
+                Assert.Throws<ModKitException>(() => ed.Clone(SkillKind.Effect, 71000001, 77100002, null, null, null, "own"));
+                Assert.Throws<ModKitException>(() => ed.SetTooltip(SkillKind.Skill, 70000001, 1, null, "x", "E N"));
+                string xml = m.ToXml();
+                Assert.That(xml, Does.Contain("lang=\"de\""));
+                Assert.That(xml, Does.Contain("cooldown-group=\"own\""));
+            }
+        }
+
+        [Test]
         public void SetsCloneAndJobRowsGoToTheModAndPlan()
         {
             using (var f = new FakeSkills())

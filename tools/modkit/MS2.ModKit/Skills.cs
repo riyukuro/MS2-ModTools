@@ -11,11 +11,14 @@
 // position only (1 = the first). Where each field sits on each side is in Maps/skill.skillmap.xml (SkillMap).
 //
 // A skill mod (mod.xml):
-//   <skill id="..."> or <skill id="new id" clone="shipped id" [levels="1-3"] [name="..."]>
+//   <skill id="..."> or <skill id="new id" clone="shipped id" [levels="1-3"] [name="..."] [cooldown-group="own|id"]>
+//                                       cooldown-group: the clone's cooldownGroupID ("own" = the new id, 0 = none);
+//                                       left out, the clone keeps its source's group (Plan warns when it is not 0)
 //     <level value="1|1,2|1-4|*" cooldown="3" sp="10" ep="*0.5"/>        fields of the level (neutral units)
 //     <motion level="1" index="1" speed="1.2"/>                             fields of a motion
 //     <attack level="1" motion="1" index="1" damage="*2" distance="900"/>   fields of an attack
-//     <tooltip level="1" kms-param="..." gms-text="..."/>                   tooltip text, set explicitly
+//     <tooltip level="1" kms-param="..." gms-text="..." [lang="en"]/>       tooltip text, set explicitly; gms-text
+//                                                                           goes to the one language lang (default en)
 //     <raw side="server" level="1" at="beginCondition"><set name="..." value="..."/></raw>
 //     <swap level="1" motion="1" from-skill="..." from-level="2" from-motion="1"/>
 //     <own effect="shipped effect id" as="new effect id"/>                  clone: effects that get their own copy
@@ -64,6 +67,7 @@ namespace MS2.ModKit
         public string Levels;
         public string KmsParam;     // kms-client level@stringParam
         public string GmsText;      // gms-client and server description text of the level
+        public string Lang = "en";  // the one language GmsText is written to (string/<lang>/...)
         public int Line;
     }
 
@@ -87,6 +91,8 @@ namespace MS2.ModKit
         public string Levels;
         /// <summary>Clone: the name of the new id (null = the source's).</summary>
         public string Name;
+        /// <summary>Clone: basic/stateAttr@cooldownGroupID of the new id: "own" (the new id), a number, or null (keep the source's).</summary>
+        public string CooldownGroup;
         /// <summary>Clone: shipped effect id -> new effect id.</summary>
         public readonly List<KeyValuePair<long, long>> Own = new List<KeyValuePair<long, long>>();
         public readonly List<SkillSet> Sets = new List<SkillSet>();
@@ -168,10 +174,13 @@ namespace MS2.ModKit
 
             internal SkillOp ReadSkill(XmlElem e, SkillKind kind)
             {
-                Only(e, "id", "clone", "levels", "name");
-                var op = new SkillOp { Kind = kind, Id = Id(e, "id"), Line = e.Line, Name = e.Attr("name"), Levels = LevelsOf(e, "levels") };
+                Only(e, "id", "clone", "levels", "name", "cooldown-group");
+                var op = new SkillOp { Kind = kind, Id = Id(e, "id"), Line = e.Line, Name = e.Attr("name"), Levels = LevelsOf(e, "levels"), CooldownGroup = e.Attr("cooldown-group") };
                 if (e.Attr("clone") != null) op.Clone = Id(e, "clone");
-                if (!op.IsClone && (op.Name != null || op.Levels != null)) throw Bad(e, "name and levels belong to a clone (clone=\"shipped id\")");
+                if (!op.IsClone && (op.Name != null || op.Levels != null || op.CooldownGroup != null)) throw Bad(e, "name, levels and cooldown-group belong to a clone (clone=\"shipped id\")");
+                if (op.CooldownGroup != null && op.CooldownGroup != "own" && !System.Text.RegularExpressions.Regex.IsMatch(op.CooldownGroup, "^[0-9]{1,10}$"))
+                    throw Bad(e, "cooldown-group=\"" + op.CooldownGroup + "\": \"own\" or a group id (0 = none)");
+                if (op.CooldownGroup != null && kind != SkillKind.Skill) throw Bad(e, "cooldown-group belongs to a skill");
                 if (op.IsClone && op.Clone == op.Id) throw Bad(e, "a skill cannot be a clone of itself");
                 foreach (XmlElem c in e.Children)
                 {
@@ -202,8 +211,13 @@ namespace MS2.ModKit
                             }
                         case "tooltip":
                             {
-                                Only(c, "level", "kms-param", "gms-text");
+                                Only(c, "level", "kms-param", "gms-text", "lang");
                                 var t = new SkillText { Levels = LevelsOf(c, "level"), KmsParam = c.Attr("kms-param"), GmsText = c.Attr("gms-text"), Line = c.Line };
+                                if (c.Attr("lang") != null)
+                                {
+                                    t.Lang = c.Attr("lang");
+                                    if (t.Lang.Length == 0 || !System.Text.RegularExpressions.Regex.IsMatch(t.Lang, "^[a-z]+$")) throw Bad(c, "<tooltip lang=\"" + t.Lang + "\">: a language folder name such as en, de or pt");
+                                }
                                 if (t.KmsParam == null && t.GmsText == null) throw Bad(c, "<tooltip> needs kms-param or gms-text");
                                 op.Texts.Add(t);
                                 break;
@@ -267,7 +281,7 @@ namespace MS2.ModKit
         {
             sb.Append("  <").Append(op.Tag); A(sb, "id", op.Id.ToString(CultureInfo.InvariantCulture));
             if (op.IsClone) A(sb, "clone", op.Clone.ToString(CultureInfo.InvariantCulture));
-            A(sb, "levels", op.Levels); A(sb, "name", op.Name);
+            A(sb, "levels", op.Levels); A(sb, "name", op.Name); A(sb, "cooldown-group", op.CooldownGroup);
             sb.Append(">\n");
             foreach (KeyValuePair<long, long> o in op.Own)
             { sb.Append("    <own"); A(sb, "effect", o.Key.ToString(CultureInfo.InvariantCulture)); A(sb, "as", o.Value.ToString(CultureInfo.InvariantCulture)); sb.Append(" />\n"); }
@@ -279,7 +293,7 @@ namespace MS2.ModKit
                 foreach (KeyValuePair<string, string> f in s.Fields) A(sb, f.Key, f.Value);
                 sb.Append(" />\n");
             }
-            foreach (SkillText t in op.Texts) { sb.Append("    <tooltip"); A(sb, "level", t.Levels); A(sb, "kms-param", t.KmsParam); A(sb, "gms-text", t.GmsText); sb.Append(" />\n"); }
+            foreach (SkillText t in op.Texts) { sb.Append("    <tooltip"); A(sb, "level", t.Levels); A(sb, "kms-param", t.KmsParam); A(sb, "gms-text", t.GmsText); A(sb, "lang", t.Lang == "en" ? null : t.Lang); sb.Append(" />\n"); }
             foreach (SkillSwap w in op.Swaps)
             {
                 sb.Append("    <swap"); A(sb, "level", w.Levels); A(sb, "motion", w.Motion.ToString(CultureInfo.InvariantCulture)); A(sb, "from-skill", w.FromSkill.ToString(CultureInfo.InvariantCulture));
@@ -440,6 +454,11 @@ namespace MS2.ModKit
         public string BundleAt, BundleAttr, FilesAt, FilesAttr;
         public decimal BundleScale = 1, FilesScale = 1;
         public bool BundleWhole, FilesWhole;
+        /// <summary>
+        /// The value the game uses when the attribute is left out (neutral units), or null when none is known. A "*k"
+        /// on a missing attribute multiplies this, and setting the field writes the attribute.
+        /// </summary>
+        public string Default;
 
         public string At(bool bundle) { return bundle ? BundleAt : FilesAt; }
         public string Attr(bool bundle) { return bundle ? BundleAttr : FilesAttr; }
@@ -613,6 +632,8 @@ namespace MS2.ModKit
                                 if (c.Attr("files-scale") != null) f.FilesScale = decimal.Parse(c.Attr("files-scale"), CultureInfo.InvariantCulture);
                                 f.BundleWhole = c.Attr("bundle-whole") == "true";
                                 f.FilesWhole = c.Attr("files-whole") == "true";
+                                f.Default = c.Attr("default");
+                                if (f.Default != null && !SkillValue.Valid(f.Default)) throw new ModKitException(label + ": field " + f.Name + " default=\"" + f.Default + "\" is not a number");
                                 m.Fields.Add(f);
                                 break;
                             }

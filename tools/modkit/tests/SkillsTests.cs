@@ -24,6 +24,7 @@ namespace MS2.ModKit.Tests
             "\t<skill id=\"70000001\" comment=\"made up\">\n" +
             "\t\t<basic>\n" +
             "\t\t\t<ui icon=\"" + Icon + "\" />\n" +
+            "\t\t\t<stateAttr battle=\"1\" cooldownGroupID=\"70000001\" />\n" +
             "\t\t</basic>\n" +
             "\t\t<level value=\"1\" cooldown=\"8000\" stringParam=\"150,8\" sp=\"4\">\n" +
             "\t\t\t<motion sequenceName=\"Attack_A\" strTagEffects=\"e0=CH/fake/hit.xml\" sequenceSpeed=\"1\">\n" +
@@ -70,7 +71,7 @@ namespace MS2.ModKit.Tests
             "\t</additional>\n" +
             "</ms2>\n";
 
-        public static string GmsSkill(string seqA, string cooldown, bool second)
+        public static string GmsSkill(string seqA, string cooldown, bool second, string group = null)
         {
             string lv1 = "\t<level value=\"1\">\n" +
                 "\t\t<beginCondition cooldownTime=\"" + cooldown + "\" />\n" +
@@ -94,7 +95,8 @@ namespace MS2.ModKit.Tests
                 "\t\t\t</attack>\n" +
                 "\t\t</motion>\n" +
                 "\t</level>\n";
-            return Head + "<ms2>\n\t<basic>\n\t\t<ui icon=\"" + Icon + "\" />\n\t</basic>\n" + lv1 + lv2 + "</ms2>\n";
+            string state = group == null ? "" : "\t\t<stateAttr battle=\"1\" cooldownGroupID=\"" + group + "\" />\n";
+            return Head + "<ms2>\n\t<basic>\n\t\t<ui icon=\"" + Icon + "\" />\n" + state + "\t</basic>\n" + lv1 + lv2 + "</ms2>\n";
         }
 
         public const string GmsEffect = Head + "<ms2>\n\t<level>\n\t\t<BasicProperty level=\"1\" durationTick=\"20000\" intervalTick=\"1000\" />\n\t</level>\n</ms2>\n";
@@ -138,6 +140,7 @@ namespace MS2.ModKit.Tests
                 E("skilldata/700.xml", KmsSkills), E("additional/710.xml", KmsEffects), E("table/job.xml", KmsJob),
                 E("table/feature.xml", Features), E("table/feature_setting.xml", FeatureSetting), E("anikeytext.xml", Anim),
                 E("effect/ch/fake/hit.xml", "<x />\n"),
+                E("string/cn/skillname.xml", Keys("\t<key id=\"70000001\" name=\"Fake Slash cn\" />\n")),   // sorts before kr
                 E("string/kr/skillname.xml", Keys("\t<key id=\"70000001\" name=\"Fake Slash\" />\n")),
                 E("string/kr/stringskilldescription.xml", Keys("\t<key id=\"70000001\" name=\"hits for #0#%\" />\n")),
                 E("string/kr/stringadditionaldescription.xml", Keys("\t<key id=\"71000001\" level=\"1\" name=\"Fake Bleed\" tooltipDescription=\"bleeds\" />\n")),
@@ -149,11 +152,12 @@ namespace MS2.ModKit.Tests
             foreach (string d in new[] { g, s })
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
                 {
-                    E("skill/70/70000001.xml", GmsSkill("Attack_A", "8", true)), E("skill/70/70000002.xml", GmsSkill("Attack_B", "1", false)),
+                    E("skill/70/70000001.xml", GmsSkill("Attack_A", "8", true, "70000001")), E("skill/70/70000002.xml", GmsSkill("Attack_B", "1", false)),
                     E("additionaleffect/71000001.xml", GmsEffect), E("table/job.xml", GmsJob),
                     E("table/feature.xml", Features), E("table/feature_setting.xml", FeatureSetting), E("anikeytext.xml", Anim),
                     E("effect/ch/fake/hit.xml", "<x />\n"),
                     E("string/en/skillname.xml", Keys("\t<key id=\"70000001\" name=\"Fake Slash\" />\n")),
+                    E("string/de/korskilldescription.xml", Keys("\t<key id=\"70000001\" level=\"1\" uiDescription=\"trifft 150%\" />\n")),
                     E("string/en/korskilldescription.xml", Keys("\t<key id=\"70000001\" level=\"1\" uiDescription=\"hits for 150%\" />\n\t<key id=\"70000001\" level=\"2\" uiDescription=\"hits for 160%\" />\n")),
                     E("string/en/koradditionaldescription.xml", Keys("\t<key id=\"71000001\" level=\"1\" name=\"Fake Bleed\" tooltipDescription=\"bleeds for 20 s\" />\n")),
                 });
@@ -226,7 +230,7 @@ namespace MS2.ModKit.Tests
                     Assert.That(gms, Does.Contain("<beginCondition cooldownTime=\"3\" />"), a + dump);
                     Assert.That(gms, Does.Contain("<rangeProperty distance=\"900\" width=\"50\" height=\"100\" />"), a + dump);
                     Assert.That(gms, Does.Contain("<damageProperty rate=\"3\" hitEffectID=\"71000001\" />"), a + dump);
-                    Assert.That(Lines(FakeSkills.GmsSkill("Attack_A", "8", true), gms), Is.EqualTo(3), a + gms);
+                    Assert.That(Lines(FakeSkills.GmsSkill("Attack_A", "8", true, "70000001"), gms), Is.EqualTo(3), a + gms);
                 }
                 Assert.That(Has(p.Warnings, "the tooltip is not"), Is.True, "cooldown and damage are tooltip numbers\n" + dump);
                 foreach (PlanChange c in p.Changes) Assert.That(c.Synced, Is.False, c.ToString());
@@ -249,6 +253,84 @@ namespace MS2.ModKit.Tests
                     Assert.That(t, Does.Contain("<key id=\"70000001\" level=\"1\" uiDescription=\"hits for 300%\" />"), a + dump);
                     Assert.That(t, Does.Contain("level=\"2\" uiDescription=\"hits for 160%\""), a + dump);
                 }
+            }
+        }
+
+        [Test]
+        public void GmsTextGoesToItsOneLanguage()
+        {
+            using (var f = new FakeSkills())
+            {
+                Plan p = f.Plan("<skill id=\"70000001\"><tooltip level=\"1\" gms-text=\"hits for 300%\"/></skill>");
+                string dump = Fake.Dump(p);
+                foreach (string a in new[] { G, S })
+                {
+                    Assert.That(Text(p, a, "string/en/korskilldescription.xml"), Does.Contain("uiDescription=\"hits for 300%\""), a + dump);
+                    Assert.That(Text(p, a, "string/de/korskilldescription.xml"), Is.Null, "en is the default, de stays " + a + dump);
+                }
+                p = f.Plan("<skill id=\"70000001\"><tooltip level=\"1\" gms-text=\"trifft 300%\" lang=\"de\"/></skill>");
+                dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                foreach (string a in new[] { G, S })
+                {
+                    Assert.That(Text(p, a, "string/de/korskilldescription.xml"), Does.Contain("<key id=\"70000001\" level=\"1\" uiDescription=\"trifft 300%\" />"), a + dump);
+                    Assert.That(Text(p, a, "string/en/korskilldescription.xml"), Is.Null, a + dump);
+                }
+                p = f.Plan("<skill id=\"70000001\"><tooltip level=\"1\" gms-text=\"x\" lang=\"jp\"/></skill>");
+                dump = Fake.Dump(p);
+                Assert.That(Has(p.Warnings, "has no language \"jp\""), Is.True, dump);
+                Assert.That(Text(p, G, "string/en/korskilldescription.xml"), Is.Null, dump);
+                Assert.Throws<ModKitException>(() => FakeSkills.ModOf("<skill id=\"70000001\"><tooltip level=\"1\" gms-text=\"x\" lang=\"E N\"/></skill>"));
+            }
+        }
+
+        [Test]
+        public void ASpeedTheBundleLeavesOutIsOneAndIsWrittenWhenSet()
+        {
+            using (var f = new FakeSkills())
+            {
+                // kms level 2 has no sequenceSpeed: the client's default 1 applies
+                Plan p = f.Plan("<skill id=\"70000001\"><motion level=\"2\" index=\"1\" speed=\"*2\"/></skill>");
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                string kms = Text(p, K, "skilldata/700.xml");
+                Assert.That(kms, Does.Contain("<motion sequenceName=\"Attack_A\" sequenceSpeed=\"2\">"), dump + kms);
+                Assert.That(kms.Split(new[] { "sequenceSpeed=\"2\"" }, StringSplitOptions.None).Length, Is.EqualTo(2), "only the variant the side reads");
+                foreach (string a in new[] { G, S })
+                    Assert.That(Text(p, a, "skill/70/70000001.xml"), Does.Contain("<motionProperty sequenceName=\"Attack_A\" sequenceSpeed=\"2\" />"), a + dump);
+            }
+        }
+
+        [Test]
+        public void ACloneKeepsItsSourcesCooldownGroupUnlessTheModSetsIt()
+        {
+            using (var f = new FakeSkills())
+            {
+                Plan p = f.Plan("<skill id=\"78000001\" clone=\"70000001\"/>");
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Has(p.Warnings, "shares cooldown group 70000001 with its source"), Is.True, dump);
+                Assert.That(Text(p, K, "skilldata/780.xml"), Does.Contain("cooldownGroupID=\"70000001\""), dump);
+
+                p = f.Plan("<skill id=\"78000001\" clone=\"70000001\" cooldown-group=\"own\"/>");
+                dump = Fake.Dump(p);
+                Assert.That(Has(p.Warnings, "cooldown group"), Is.False, dump);
+                Assert.That(Text(p, K, "skilldata/780.xml"), Does.Contain("<stateAttr battle=\"1\" cooldownGroupID=\"78000001\" />"), dump);
+                foreach (string a in new[] { G, S })
+                    Assert.That(Text(p, a, "skill/78/78000001.xml"), Does.Contain("<stateAttr battle=\"1\" cooldownGroupID=\"78000001\" />"), a + dump);
+
+                p = f.Plan("<skill id=\"78000001\" clone=\"70000001\" cooldown-group=\"0\"/>");
+                Assert.That(Text(p, G, "skill/78/78000001.xml"), Does.Contain("cooldownGroupID=\"0\""), Fake.Dump(p));
+
+                // a source with no group (70000002 has no stateAttr on any side) gives no warning
+                p = f.Plan("<skill id=\"78000002\" clone=\"70000002\"/>");
+                Assert.That(Has(p.Warnings, "cooldown group"), Is.False, Fake.Dump(p));
+                p = f.Plan("<skill id=\"78000002\" clone=\"70000002\" cooldown-group=\"own\"/>");
+                Assert.That(Has(p.Warnings, "has no basic/stateAttr"), Is.True, Fake.Dump(p));
+
+                Assert.Throws<ModKitException>(() => FakeSkills.ModOf("<skill id=\"70000001\" cooldown-group=\"own\"><level value=\"1\" sp=\"1\"/></skill>"));
+                Assert.Throws<ModKitException>(() => FakeSkills.ModOf("<skill id=\"78000001\" clone=\"70000001\" cooldown-group=\"mine\"/>"));
+                Assert.That(FakeSkills.ModOf("<skill id=\"78000001\" clone=\"70000001\" cooldown-group=\"own\"/>").ToXml(), Does.Contain("cooldown-group=\"own\""));
             }
         }
 

@@ -13,6 +13,8 @@ namespace MS2.ModKit
     {
         public readonly Dictionary<string, string> Values = new Dictionary<string, string>(StringComparer.Ordinal);
         public readonly List<SkillValues> Children = new List<SkillValues>();
+        /// <summary>Fields the row leaves out whose value is the map's default (shown as "1 (default)").</summary>
+        public readonly HashSet<string> Defaulted = new HashSet<string>(StringComparer.Ordinal);
     }
 
     /// <summary>One target's view of one skill or effect.</summary>
@@ -21,6 +23,8 @@ namespace MS2.ModKit
         public string Side;         // profile name
         public string Archive, Entry;
         public string Name;
+        /// <summary>The language Name was read in.</summary>
+        public string NameLanguage;
         public string Icon;
         /// <summary>Level -> the level's values; Children = motions, their Children = attacks.</summary>
         public readonly SortedDictionary<int, SkillValues> Levels = new SortedDictionary<int, SkillValues>();
@@ -43,18 +47,39 @@ namespace MS2.ModKit
 
         static Mod ReadMod() { return Mod.Parse("<mod id=\"read\" name=\"read\" version=\"1\" />", "read"); }
 
-        /// <summary>id -> name of a side (the region's first language that has rows), cached on the data set.</summary>
-        static Dictionary<long, string> SkillNames(Run run, Mod mod, SkillSideCtx c)
+        /// <summary>A side's own language: Korean on the kms-client, English on the gms-client and the server.</summary>
+        public static string OwnLanguage(Profile p) { return p.Region == "kr" ? "kr" : "en"; }
+
+        /// <summary>
+        /// The language a side's names are read in: lang when the side has name rows in it, else the side's own language,
+        /// else the first language that has rows; null when the side has no name rows.
+        /// </summary>
+        static string NameLanguage(SkillSideCtx c, string lang)
         {
-            string key = "skillnames\n" + c.Archive + "\n" + c.Map.Name;
+            SkillString s = StringRole(c, "name");
+            if (s == null) return null;
+            List<KeyValuePair<string, List<string>>> files = StringFiles(c, s);
+            string own = OwnLanguage(c.P);
+            foreach (string want in new[] { lang, own })
+                if (want != null)
+                    foreach (KeyValuePair<string, List<string>> kv in files) if (kv.Key == want) return want;
+            return files.Count > 0 ? files[0].Key : null;
+        }
+
+        /// <summary>id -> name of a side in one language (see NameLanguage), cached on the data set.</summary>
+        static Dictionary<long, string> SkillNames(Run run, Mod mod, SkillSideCtx c, string lang, out string used)
+        {
+            used = NameLanguage(c, lang);
+            string key = "skillnames\n" + c.Archive + "\n" + c.Map.Name + "\n" + used;
             object o;
             if (run.Data.Cache.TryGetValue(key, out o)) return (Dictionary<long, string>)o;
             var names = new Dictionary<long, string>();
             SkillString s = StringRole(c, "name");
-            if (s != null)
-                foreach (KeyValuePair<string, List<string>> lang in StringFiles(c, s))
+            if (s != null && used != null)
+                foreach (KeyValuePair<string, List<string>> l in StringFiles(c, s))
                 {
-                    foreach (string f in lang.Value)
+                    if (l.Key != used) continue;
+                    foreach (string f in l.Value)
                     {
                         M2dEntry e = c.Arch.Find(f);
                         if (e == null) continue;
@@ -69,25 +94,43 @@ namespace MS2.ModKit
                             if (!names.ContainsKey(id)) names[id] = n;
                         }
                     }
-                    if (names.Count > 0) break;
                 }
             run.Data.Cache[key] = names;
             return names;
         }
 
+        /// <summary>The languages any target has skill or effect names in, sorted.</summary>
+        public static List<string> SkillNameLanguages(DataSet data, SkillKind kind)
+        {
+            Run run = ReadRun(data);
+            Mod mod = ReadMod();
+            var all = new SortedDictionary<string, bool>(StringComparer.Ordinal);
+            foreach (SkillSideCtx c in SkillSides(run, mod, kind))
+            {
+                SkillString s = StringRole(c, "name");
+                if (s == null) continue;
+                foreach (KeyValuePair<string, List<string>> kv in StringFiles(c, s)) all[kv.Key] = true;
+            }
+            return new List<string>(all.Keys);
+        }
+
         /// <summary>
         /// Shipped skill or effect ids whose id or name (any target) contains the text, with a name, at most max of
-        /// them, sorted by id.
+        /// them, sorted by id. lang: the names' language (null: each target's own); used: "side lang" per target, the
+        /// language each target's names were read in.
         /// </summary>
-        public static List<KeyValuePair<long, string>> SkillFind(DataSet data, SkillKind kind, string text, int max)
+        public static List<KeyValuePair<long, string>> SkillFind(DataSet data, SkillKind kind, string text, int max, string lang, out string used)
         {
             Run run = ReadRun(data);
             Mod mod = ReadMod();
             text = (text ?? "").Trim();
             var ids = new SortedDictionary<long, string>();
+            var usedList = new List<string>();
             foreach (SkillSideCtx c in SkillSides(run, mod, kind))
             {
-                Dictionary<long, string> names = SkillNames(run, mod, c);
+                string u;
+                Dictionary<long, string> names = SkillNames(run, mod, c, lang, out u);
+                usedList.Add(c.Label + " " + (u ?? "(no names)"));
                 foreach (long id in Index(run, c).Where.Keys)
                 {
                     string n;
@@ -97,6 +140,7 @@ namespace MS2.ModKit
                     ids[id] = n ?? "";
                 }
             }
+            used = string.Join(", ", usedList.ToArray());
             var l = new List<KeyValuePair<long, string>>();
             foreach (KeyValuePair<long, string> kv in ids)
             {
@@ -108,8 +152,17 @@ namespace MS2.ModKit
             return l;
         }
 
+        public static List<KeyValuePair<long, string>> SkillFind(DataSet data, SkillKind kind, string text, int max)
+        {
+            string used;
+            return SkillFind(data, kind, text, max, null, out used);
+        }
+
         /// <summary>One shipped skill or effect on every target that has it; null when no target has it.</summary>
-        public static SkillInfo SkillOpen(DataSet data, SkillKind kind, long id)
+        public static SkillInfo SkillOpen(DataSet data, SkillKind kind, long id) { return SkillOpen(data, kind, id, null); }
+
+        /// <summary>The same, with the names in lang (null: each target's own language).</summary>
+        public static SkillInfo SkillOpen(DataSet data, SkillKind kind, long id, string lang)
         {
             Run run = ReadRun(data);
             Mod mod = ReadMod();
@@ -123,7 +176,9 @@ namespace MS2.ModKit
                 if (root == null) continue;
                 var side = new SkillSideInfo { Side = c.Label, Archive = c.Archive, Entry = st.Name };
                 string n;
-                if (SkillNames(run, mod, c).TryGetValue(id, out n)) side.Name = n;
+                string usedLang;
+                if (SkillNames(run, mod, c, lang, out usedLang).TryGetValue(id, out n)) side.Name = n;
+                side.NameLanguage = usedLang;
                 var icons = new List<string>();
                 CollectIcons(root, icons);
                 if (icons.Count > 0) side.Icon = icons[0];
@@ -157,6 +212,7 @@ namespace MS2.ModKit
                 XmlElem el = at.Length == 0 ? scope : Child(scope, at);
                 string t = el == null ? null : el.Attr(f.Attr(c.Bundle));
                 if (t != null) v.Values[f.Name] = SkillValue.Neutral(t, f.Scale(c.Bundle));
+                else if (el != null && f.Default != null) { v.Values[f.Name] = f.Default; v.Defaulted.Add(f.Name); }
             }
             return v;
         }

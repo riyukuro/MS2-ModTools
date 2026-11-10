@@ -11,6 +11,10 @@ namespace MS2.ModKit
         public readonly DataSet Data;
         public readonly Mod Mod;
         public SkillMap Map = SkillMap.Default;
+        /// <summary>The language of the names Find and Open give: null = each target's own (Korean on the kms-client, English on the others).</summary>
+        public string NameLanguage;
+        /// <summary>After Find: the language each target's names were read in ("kms-client kr, gms-client en, ...").</summary>
+        public string NamesUsed;
 
         public SkillEditor(DataSet data, Mod mod)
         {
@@ -18,10 +22,19 @@ namespace MS2.ModKit
             Data = data; Mod = mod;
         }
 
-        public List<KeyValuePair<long, string>> Find(SkillKind kind, string text, int max) { return Planner.SkillFind(Data, kind, text, max); }
+        public List<KeyValuePair<long, string>> Find(SkillKind kind, string text, int max)
+        {
+            string used;
+            List<KeyValuePair<long, string>> l = Planner.SkillFind(Data, kind, text, max, NameLanguage, out used);
+            NamesUsed = used;
+            return l;
+        }
+
+        /// <summary>The languages the targets have names in.</summary>
+        public List<string> NameLanguages(SkillKind kind) { return Planner.SkillNameLanguages(Data, kind); }
 
         /// <summary>The shipped skill or effect, null when no target ships the id (a clone of the mod: open its source).</summary>
-        public SkillInfo Open(SkillKind kind, long id) { return Planner.SkillOpen(Data, kind, id); }
+        public SkillInfo Open(SkillKind kind, long id) { return Planner.SkillOpen(Data, kind, id, NameLanguage); }
 
         /// <summary>The field names of a scope, in map order.</summary>
         public string[] Fields(SkillKind kind, SkillScope scope) { return Map.Entity(kind).FieldNames(scope); }
@@ -93,13 +106,17 @@ namespace MS2.ModKit
         }
 
         /// <summary>Sets the tooltip of one level: the kms-client stringParam and the gms/server text (null: leave).</summary>
-        public void SetTooltip(SkillKind kind, long id, int level, string kmsParam, string gmsText)
+        public void SetTooltip(SkillKind kind, long id, int level, string kmsParam, string gmsText) { SetTooltip(kind, id, level, kmsParam, gmsText, null); }
+
+        /// <summary>The same; lang = the language gmsText goes to (null: en).</summary>
+        public void SetTooltip(SkillKind kind, long id, int level, string kmsParam, string gmsText, string lang)
         {
+            if (!string.IsNullOrEmpty(lang) && !System.Text.RegularExpressions.Regex.IsMatch(lang, "^[a-z]+$")) throw new ModKitException("lang=\"" + lang + "\": a language code such as en");
             SkillOp op = Op(kind, id, true);
             string lv = LevelText(level);
             op.Texts.RemoveAll(t => t.Levels == lv);
             if (!string.IsNullOrEmpty(kmsParam) || !string.IsNullOrEmpty(gmsText))
-                op.Texts.Add(new SkillText { Levels = lv, KmsParam = string.IsNullOrEmpty(kmsParam) ? null : kmsParam, GmsText = string.IsNullOrEmpty(gmsText) ? null : gmsText });
+                op.Texts.Add(new SkillText { Levels = lv, KmsParam = string.IsNullOrEmpty(kmsParam) ? null : kmsParam, GmsText = string.IsNullOrEmpty(gmsText) ? null : gmsText, Lang = string.IsNullOrEmpty(lang) ? "en" : lang });
             Prune(op);
         }
 
@@ -113,10 +130,17 @@ namespace MS2.ModKit
         /// the source's; own: source effect id -> new effect id, effects cloned with it and re-pointed.
         /// </summary>
         public SkillOp Clone(SkillKind kind, long source, long newId, string levels, string name, IEnumerable<KeyValuePair<long, long>> own)
+        { return Clone(kind, source, newId, levels, name, own, null); }
+
+        /// <summary>The same; cooldownGroup = "own" (the new id), a group id, or null (keep the source's; Plan warns).</summary>
+        public SkillOp Clone(SkillKind kind, long source, long newId, string levels, string name, IEnumerable<KeyValuePair<long, long>> own, string cooldownGroup)
         {
+            if (string.IsNullOrEmpty(cooldownGroup)) cooldownGroup = null;
+            if (cooldownGroup != null && kind != SkillKind.Skill) throw new ModKitException("cooldown-group belongs to a skill");
+            if (cooldownGroup != null && cooldownGroup != "own" && !System.Text.RegularExpressions.Regex.IsMatch(cooldownGroup, "^[0-9]{1,10}$")) throw new ModKitException("cooldown-group \"" + cooldownGroup + "\": own or a group id");
             if (Op(kind, newId, false) != null) throw new ModKitException("the mod already has " + (kind == SkillKind.Skill ? "skill " : "effect ") + newId);
             if (levels != null) SkillLevels.Parse(levels);
-            var op = new SkillOp { Kind = kind, Id = newId, Clone = source, Levels = string.IsNullOrEmpty(levels) ? null : levels, Name = string.IsNullOrEmpty(name) ? null : name };
+            var op = new SkillOp { Kind = kind, Id = newId, Clone = source, Levels = string.IsNullOrEmpty(levels) ? null : levels, Name = string.IsNullOrEmpty(name) ? null : name, CooldownGroup = cooldownGroup };
             if (own != null) foreach (KeyValuePair<long, long> kv in own) op.Own.Add(kv);
             Mod.Skills.Add(op);
             return op;

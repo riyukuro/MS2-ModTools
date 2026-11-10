@@ -233,7 +233,7 @@ namespace MS2.ModKit
                         continue;
                     }
                     string old = el.Attr(fm.Attr(c.Bundle)), why;
-                    string nv = SkillValue.Convert(f.Value, fm.Scale(c.Bundle), fm.Whole(c.Bundle), old, out why);
+                    string nv = SkillValue.Convert(f.Value, fm.Scale(c.Bundle), fm.Whole(c.Bundle), old ?? DefaultText(fm, c.Bundle), out why);
                     if (nv == null)
                     {
                         plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": " + f.Key + "=\"" + f.Value + "\" on " + c.Label + ": " + why + ", skipped (mod.xml line " + set.Line + ")");
@@ -243,6 +243,14 @@ namespace MS2.ModKit
                 }
             }
             return hits;
+        }
+
+        /// <summary>The field's default in the side's units, null when the map gives none.</summary>
+        static string DefaultText(SkillField f, bool bundle)
+        {
+            decimal d;
+            if (f.Default == null || !SkillValue.TryNum(f.Default, out d)) return null;
+            return SkillValue.Text(d * f.Scale(bundle));
         }
 
         /// <summary>Level -> the variant the side reads, with a warning when other variants of an edited level exist.</summary>
@@ -404,7 +412,7 @@ namespace MS2.ModKit
                     if (value == null) continue;
                     covered.Add(lv.Key);
                     if (c.Bundle) Change(run, mod, st, lv.Value, "stringParam", value, t.Line, false);
-                    else SetStringRow(run, mod, c, op.Id, lv.Key, "text", value, t.Line);
+                    else SetStringRow(run, mod, c, op.Id, lv.Key, "text", value, t.Lang, t.Line);
                 }
             }
             var left = new List<int>();
@@ -436,14 +444,23 @@ namespace MS2.ModKit
             return null;
         }
 
-        /// <summary>Sets the text of one string row (id, level) in every language of the side; adds it to the region's language when no language has it.</summary>
-        static void SetStringRow(Run run, Mod mod, SkillSideCtx c, long id, int level, string role, string value, int line)
+        /// <summary>
+        /// Sets the text of one string row (id, level) in one language of the side (lang null: every language); adds
+        /// the row to that language (null: the region's) when it has none.
+        /// </summary>
+        static void SetStringRow(Run run, Mod mod, SkillSideCtx c, long id, int level, string role, string value, string only, int line)
         {
             SkillString s = StringRole(c, role);
             if (s == null) return;
+            if (only != null && !c.P.ReadsLanguage(only))
+            {
+                run.Plan.Msg(run.Plan.Warnings, mod, c.Archive, null, "id " + id + " level " + level + ": " + c.Label + " has no language \"" + only + "\", the text is not written there (mod.xml line " + line + ")");
+                return;
+            }
             string ids = id.ToString(CultureInfo.InvariantCulture), lvs = level.ToString(CultureInfo.InvariantCulture);
             bool any = false;
             foreach (KeyValuePair<string, List<string>> lang in StringFiles(c, s))
+                if (only == null || lang.Key == only)
                 foreach (string f in lang.Value)
                 {
                     EntryState st = run.State(c.Arch, c.Archive, f);
@@ -452,7 +469,7 @@ namespace MS2.ModKit
                         if (r.Attr("id") == ids && (!s.Leveled || r.Attr("level") == lvs)) { Change(run, mod, st, r, s.Attr, value, line, false); any = true; }
                 }
             if (any) return;
-            string lang0 = c.P.Region == "kr" ? "kr" : "en";
+            string lang0 = only ?? OwnLanguage(c.P);
             string file = "string/" + lang0 + "/" + (s.NewFile ?? s.Files);
             var sb = new StringBuilder("<key");
             Attr(sb, "id", ids);
@@ -485,14 +502,14 @@ namespace MS2.ModKit
         }
 
         /// <summary>A clone's string rows: the source's rows copied with the new id (only the kept levels), the name overridden.</summary>
-        static string GmsTextFor(SkillOp op, int level)
+        static SkillText GmsTextFor(SkillOp op, int level)
         {
-            string v = null;
-            foreach (SkillText t in op.Texts) if (t.GmsText != null && SkillLevels.Has(t.Levels, level)) v = t.GmsText;
+            SkillText v = null;
+            foreach (SkillText t in op.Texts) if (t.GmsText != null && SkillLevels.Has(t.Levels, level)) v = t;
             return v;
         }
 
-        /// <summary>Returns the levels whose text row was copied (with the mod's text when it gives one).</summary>
+        /// <summary>Returns the levels whose copied text row got the mod's text (in the text's language).</summary>
         static HashSet<int> CloneStrings(Run run, Mod mod, SkillSideCtx c, SkillOp op, ICollection<int> kept)
         {
             var texted = new HashSet<int>();
@@ -541,9 +558,8 @@ namespace MS2.ModKit
                             foreach (SkillString s2 in c.Map.Strings)
                                 if (s2.Bundle == c.Bundle && s2.Files == s.Files && s2.Role == "text" && fd.Root.FindAttr(s2.Attr) != null)
                                 {
-                                    texted.Add(rl);
-                                    string gt = GmsTextFor(op, rl);
-                                    if (gt != null) ed.SetAttr(fd.Root, s2.Attr, gt);
+                                    SkillText gt = GmsTextFor(op, rl);
+                                    if (gt != null && gt.Lang == lang.Key) { ed.SetAttr(fd.Root, s2.Attr, gt.GmsText); texted.Add(rl); }
                                 }
                         AddStringRow(run, mod, c, target, ed.Apply(), r.Doc.IndentOf(r.Start), op.Line);
                     }
@@ -640,6 +656,27 @@ namespace MS2.ModKit
             return false;
         }
 
+        /// <summary>
+        /// A clone's basic/stateAttr@cooldownGroupID: kept unless the mod sets cooldown-group ("own" = the new id). A kept
+        /// group other than 0 is a warning: the clone and its source then share one cooldown.
+        /// </summary>
+        static void CooldownGroup(Plan plan, Mod mod, SkillSideCtx c, XmlEditor ed, XmlElem root, SkillOp op, string what, List<string> notes)
+        {
+            XmlElem sa = Child(root, "basic/stateAttr");
+            string old = sa == null ? null : sa.Attr("cooldownGroupID");
+            if (op.CooldownGroup == null)
+            {
+                if (old != null && old.Trim() != "0" && old.Trim().Length > 0)
+                    plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": shares cooldown group " + old.Trim() + " with its source on " + c.Label + " (using one starts the other's cooldown); set cooldown-group=\"own\" to give it its own (mod.xml line " + op.Line + ")");
+                return;
+            }
+            string v = op.CooldownGroup == "own" ? op.Id.ToString(CultureInfo.InvariantCulture) : op.CooldownGroup;
+            if (sa == null) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": " + op.Clone + " has no basic/stateAttr on " + c.Label + ", cooldown-group not written"); return; }
+            if (old == v) return;
+            ed.SetAttr(sa, "cooldownGroupID", v);
+            notes.Add("cooldownGroupID " + (old ?? "(none)") + " -> " + v);
+        }
+
         static void DoSkillClone(Run run, Mod mod, SkillSideCtx c, SkillOp op)
         {
             Plan plan = run.Plan;
@@ -679,6 +716,7 @@ namespace MS2.ModKit
             if (kept.Count == 0) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": no level of " + op.Clone + " is read on " + c.Label + ", skipped there"); return; }
             Repoint(ed, root, c, op, dropped);
             var notes = new List<string>();
+            if (op.Kind == SkillKind.Skill) CooldownGroup(plan, mod, c, ed, root, op, what, notes);
             var tooltip = new List<int>();
             foreach (SkillSet set in op.Sets)
                 foreach (FieldHit h in Hits(run, mod, c, op, set, root, null, picked))
@@ -748,8 +786,8 @@ namespace MS2.ModKit
             if (!c.Bundle)
                 foreach (int l in kept)
                 {
-                    string gt = GmsTextFor(op, l);
-                    if (gt != null && !texted.Contains(l)) SetStringRow(run, mod, c, op.Id, l, "text", gt, op.Line);
+                    SkillText gt = GmsTextFor(op, l);
+                    if (gt != null && !texted.Contains(l)) SetStringRow(run, mod, c, op.Id, l, "text", gt.GmsText, gt.Lang, op.Line);
                 }
             NewRefChecks(run, mod, c, entry, op, made.Root, sroot);
             IconCheck(run, mod, c, entry, op, made.Root);
