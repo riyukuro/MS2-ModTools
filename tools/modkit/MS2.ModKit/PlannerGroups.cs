@@ -318,6 +318,16 @@ namespace MS2.ModKit
         static void DoGroup(Run run, Mod mod, GroupOp g)
         {
             run.Groups.Touched.Add(new KeyValuePair<Mod, GroupOp>(mod, g));
+            if (g.New || g.IsClone)
+            {
+                string space = g.Kind == GroupKind.Shop ? IdSpaces.ShopSpace : IdSpaces.DropBoxSpace;
+                long from, to;
+                IdSpaces.DefaultRange(space, out from, out to);
+                bool declared = false;
+                foreach (IdRange r in mod.Ids) if (r.Space == space && g.Id >= r.From && g.Id <= r.To) declared = true;
+                if (!declared && (g.Id < from || g.Id > to))
+                    run.Plan.Msg(run.Plan.Warnings, mod, null, null, g + ": the new id is outside of the range " + from + "-" + to + " kept for new " + (g.Kind == GroupKind.Shop ? "shops" : "drop boxes") + " (mod.xml line " + g.Line + ")");
+            }
             if (g.Kind == GroupKind.Shop) DoShop(run, mod, g);
             else DoBox(run, mod, g);
         }

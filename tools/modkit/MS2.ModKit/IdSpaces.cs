@@ -181,6 +181,100 @@ namespace MS2.ModKit
             }
         }
 
+        // ---- the ranges the tools use for new shops and drop boxes ----
+
+        public const string ShopSpace = "shop", DropBoxSpace = "dropbox";
+        public const long ShopFrom = 900000000, ShopTo = 900009999, DropBoxFrom = 900010000, DropBoxTo = 900019999;
+
+        /// <summary>The places a shop id or drop box id lives in, on every side.</summary>
+        public static List<IdPlace> GroupPlaces(string space)
+        {
+            var l = new List<IdPlace>();
+            if (space == ShopSpace)
+            {
+                l.Add(new IdPlace { Archive = Planner.ServerTables, Entry = Planner.ShopStockEntry, Rows = "shop", Key = "shopID" });
+                l.Add(new IdPlace { Archive = Planner.ServerTables, Entry = Planner.ShopInfoEntry, Rows = "shop", Key = "shopID" });
+            }
+            else if (space == DropBoxSpace)
+            {
+                l.Add(new IdPlace { Archive = Planner.ServerTables, Entry = Planner.ServerDropEntry, Rows = "dropBox", Key = "dropBoxID" });
+                l.Add(new IdPlace { Archive = "client:Xml.m2d", Entry = Planner.KmsDropEntry, Rows = "dropBox", Key = "dropBoxID" });
+                foreach (string a in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    l.Add(new IdPlace { Archive = a, Entry = "table/**individualitemdrop*.xml", Rows = "individualDropBox", Key = "individualDropBoxID" });
+            }
+            else throw new ModKitException("no default places for the id space \"" + space + "\"");
+            return l;
+        }
+
+        /// <summary>The reserved range of a group space: shops 900000000-900009999, drop boxes 900010000-900019999.</summary>
+        public static void DefaultRange(string space, out long from, out long to)
+        {
+            if (space == ShopSpace) { from = ShopFrom; to = ShopTo; }
+            else if (space == DropBoxSpace) { from = DropBoxFrom; to = DropBoxTo; }
+            else throw new ModKitException("no reserved range for the id space \"" + space + "\"");
+        }
+
+        /// <summary>Records in the mod that it takes id in space (extends a touching range of the mod, else adds one).</summary>
+        public static void Reserve(Mod mod, string space, long id)
+        {
+            foreach (IdRange r in mod.Ids)
+                if (r.Space == space && id >= r.From && id <= r.To) return;
+            foreach (IdRange r in mod.Ids)
+            {
+                if (r.Space != space) continue;
+                if (r.To + 1 == id) { r.To = id; return; }
+                if (r.From - 1 == id) { r.From = id; return; }
+            }
+            var made = new IdRange { Space = space, From = id, To = id };
+            made.Places.AddRange(GroupPlaces(space));
+            mod.Ids.Add(made);
+        }
+
+        /// <summary>Takes id out of the mod's ranges of space again.</summary>
+        public static void Unreserve(Mod mod, string space, long id)
+        {
+            for (int i = mod.Ids.Count - 1; i >= 0; i--)
+            {
+                IdRange r = mod.Ids[i];
+                if (r.Space != space || id < r.From || id > r.To) continue;
+                if (r.From == r.To) mod.Ids.RemoveAt(i);
+                else if (r.From == id) r.From++;
+                else if (r.To == id) r.To--;
+                else
+                {
+                    var tail = new IdRange { Space = r.Space, From = id + 1, To = r.To, Strict = r.Strict };
+                    tail.Places.AddRange(r.Places);
+                    r.To = id - 1;
+                    mod.Ids.Insert(i + 1, tail);
+                }
+            }
+        }
+
+        /// <summary>The lowest ids of the default range of a group space that are free in the shipped data and not taken by
+        /// any of the given mods (their new groups and their reserved ranges).</summary>
+        public static List<long> NextFreeGroupIds(DataSet data, IEnumerable<Mod> mods, string space, int count, Action<ProgressInfo> progress)
+        {
+            long from, to;
+            DefaultRange(space, out from, out to);
+            var busy = new HashSet<long>();
+            foreach (IdPlace p in GroupPlaces(space))
+            {
+                if (!data.Has(Profile.OfArchive(p.Archive))) continue;
+                try { busy.UnionWith(UsedIds(data, p, progress)); }
+                catch (ModKitException) { }
+            }
+            foreach (Mod m in mods)
+            {
+                foreach (GroupOp g in m.Groups)
+                    if ((g.New || g.IsClone) && (space == ShopSpace) == (g.Kind == GroupKind.Shop)) busy.Add(g.Id);
+                foreach (IdRange r in m.Ids)
+                    if (r.Space == space) for (long i = Math.Max(r.From, from); i <= Math.Min(r.To, to); i++) busy.Add(i);
+            }
+            var free = new List<long>();
+            for (long id = from; id <= to && free.Count < count; id++) if (!busy.Contains(id)) free.Add(id);
+            return free;
+        }
+
         /// <summary>The ids of a mod's range that are free in the original data and not added by the mod itself, lowest first.</summary>
         public static List<long> NextFree(DataSet data, Mod mod, string space, int count, Action<ProgressInfo> progress)
         {

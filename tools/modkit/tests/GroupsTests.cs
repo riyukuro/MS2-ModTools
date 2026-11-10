@@ -458,6 +458,37 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ReservedRangesForNewGroups()
+        {
+            using (var f = new FakeGroups())
+            {
+                Plan p = f.Plan("<shop id=\"9100\" new=\"true\"><xml><shop categoryID=\"1\" /></xml></shop>");
+                Assert.That(Has(p.Warnings, "outside of the range 900000000-900009999 kept for new shops"), Fake.Dump(p));
+                Mod m = FakeGroups.ModOf("<dropbox id=\"900010000\" new=\"true\"><xml><dropBox><group dropGroupID=\"1\"><v itemID=\"5001\" /></group></dropBox></xml></dropbox>");
+                IdSpaces.Reserve(m, IdSpaces.DropBoxSpace, 900010000);
+                IdSpaces.Reserve(m, IdSpaces.DropBoxSpace, 900010001);
+                Assert.That(m.Ids.Count, Is.EqualTo(1));
+                Assert.That(m.Ids[0].To, Is.EqualTo(900010001));
+                Assert.That(IdSpaces.NextFreeGroupIds(f.Data, new[] { m }, IdSpaces.DropBoxSpace, 2, null), Is.EqualTo(new long[] { 900010002, 900010003 }));
+                Assert.That(IdSpaces.NextFreeGroupIds(f.Data, new Mod[0], IdSpaces.ShopSpace, 1, null), Is.EqualTo(new long[] { 900000000 }));
+                Mod back = Mod.Parse(m.ToXml(), "again");
+                Assert.That(back.Ids[0].Places.Count, Is.EqualTo(4));
+                p = Planner.Build(f.Data, new[] { back }, new PlanOptions());
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Has(p.Warnings, "outside of the range"), Is.False, dump);
+                Assert.That(Has(p.Warnings, "of space \"dropbox\" is added in"), Is.False, "the box is added in all four places\n" + dump);
+                // a reserved id the shipped data uses is an error
+                Mod used = FakeGroups.ModOf("<dropbox id=\"7100\" clone=\"7003\"></dropbox>", "groups.used");
+                IdSpaces.Reserve(used, IdSpaces.DropBoxSpace, 7100);
+                p = Planner.Build(f.Data, new[] { used }, new PlanOptions());
+                Assert.That(Has(p.Errors, "already used"), Fake.Dump(p));
+                IdSpaces.Unreserve(m, IdSpaces.DropBoxSpace, 900010000);
+                Assert.That(m.Ids[0].From, Is.EqualTo(900010001));
+            }
+        }
+
+        [Test]
         public void ModXmlRoundTrip()
         {
             const string body = "<shop id=\"900000009\" clone=\"9001\"><header feature=\"F1\"><set name=\"iconName\" value=\"a\"/></header>" +
