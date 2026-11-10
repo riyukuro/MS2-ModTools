@@ -256,6 +256,32 @@ namespace MS2.ModKit.Tests
             Assert.That(FieldMaps.Default.Find(C, "table/pet.xml", out client), Is.Null);
             Assert.Throws<ModKitException>(() => FieldMaps.Parse("<fieldmaps><entity name=\"x\"><client archive=\"client:Xml.m2d\" entry=\"a/{nope}.xml\" under=\"e\"/></entity></fieldmaps>"));
         }
+
+        [Test]
+        public void TheShippedNpcMapPairsEachFieldOnce()
+        {
+            EntityMap npc = FieldMaps.Default.Entity("npc");
+            Assert.That(npc, Is.Not.Null);
+            Assert.That(npc.Client.Row, Is.EqualTo("npc"));
+            Assert.That(npc.Server.Row, Is.Null);
+            Assert.That(npc.Entries.Count, Is.GreaterThan(100));
+            var client = new Dictionary<string, bool>();
+            var server = new Dictionary<string, bool>();
+            foreach (FieldMapEntry e in npc.Entries)
+            {
+                if (e.Candidate) continue;
+                Assert.That(client.ContainsKey(e.Client), Is.False, e.Client);
+                Assert.That(server.ContainsKey(e.Server), Is.False, e.Server);
+                client[e.Client] = server[e.Server] = true;
+            }
+            Assert.That(client.ContainsKey("@level"), Is.True, "an attribute of <environment> itself");
+            Assert.That(client.ContainsKey("stat@hp"), Is.True);
+            bool c;
+            Assert.That(FieldMaps.Default.Find(C, "npcdata/001.xml", out c), Is.SameAs(npc));
+            Assert.That(c, Is.True);
+            Assert.That(FieldMaps.Default.Find(S, "npc/12/34/12345678.xml", out c), Is.SameAs(npc));
+            Assert.That(c, Is.False);
+        }
         [Test]
         public void TheRowsOfOtherTablesThatBelongToAnItemAreFound()
         {

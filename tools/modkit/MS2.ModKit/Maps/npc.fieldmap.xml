@@ -1,0 +1,244 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Field map of the npc entity: which attribute of the client's npc table corresponds to which attribute of the
+     server's npc file. It names files, elements and attributes only; it holds no row of either side.
+
+     Made the same way as item.fieldmap.xml (see its header for the columns): the same ids were read on both sides
+     of one shipped data set and every pair of fields was compared id by id; only ids with exactly one row and one
+     <environment> on each side were compared ("sample"). A pair with different names is kept only when the values
+     agree and at least 5 distinct values agree. loader = yes means the attribute name was also found in the
+     client's npc loader (name evidence only: the loader is not proof of what the field does).
+
+     The client keeps 1 file per 100000 ids (npcdata/NNN.xml, one <npc> row per id, read lazily per file); there is
+     no index table, so a new id only needs a row in its file. The server keeps one file per id.
+     Fields are written as element-path@attribute, the path counted from <environment>; "@level" is an attribute of
+     <environment> itself on the client.
+
+     Notes
+       stat@hp, stat@pap, stat@map  low: the two sides differ on about 16% of the ids. Still kept equal by a mod,
+                                    since the client shows the value and the server uses it.
+       aiInfo@*, combat@*           present in the client table, but the client loader does not read them.
+       effectdummy                  client only: the server file keeps it outside <environment>, if at all. -->
+<fieldmaps version="1">
+  <entity name="npc" sample="10386">
+    <client archive="client:Xml.m2d" entry="npcdata/{id/100000}.xml" row="npc" key="id" under="environment" />
+    <server archive="server:Xml.m2d" entry="npc/*/*/{id}.xml" under="environment" />
+    <map client="@abnormalImmune" server="basic@abnormalImmune" convert="same" default="0" compared="10252" agree="10252" differ="0" clientAbsent="134" loader="yes" confidence="high" />
+    <map client="@attackDamage" server="basic@attackDamage" convert="same" default="0" compared="161" agree="161" differ="0" clientAbsent="10225" loader="yes" confidence="high" />
+    <map client="@bossNotify" server="basic@bossNotify" convert="same" default="0" compared="41" agree="41" differ="0" clientAbsent="10345" loader="yes" confidence="high" />
+    <map client="@bossSoundDistance" server="basic@bossSoundDistance" convert="same" compared="366" agree="366" differ="0" clientAbsent="10020" loader="yes" confidence="high" />
+    <map client="@bossSoundEndDistance" server="basic@bossSoundEndDistance" convert="same" compared="367" agree="367" differ="0" clientAbsent="10019" loader="yes" confidence="high" />
+    <map client="@carePathToEnemy" server="basic@carePathToEnemy" convert="same" default="0" compared="8486" agree="8486" differ="0" clientAbsent="1900" loader="yes" confidence="high" />
+    <map client="@checkCameraDistance" server="basic@checkCameraDistance" convert="same" default="0" compared="259" agree="259" differ="0" clientAbsent="10127" loader="yes" confidence="high" />
+    <map client="@class" server="basic@class" convert="same" default="1" compared="5104" agree="5104" differ="0" clientAbsent="5282" loader="yes" confidence="high" />
+    <map client="@createEffect" server="basic@createEffect" convert="same" default="" compared="2" agree="2" differ="0" clientAbsent="10384" loader="yes" confidence="medium" />
+    <map client="@customExp" server="exp@customExp" convert="same" default="-1" compared="3183" agree="3183" differ="0" clientAbsent="7203" loader="yes" confidence="high" />
+    <map client="@damagedColorScale" server="basic@damagedColorScale" convert="same" default="2" compared="4950" agree="4950" differ="0" clientAbsent="5436" loader="yes" confidence="high" />
+    <map client="@damagedVibrateAmp" server="basic@damagedVibrateAmp" convert="same" default="0" compared="6458" agree="6458" differ="0" clientAbsent="3928" loader="yes" confidence="high" />
+    <map client="@damagedVibrateDuration" server="basic@damagedVibrateDuration" convert="same" default="0" compared="6452" agree="6452" differ="0" clientAbsent="3934" loader="yes" confidence="high" />
+    <map client="@deadEffect" server="basic@deadEffect" convert="same" default="" compared="136" agree="136" differ="0" clientAbsent="10250" loader="yes" confidence="high" />
+    <map client="@defenceMaterial" server="basic@defenceMaterial" convert="same" default="0" compared="6590" agree="6590" differ="0" clientAbsent="3796" loader="yes" confidence="high" />
+    <map client="@emotionID" server="basic@emotionID" convert="same" default="0" compared="2160" agree="2159" differ="1" clientAbsent="8225" loader="yes" confidence="high" />
+    <map client="@eventTags" server="basic@eventTags" convert="same" compared="70" agree="70" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="@extraCameraDistance" server="basic@extraCameraDistance" convert="same" default="0" compared="259" agree="259" differ="0" clientAbsent="10127" loader="yes" confidence="high" />
+    <map client="@friendly" server="basic@friendly" convert="same" default="0" compared="4343" agree="4343" differ="0" clientAbsent="6043" loader="yes" confidence="high" />
+    <map client="@gender" server="basic@gender" convert="same" compared="10230" agree="10230" differ="0" clientAbsent="155" loader="yes" confidence="high" />
+    <map client="@hitImmune" server="basic@hitImmune" convert="same" default="0" compared="10252" agree="10252" differ="0" clientAbsent="134" loader="yes" confidence="high" />
+    <map client="@hpBar" server="basic@hpBar" convert="same" default="0" compared="5026" agree="5020" differ="6" clientAbsent="5360" loader="yes" confidence="high" />
+    <map client="@iconName" server="basic@iconName" convert="same" default="" compared="334" agree="333" differ="1" clientAbsent="10052" loader="yes" confidence="high" />
+    <map client="@illust" server="basic@illust" convert="same" default="" compared="3472" agree="3472" differ="0" clientAbsent="6913" loader="yes" confidence="high" />
+    <map client="@installNpc" server="basic@installNpc" convert="same" compared="6" agree="6" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="@keepEffect" server="basic@keepEffect" convert="same" default="" compared="111" agree="111" differ="0" clientAbsent="10275" loader="yes" confidence="high" />
+    <map client="@kind" server="basic@kind" convert="same" default="0" compared="330" agree="329" differ="1" clientAbsent="10056" loader="yes" confidence="high" />
+    <map client="@level" server="basic@level" convert="same" default="1" compared="9543" agree="9511" differ="32" clientAbsent="843" loader="yes" confidence="high" />
+    <map client="@lookAtMyPCWhenTalking" server="lookattarget@lookAtMyPCWhenTalking" convert="same" default="1" compared="7040" agree="7040" differ="0" clientAbsent="3346" loader="yes" confidence="high" />
+    <map client="@minimap" server="basic@minimap" convert="same" default="1" compared="4665" agree="4665" differ="0" clientAbsent="5721" loader="yes" confidence="high" />
+    <map client="@minimapIconName" server="basic@minimapIconName" convert="same" default="" compared="2925" agree="2924" differ="1" clientAbsent="7461" loader="yes" confidence="high" />
+    <map client="@nametag" server="basic@nametag" convert="same" default="0" compared="8359" agree="8358" differ="1" clientAbsent="2027" loader="yes" confidence="high" />
+    <map client="@npcAttackGroup" server="basic@npcAttackGroup" convert="same" compared="10386" agree="10386" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="@npcDefenseGroup" server="basic@npcDefenseGroup" convert="same" compared="10386" agree="10386" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="@npcSoundEnd" server="basic@npcSoundEnd" convert="same" default="" compared="196" agree="196" differ="0" clientAbsent="10190" loader="yes" confidence="high" />
+    <map client="@npcSoundStart" server="basic@npcSoundStart" convert="same" default="" compared="980" agree="979" differ="1" clientAbsent="9406" loader="yes" confidence="high" />
+    <map client="@portrait" server="basic@portrait" convert="same" default="" compared="10351" agree="10350" differ="1" clientAbsent="35" loader="yes" confidence="high" />
+    <map client="@propertyTags" server="basic@propertyTags" convert="same" default="" compared="2947" agree="2788" differ="159" clientAbsent="7439" loader="yes" confidence="medium" />
+    <map client="@raceString" server="basic@raceString" convert="same" default="" compared="6462" agree="6462" differ="0" clientAbsent="3924" loader="yes" confidence="high" />
+    <map client="@rankIcon" server="basic@rankIcon" convert="same" default="" compared="6462" agree="6462" differ="0" clientAbsent="3924" loader="yes" confidence="high" />
+    <map client="@regenEffect" server="basic@regenEffect" convert="same" default="" compared="4576" agree="4576" differ="0" clientAbsent="5810" loader="yes" confidence="high" />
+    <map client="@rotationDisabled" server="basic@rotationDisabled" convert="same" default="0" compared="328" agree="328" differ="0" clientAbsent="10058" loader="yes" confidence="high" />
+    <map client="@shopIconName" server="basic@shopIconName" convert="same" compared="8" agree="8" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="@shopId" server="basic@shopId" convert="same" default="0" compared="229" agree="226" differ="3" clientAbsent="10157" loader="yes" confidence="high" />
+    <map client="@stringID" server="basic@stringID" convert="same" compared="15" agree="15" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="@talkAni" server="basic@talkAni" convert="same" default="1" compared="406" agree="406" differ="0" clientAbsent="9980" loader="yes" confidence="high" />
+    <map client="@useTalkMotion" server="lookattarget@useTalkMotion" convert="same" default="1" compared="552" agree="552" differ="0" clientAbsent="9834" loader="yes" confidence="high" />
+    <map client="additionalEffect@codes" server="additionalEffect@codes" convert="same" default="" compared="2701" agree="2681" differ="20" clientAbsent="7685" loader="yes" confidence="high" />
+    <map client="additionalEffect@group" server="additionalEffect@group" convert="same" default="" compared="61" agree="61" differ="0" clientAbsent="10325" loader="yes" confidence="high" />
+    <map client="additionalEffect@levels" server="additionalEffect@levels" convert="same" default="" compared="2701" agree="2681" differ="20" clientAbsent="7685" loader="yes" confidence="high" />
+    <map client="additionalEffect@rewardCodes" server="additionalEffect@rewardCodes" convert="same" compared="26" agree="26" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="additionalEffect@rewardLevels" server="additionalEffect@rewardLevels" convert="same" compared="26" agree="26" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="aiInfo@path" server="aiInfo@path" convert="same" compared="2997" agree="2676" differ="321" clientAbsent="7389" loader="no" confidence="low" />
+    <map client="aiInfo@summonNpcIDs" server="aiInfo@summonNpcIDs" convert="same" compared="518" agree="518" differ="0" clientAbsent="0" loader="no" confidence="high" />
+    <map client="capsule@height" server="capsule@height" convert="same" compared="10386" agree="10385" differ="1" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="capsule@ignore" server="capsule@ignore" convert="same" default="0" compared="1341" agree="1341" differ="0" clientAbsent="9045" loader="yes" confidence="high" />
+    <map client="capsule@radius" server="capsule@radius" convert="same" compared="10386" agree="10386" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="collision@depth" server="collision@depth" convert="same" default="0" compared="6581" agree="6581" differ="0" clientAbsent="3805" loader="yes" confidence="high" />
+    <map client="collision@depthOffset" server="collision@depthOffset" convert="same" default="0" compared="139" agree="139" differ="0" clientAbsent="10247" loader="yes" confidence="high" />
+    <map client="collision@height" server="collision@height" convert="same" default="0" compared="6581" agree="6581" differ="0" clientAbsent="3805" loader="yes" confidence="high" />
+    <map client="collision@heightOffset" server="collision@heightOffset" convert="same" default="0" compared="190" agree="190" differ="0" clientAbsent="10196" loader="yes" confidence="high" />
+    <map client="collision@shape" server="collision@shape" convert="same" default="" compared="6584" agree="6584" differ="0" clientAbsent="3802" loader="yes" confidence="high" />
+    <map client="collision@width" server="collision@width" convert="same" default="0" compared="6581" agree="6581" differ="0" clientAbsent="3805" loader="yes" confidence="high" />
+    <map client="collision@widthOffset" server="collision@widthOffset" convert="same" default="0" compared="38" agree="38" differ="0" clientAbsent="10348" loader="yes" confidence="high" />
+    <map client="combat@canShowHideTarget" server="combat@canShowHideTarget" convert="same" default="false" compared="37" agree="37" differ="0" clientAbsent="10349" loader="no" confidence="high" />
+    <map client="combat@combatAbandonTick" server="combat@combatAbandonTick" convert="same" default="0" compared="74" agree="74" differ="0" clientAbsent="10312" loader="no" confidence="high" />
+    <map client="combat@ignoreExtendLifeTime" server="combat@ignoreExtendLifeTime" convert="same" default="false" compared="14" agree="14" differ="0" clientAbsent="10372" loader="no" confidence="medium" />
+    <map client="combat@impossibleCombatAbandonTick" server="combat@impossibleCombatAbandonTick" convert="same" default="0" compared="74" agree="74" differ="0" clientAbsent="10312" loader="no" confidence="high" />
+    <map client="corpse@added" server="corpse@added" convert="same" default="0" compared="74" agree="74" differ="0" clientAbsent="10312" loader="yes" confidence="high" />
+    <map client="corpse@depth" server="corpse@depth" convert="same" default="0" compared="121" agree="121" differ="0" clientAbsent="10265" loader="yes" confidence="high" />
+    <map client="corpse@height" server="corpse@height" convert="same" default="0" compared="121" agree="121" differ="0" clientAbsent="10265" loader="yes" confidence="high" />
+    <map client="corpse@hitAble" server="corpse@hitAble" convert="same" default="0" compared="29" agree="29" differ="0" clientAbsent="10357" loader="yes" confidence="high" />
+    <map client="corpse@offsetNametag" server="corpse@offsetNametag" convert="same" default="0" compared="121" agree="121" differ="0" clientAbsent="10265" loader="yes" confidence="high" />
+    <map client="corpse@rotation" server="corpse@rotation" convert="same" default="" compared="121" agree="121" differ="0" clientAbsent="10265" loader="yes" confidence="high" />
+    <map client="corpse@width" server="corpse@width" convert="same" default="0" compared="121" agree="121" differ="0" clientAbsent="10265" loader="yes" confidence="high" />
+    <map client="dead@count" server="dead@count" convert="same" default="0" compared="34" agree="34" differ="0" clientAbsent="10352" loader="yes" confidence="high" />
+    <map client="dead@defaultaction" server="dead@defaultaction" convert="same" default="" compared="6452" agree="6452" differ="0" clientAbsent="3934" loader="yes" confidence="high" />
+    <map client="dead@extendRoomTime" server="dead@extendRoomTime" convert="same" default="0" compared="99" agree="97" differ="2" clientAbsent="10287" loader="yes" confidence="high" />
+    <map client="dead@lifeTime" server="dead@lifeTime" convert="same" default="0" compared="26" agree="26" differ="0" clientAbsent="10360" loader="yes" confidence="high" />
+    <map client="dead@revival" server="dead@revival" convert="same" default="0" compared="34" agree="34" differ="0" clientAbsent="10352" loader="yes" confidence="high" />
+    <map client="dead@time" server="dead@time" convert="same" default="0" compared="6401" agree="6401" differ="0" clientAbsent="3985" loader="yes" confidence="high" />
+    <map client="dead@upaction" server="dead@upaction" convert="same" default="" compared="6452" agree="6452" differ="0" clientAbsent="3934" loader="yes" confidence="high" />
+    <map client="distance@avoid" server="distance@avoid" convert="same" compared="10386" agree="10386" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="distance@customLastSightHeightDown" server="distance@customLastSightHeightDown" convert="same" default="0" compared="3015" agree="3015" differ="0" clientAbsent="7371" loader="yes" confidence="high" />
+    <map client="distance@customLastSightHeightUp" server="distance@customLastSightHeightUp" convert="same" default="0" compared="3405" agree="3405" differ="0" clientAbsent="6981" loader="yes" confidence="high" />
+    <map client="distance@customLastSightRadius" server="distance@customLastSightRadius" convert="same" default="0" compared="3432" agree="3432" differ="0" clientAbsent="6954" loader="yes" confidence="high" />
+    <map client="distance@sight" server="distance@sight" convert="same" default="0" compared="6396" agree="6396" differ="0" clientAbsent="3990" loader="yes" confidence="high" />
+    <map client="distance@sightHeightDown" server="distance@sightHeightDown" convert="same" compared="6567" agree="6567" differ="0" clientAbsent="3819" loader="yes" confidence="high" />
+    <map client="distance@sightHeightUP" server="distance@sightHeightUP" convert="same" compared="6575" agree="6575" differ="0" clientAbsent="3811" loader="yes" confidence="high" />
+    <map client="dropiteminfo@dropDistanceBase" server="dropiteminfo@dropDistanceBase" convert="same" compared="4211" agree="4201" differ="10" clientAbsent="6175" loader="yes" confidence="high" />
+    <map client="dropiteminfo@dropDistanceRandom" server="dropiteminfo@dropDistanceRandom" convert="same" compared="4224" agree="4214" differ="10" clientAbsent="6162" loader="yes" confidence="high" />
+    <map client="dropiteminfo@dropHeight" server="dropiteminfo@dropHeight" convert="same" default="0" compared="4224" agree="4214" differ="10" clientAbsent="6162" loader="yes" confidence="high" />
+    <map client="dropiteminfo@fireVelocity" server="dropiteminfo@fireVelocity" convert="same" compared="407" agree="397" differ="10" clientAbsent="9979" loader="yes" confidence="high" />
+    <map client="dropiteminfo@globalDeadDropBoxId" server="dropiteminfo@globalDeadDropBoxId" convert="same" default="" compared="223" agree="223" differ="0" clientAbsent="10163" loader="yes" confidence="high" />
+    <map client="dropiteminfo@globalDropBoxId" server="dropiteminfo@globalDropBoxId" convert="same" default="" compared="5099" agree="5099" differ="0" clientAbsent="5287" loader="yes" confidence="high" />
+    <map client="dropiteminfo@globalHitDropBoxId" server="dropiteminfo@globalHitDropBoxId" convert="same" default="" compared="43" agree="43" differ="0" clientAbsent="10343" loader="yes" confidence="high" />
+    <map client="dropiteminfo@individualDropBoxId" server="dropiteminfo@individualDropBoxId" convert="same" default="" compared="517" agree="514" differ="3" clientAbsent="9869" loader="yes" confidence="high" />
+    <map client="dropiteminfo@individualHitDropBoxId" server="dropiteminfo@individualHitDropBoxId" convert="same" default="" compared="19" agree="9" differ="10" clientAbsent="10367" loader="yes" confidence="low" />
+    <map client="interact@interactCastingTime" server="interact@interactCastingTime" convert="same" default="0" compared="35" agree="35" differ="0" clientAbsent="10351" loader="yes" confidence="high" />
+    <map client="interact@interactCoolTime" server="interact@interactCoolTime" convert="same" default="0" compared="26" agree="26" differ="0" clientAbsent="10360" loader="yes" confidence="high" />
+    <map client="interact@interactFunction" server="interact@interactFunction" convert="same" default="" compared="35" agree="35" differ="0" clientAbsent="10351" loader="yes" confidence="high" />
+    <map client="interact@interactIsShowCastingBar" server="interact@interactIsShowCastingBar" convert="same" default="true" compared="15" agree="15" differ="0" clientAbsent="10371" loader="yes" confidence="medium" />
+    <map client="model@anispeed" server="model@anispeed" convert="same" default="1" compared="10" agree="10" differ="0" clientAbsent="10376" loader="yes" confidence="medium" />
+    <map client="model@kfm" server="model@kfm" convert="same" default="" compared="10366" agree="10364" differ="2" clientAbsent="20" loader="yes" confidence="high" />
+    <map client="model@offset" server="model@offset" convert="numlist" compared="14" agree="14" differ="0" clientAbsent="10371" loader="yes" confidence="medium" />
+    <map client="model@rotationSpeed" server="speed@rotation" convert="same" default="0" compared="10011" agree="10011" differ="0" clientAbsent="375" loader="yes" confidence="high" />
+    <map client="model@runSpeed" server="speed@run" convert="same" default="0" compared="8657" agree="8657" differ="0" clientAbsent="1729" loader="yes" confidence="high" />
+    <map client="model@scale" server="model@scale" convert="same" default="1" compared="3712" agree="3712" differ="0" clientAbsent="6674" loader="yes" confidence="high" />
+    <map client="model@shadowScale" server="shadow@scale" convert="same" default="0" compared="9784" agree="9783" differ="1" clientAbsent="602" loader="yes" confidence="high" />
+    <map client="model@spawnAlphaAnimation" server="model@spawnAlphaAnimation" convert="same" default="1" compared="6" agree="6" differ="0" clientAbsent="10380" loader="yes" confidence="medium" />
+    <map client="model@walkSpeed" server="speed@walk" convert="same" default="0" compared="9361" agree="9361" differ="0" clientAbsent="1025" loader="yes" confidence="high" />
+    <map client="nodeCollisions/collision@offset" server="nodeCollisions/collision@offset" convert="numlist" compared="32" agree="32" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="nodeCollisions/collision@targetNode" server="nodeCollisions/collision@targetNode" convert="same" compared="32" agree="32" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="nodeCollisions/collision@volume" server="nodeCollisions/collision@volume" convert="numlist" compared="32" agree="32" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="nodeServerCollisions/collision@offset" server="nodeServerCollisions/collision@offset" convert="numlist" compared="42" agree="42" differ="0" clientAbsent="15" loader="yes" confidence="high" />
+    <map client="nodeServerCollisions/collision@volume" server="nodeServerCollisions/collision@volume" convert="numlist" compared="57" agree="57" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="normal@action" server="normal@action" convert="same" compared="10386" agree="10384" differ="2" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="normal@movearea" server="normal@movearea" convert="same" default="0" compared="7005" agree="7004" differ="1" clientAbsent="3381" loader="yes" confidence="high" />
+    <map client="normal@prob" server="normal@prob" convert="same" compared="10386" agree="10384" differ="2" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="push@back" server="push@back" convert="same" default="0" compared="4310" agree="4310" differ="0" clientAbsent="6076" loader="yes" confidence="high" />
+    <map client="push@knockback" server="push@knockback" convert="same" default="0" compared="4523" agree="4523" differ="0" clientAbsent="5863" loader="yes" confidence="high" />
+    <map client="push@up" server="push@up" convert="same" default="0" compared="4310" agree="4310" differ="0" clientAbsent="6076" loader="yes" confidence="high" />
+    <map client="skill@ids" server="skill@ids" convert="same" default="" compared="6196" agree="6196" differ="0" clientAbsent="4190" loader="yes" confidence="high" />
+    <map client="skill@levels" server="skill@levels" convert="same" compared="2055" agree="2041" differ="14" clientAbsent="8331" loader="yes" confidence="high" />
+    <map client="skill@probs" server="skill@probs" convert="same" compared="3498" agree="3488" differ="10" clientAbsent="6888" loader="yes" confidence="high" />
+    <map client="stat@asp" server="stat@asp" convert="same" default="0" compared="6590" agree="6590" differ="0" clientAbsent="3796" loader="yes" confidence="high" />
+    <map client="stat@atp" server="stat@atp" convert="same" compared="10386" agree="10386" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="stat@cad" server="stat@cad" convert="same" default="0" compared="6461" agree="6461" differ="0" clientAbsent="3925" loader="yes" confidence="high" />
+    <map client="stat@cap" server="stat@cap" convert="same" default="0" compared="6456" agree="6429" differ="27" clientAbsent="3930" loader="yes" confidence="high" />
+    <map client="stat@car" server="stat@car" convert="same" default="0" compared="6455" agree="6424" differ="31" clientAbsent="3931" loader="yes" confidence="high" />
+    <map client="stat@evp" server="stat@evp" convert="same" default="0" compared="10354" agree="10323" differ="31" clientAbsent="32" loader="yes" confidence="high" />
+    <map client="stat@hp" server="stat@hp" convert="same" compared="10386" agree="8708" differ="1678" clientAbsent="0" loader="yes" confidence="low" />
+    <map client="stat@map" server="stat@map" convert="same" default="0" compared="9937" agree="8314" differ="1623" clientAbsent="449" loader="yes" confidence="low" />
+    <map client="stat@mar" server="stat@mar" convert="same" default="0" compared="5501" agree="5501" differ="0" clientAbsent="4885" loader="yes" confidence="high" />
+    <map client="stat@msp" server="stat@msp" convert="same" compared="10386" agree="10386" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="stat@ndd" server="stat@ndd" convert="same" default="0" compared="10251" agree="9898" differ="353" clientAbsent="135" loader="yes" confidence="medium" />
+    <map client="stat@pap" server="stat@pap" convert="same" default="0" compared="9913" agree="8293" differ="1620" clientAbsent="473" loader="yes" confidence="low" />
+    <map client="stat@par" server="stat@par" convert="same" default="0" compared="5506" agree="5506" differ="0" clientAbsent="4880" loader="yes" confidence="high" />
+    <map client="stat@scaleBaseDef_1" server="stat@scaleBaseDef_1" convert="same" compared="460" agree="429" differ="31" clientAbsent="52" loader="yes" confidence="medium" />
+    <map client="stat@scaleBaseDef_2" server="stat@scaleBaseDef_2" convert="same" compared="404" agree="404" differ="0" clientAbsent="44" loader="yes" confidence="high" />
+    <map client="stat@scaleBaseSpaRate_1" server="stat@scaleBaseSpaRate_1" convert="same" compared="460" agree="429" differ="31" clientAbsent="52" loader="yes" confidence="medium" />
+    <map client="stat@scaleBaseSpaRate_2" server="stat@scaleBaseSpaRate_2" convert="same" compared="404" agree="404" differ="0" clientAbsent="44" loader="yes" confidence="high" />
+    <map client="stat@scaleBaseTap_1" server="stat@scaleBaseTap_1" convert="same" compared="460" agree="429" differ="31" clientAbsent="52" loader="yes" confidence="medium" />
+    <map client="stat@scaleBaseTap_2" server="stat@scaleBaseTap_2" convert="same" compared="404" agree="404" differ="0" clientAbsent="44" loader="yes" confidence="high" />
+    <map client="stat@scaleStatRate_1" server="stat@scaleStatRate_1" convert="same" compared="460" agree="429" differ="31" clientAbsent="52" loader="yes" confidence="medium" />
+    <map client="stat@scaleStatRate_2" server="stat@scaleStatRate_2" convert="same" compared="404" agree="404" differ="0" clientAbsent="44" loader="yes" confidence="high" />
+    <clientOnly field="effectdummy/dummy/attachInfo@applyLocalScale" seen="1584" loader="no" />
+    <clientOnly field="effectdummy/dummy/attachInfo@applyWorldTransform" seen="1584" loader="no" />
+    <clientOnly field="effectdummy/dummy/attachInfo@parentNode" seen="1608" loader="no" />
+    <clientOnly field="effectdummy/dummy/transform@translate" seen="1612" loader="no" />
+    <clientOnly field="effectdummy/dummy@name" seen="1608" loader="yes" />
+    <serverOnly field="assist@assistType1SkillCount" seen="10386" />
+    <serverOnly field="assist@assistType2CheckTick" seen="10386" />
+    <serverOnly field="assist@assistType2SkillCount" seen="10386" />
+    <serverOnly field="basic@damageEffect" seen="10386" />
+    <serverOnly field="basic@difficulty" seen="10386" />
+    <serverOnly field="basic@groupSpawnCount" seen="10386" />
+    <serverOnly field="basic@local" seen="10386" />
+    <serverOnly field="basic@locking" seen="10" />
+    <serverOnly field="basic@mainTags" seen="10386" />
+    <serverOnly field="basic@maxSpawnCount" seen="10386" />
+    <serverOnly field="basic@nametagSize" seen="10386" />
+    <serverOnly field="basic@npcSoundCombatEnd" seen="10386" />
+    <serverOnly field="basic@npcSoundCombatStart" seen="10386" />
+    <serverOnly field="basic@npcSoundDead" seen="10386" />
+    <serverOnly field="basic@rareDegree" seen="10386" />
+    <serverOnly field="basic@skipFrame" seen="10386" />
+    <serverOnly field="basic@subTags" seen="10386" />
+    <serverOnly field="basic@webFinder" seen="1" />
+    <serverOnly field="corpse@corpseEffect" seen="10386" />
+    <serverOnly field="dead@slowLastHit" seen="10386" />
+    <serverOnly field="interact@interactCastingAnimation" seen="10386" />
+    <serverOnly field="lookattarget@targetdummy" seen="10386" />
+    <serverOnly field="model@anispeedfix" seen="10386" />
+    <serverOnly field="normal@maidExpired" seen="10386" />
+    <serverOnly field="shadow@bias" seen="10386" />
+    <serverOnly field="skill@coolDown" seen="10386" />
+    <serverOnly field="skill@priorities" seen="10386" />
+    <serverOnly field="stat@abp" seen="10386" />
+    <serverOnly field="stat@bap" seen="10386" />
+    <serverOnly field="stat@bap_pet" seen="10385" />
+    <serverOnly field="stat@dex" seen="10386" />
+    <serverOnly field="stat@dmg" seen="10386" />
+    <serverOnly field="stat@ep" seen="10386" />
+    <serverOnly field="stat@ep_inv" seen="10386" />
+    <serverOnly field="stat@ep_rgp" seen="10386" />
+    <serverOnly field="stat@hiddenhpadd" seen="1855" />
+    <serverOnly field="stat@hiddenhpadd03" seen="2564" />
+    <serverOnly field="stat@hiddenhpadd04" seen="2637" />
+    <serverOnly field="stat@hiddennddadd" seen="380" />
+    <serverOnly field="stat@hiddennddadd03" seen="54" />
+    <serverOnly field="stat@hiddennddadd04" seen="54" />
+    <serverOnly field="stat@hiddenwapadd" seen="1806" />
+    <serverOnly field="stat@hiddenwapadd03" seen="1767" />
+    <serverOnly field="stat@hiddenwapadd04" seen="1762" />
+    <serverOnly field="stat@hp_inv" seen="10386" />
+    <serverOnly field="stat@hp_rgp" seen="10386" />
+    <serverOnly field="stat@int" seen="10386" />
+    <serverOnly field="stat@jmp" seen="10386" />
+    <serverOnly field="stat@luk" seen="10386" />
+    <serverOnly field="stat@pen" seen="10386" />
+    <serverOnly field="stat@rmsp" seen="10386" />
+    <serverOnly field="stat@scaleBaseDef_3" seen="581" />
+    <serverOnly field="stat@scaleBaseDef_4" seen="581" />
+    <serverOnly field="stat@scaleBaseSpaRate_3" seen="581" />
+    <serverOnly field="stat@scaleBaseSpaRate_4" seen="581" />
+    <serverOnly field="stat@scaleBaseTap_3" seen="581" />
+    <serverOnly field="stat@scaleBaseTap_4" seen="581" />
+    <serverOnly field="stat@scaleStatRate_3" seen="581" />
+    <serverOnly field="stat@scaleStatRate_4" seen="581" />
+    <serverOnly field="stat@sp" seen="10386" />
+    <serverOnly field="stat@sp_inv" seen="10386" />
+    <serverOnly field="stat@sp_rgp" seen="10386" />
+    <serverOnly field="stat@str" seen="10386" />
+    <serverOnly field="stat@wapmax" seen="10386" />
+    <serverOnly field="stat@wapmin" seen="10386" />
+    <serverOnly field="validBattleCylinder@height" seen="10386" />
+    <serverOnly field="validBattleCylinder@radius" seen="10386" />
+  </entity>
+</fieldmaps>
