@@ -96,11 +96,6 @@ namespace MS2.Tables
         }
 
         /// <summary>
-        /// A pane docked at the top or bottom of its container keeps a share of the container's height (its first share
-        /// is the one given; dragging its splitter sets a new one), never under min pixels and never so high that less
-        /// than min pixels are left for the rest.
-        /// </summary>
-        /// <summary>
         /// The output box at the bottom of a view keeps two lines of its font and its sideways scroll bar (it scrolls)
         /// until its splitter is dragged.
         /// </summary>
@@ -111,6 +106,11 @@ namespace MS2.Tables
             KeepHeightShare(box, container, 0, h);
         }
 
+        /// <summary>
+        /// A pane docked at the top or bottom of its container keeps a share of the container's height (its first share
+        /// is the one given; dragging its splitter sets a new one), never under min pixels and never so high that less
+        /// than min pixels are left for the rest.
+        /// </summary>
         public static void KeepHeightShare(Control pane, Control container, double share, int min)
         {
             KeepHeightShare(pane, container, share, min, null);
