@@ -89,7 +89,8 @@ namespace MS2.ModKit.Tests
                 "\t\t\t<motionProperty sequenceName=\"" + seqA + "\" />\n" +
                 "\t\t\t<attack targetCount=\"3\">\n" +
                 "\t\t\t\t<rangeProperty distance=\"600\" />\n" +
-                "\t\t\t\t<damageProperty rate=\"1.6\" />\n" +
+                "\t\t\t\t<damageProperty rate=\"1.6\" hitEffectID=\"71000001\" />\n" +   // a dropped level pointing at the own effect
+
                 "\t\t\t</attack>\n" +
                 "\t\t</motion>\n" +
                 "\t</level>\n";

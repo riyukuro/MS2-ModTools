@@ -620,8 +620,9 @@ namespace MS2.ModKit
             return string.Join(",", parts);
         }
 
-        static void Repoint(XmlEditor ed, XmlElem e, SkillSideCtx c, SkillOp op)
+        static void Repoint(XmlEditor ed, XmlElem e, SkillSideCtx c, SkillOp op, List<XmlElem> dropped)
         {
+            if (dropped.Contains(e)) return;   // deleted with a level or variant the clone does not keep
             foreach (XmlAttr a in e.Attrs)
             {
                 string table = c.Map.RefTo(c.Bundle, e.Name, a.Name);
@@ -630,7 +631,7 @@ namespace MS2.ModKit
                 string v = NewIdText(op, table, a.Value, out changed);
                 if (changed) ed.SetAttr(e, a.Name, v);
             }
-            foreach (XmlElem k in e.Children) Repoint(ed, k, c, op);
+            foreach (XmlElem k in e.Children) Repoint(ed, k, c, op, dropped);
         }
 
         static bool Inside(XmlElem e, List<XmlElem> dropped)
@@ -676,7 +677,7 @@ namespace MS2.ModKit
                 if (missing.Count > 0) plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": level " + LevelText(missing) + " is not in " + op.Clone + " on " + c.Label);
             }
             if (kept.Count == 0) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": no level of " + op.Clone + " is read on " + c.Label + ", skipped there"); return; }
-            Repoint(ed, root, c, op);
+            Repoint(ed, root, c, op, dropped);
             var notes = new List<string>();
             var tooltip = new List<int>();
             foreach (SkillSet set in op.Sets)
