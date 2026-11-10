@@ -4,14 +4,19 @@
 // The view holds no data logic. MS2.ModKit.EditorSession owns the folders and the mod being edited, and
 // MS2.ModKit.TableDraft turns cell edits into mod.xml operations; this file only shows them. The grid is in virtual
 // mode (it asks the draft for each cell), so a table of some ten thousand rows opens at once.
+//
+// Plan, Apply and Revert run on a worker thread (RunJob): the controls are disabled meanwhile, the progress is shown
+// beside the buttons, and the result comes back to the window's thread before anything of the view is touched.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.IO;
+using System.Threading;
 using System.Windows.Forms;
 using Emergent.Toolbench;
 using Emergent.Toolbench.UI.Workbench;
 using MS2.ModKit;
+using WeifenLuo.WinFormsUI.Docking;
 
 namespace MS2.Tables
 {
@@ -33,7 +38,15 @@ namespace MS2.Tables
         readonly TextBox attrBox = new TextBox { Width = 110 };
         readonly Label tableLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
         readonly TextBox modIdBox = new TextBox { Width = 130 };
-        readonly ComboBox modsBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 150 };
+        readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
+        readonly CheckedListBox modsList = new CheckedListBox { Dock = DockStyle.Fill, IntegralHeight = false, CheckOnClick = false };
+        readonly Label busyLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
+        readonly List<Control> lockable = new List<Control>();   // what is disabled while a job runs
+        ModList modList;
+        Thread worker;
+        string busy;                                              // what the worker is doing; null = idle
+        int lastProgress;
+        bool widened;
         readonly TextBox pendingBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Fill };
 
@@ -72,11 +85,26 @@ namespace MS2.Tables
             modBar.Controls.Add(modIdBox);
             modBar.Controls.Add(Btn("New mod", "Starts an empty mod with this id (the pending edits are dropped)", delegate { NewMod(); }));
             modBar.Controls.Add(Btn("Save mod", "Saves the pending edits as <mods folder>/<mod id>/mod.xml", delegate { SaveMod(); }));
-            modBar.Controls.Add(modsBox);
-            modBar.Controls.Add(Btn("Load mod", "Loads a mod folder (a name under the mods folder, or a path) into the grid", delegate { LoadMod(); }));
-            modBar.Controls.Add(Btn("Plan", "Shows what the mods would change, with conflicts and warnings; writes nothing", delegate { DoPlan(); }));
-            modBar.Controls.Add(Btn("Apply", "Saves the mod and writes patched copies into the workspace folder", delegate { DoApply(); }));
-            modBar.Controls.Add(Btn("Revert", "Removes the patched copies from the workspace folder", delegate { DoRevert(); }));
+            modBar.Controls.Add(Lbl("Apply to"));
+            targetBox.Items.Add("workspace (patched archives)");
+            targetBox.Items.Add("game folder (loose files)");
+            targetBox.SelectedIndex = 0;
+            tips.SetToolTip(targetBox, "Where Apply writes the client's tables: patched copies of the archives in the workspace folder, or plain files under Data/ of the game folder, which the game reads before its archives. The server's archives always go to the workspace.");
+            modBar.Controls.Add(targetBox);
+            modBar.Controls.Add(Btn("Plan", "Shows what the checked mods and the pending edits would change, with conflicts and warnings; writes nothing", delegate { DoPlan(); }));
+            modBar.Controls.Add(Btn("Apply", "Saves the mod being edited and writes what the checked mods change to the place chosen under \"Apply to\"", delegate { DoApply(); }));
+            modBar.Controls.Add(Btn("Revert", "Removes what Apply wrote: the loose files in the game folder and the patched copies in the workspace folder", delegate { DoRevert(); }));
+            modBar.Controls.Add(busyLabel);
+
+            // the mods of the mods folder: a check per mod, the order they are applied in
+            FlowLayoutPanel modsBar = Bar(DockStyle.Bottom);
+            modsBar.Controls.Add(Btn("Up", "Moves the selected mod one place up; mods are applied from the top down", delegate { MoveMod(-1); }));
+            modsBar.Controls.Add(Btn("Down", "Moves the selected mod one place down", delegate { MoveMod(1); }));
+            modsBar.Controls.Add(Btn("Load mod", "Loads the selected mod into the grid, to edit it", delegate { LoadMod(); }));
+            var modsPanel = new Panel { Dock = DockStyle.Left, Width = 250 };
+            modsPanel.Controls.Add(modsList);
+            modsPanel.Controls.Add(modsBar);
+            modsPanel.Controls.Add(Caption("Mods (checked = applied, top first)"));
 
             var texts = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
             texts.Panel1.Controls.Add(pendingBox);
@@ -85,6 +113,8 @@ namespace MS2.Tables
             texts.Panel2.Controls.Add(Caption("Output"));
             var bottom = new Panel { Dock = DockStyle.Bottom, Height = 260 };
             bottom.Controls.Add(texts);
+            bottom.Controls.Add(new Splitter { Dock = DockStyle.Left, Width = 4 });
+            bottom.Controls.Add(modsPanel);
             bottom.Controls.Add(modBar);
 
             grid.VirtualMode = true;
@@ -111,7 +141,11 @@ namespace MS2.Tables
             Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
             Controls.Add(bottom);
             Controls.Add(top);
+            lockable.AddRange(new Control[] { top, rowBar, grid, entryList, modBar, modsPanel });
 
+            targetBox.SelectedIndexChanged += delegate { if (!filling && session != null) session.Target = TargetChosen(); };
+            modsList.ItemCheck += OnModCheck;
+            modsList.DoubleClick += delegate { Guard(delegate { LoadMod(); }); };
             archiveBox.SelectedIndexChanged += delegate { if (!filling) FillEntries(); };
             filterBox.TextChanged += delegate { FillEntries(); };
             filterBox.KeyDown += delegate(object sender, KeyEventArgs e)
@@ -139,7 +173,13 @@ namespace MS2.Tables
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing && session != null) { session.Dispose(); session = null; }
+            if (disposing)
+            {
+                // a running apply finishes first: the session's archives are open under it
+                Thread w = worker;
+                if (w != null && w.IsAlive) w.Join();
+                if (session != null) { session.Dispose(); session = null; }
+            }
             base.Dispose(disposing);
         }
 
@@ -213,23 +253,33 @@ namespace MS2.Tables
 
         void Reload()
         {
+            if (IsBusy()) return;
             Guard(delegate
             {
                 Mod keep = session != null ? session.Mod : null;
+                bool hadSession = session != null;
+                ApplyTarget target = TargetChosen();
                 if (session != null) { session.Dispose(); session = null; }
                 ShowTable(null);
                 archiveBox.Items.Clear();
                 entryList.Items.Clear();
                 TablesSettings s = TablesSettings.Load();
                 session = new EditorSession(s.ClientData, s.ServerData, s.ModsDir, s.Workspace);
+                session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 if (keep != null && keep.Ops.Count > 0) session.Adopt(keep);
                 filling = true;
                 foreach (string a in session.Archives()) archiveBox.Items.Add(a);
+                // loose files are the default once a game folder is set; a choice made in the box is kept
+                if (session.GameDir == null) target = ApplyTarget.Workspace;
+                else if (!hadSession) target = ApplyTarget.LooseFiles;
+                targetBox.SelectedIndex = target == ApplyTarget.LooseFiles ? 1 : 0;
+                session.Target = target;
                 filling = false;
                 FillMods();
                 ShowMod();
                 Say("client data: " + Shown(s.ClientData) + "\nserver data: " + Shown(s.ServerData) + "\nmods folder: " + Shown(s.ModsDir)
-                    + "\nworkspace:   " + Shown(s.Workspace) + "\n" + archiveBox.Items.Count + " archive(s)");
+                    + "\nworkspace:   " + Shown(s.Workspace) + "\ngame folder: " + Shown(s.GameDir)
+                    + "\napply to:    " + targetBox.Text + "\n" + archiveBox.Items.Count + " archive(s), " + modsList.Items.Count + " mod(s)");
                 if (archiveBox.Items.Count > 0) archiveBox.SelectedIndex = PreferredArchive();
             });
         }
@@ -256,14 +306,55 @@ namespace MS2.Tables
             });
         }
 
+        ApplyTarget TargetChosen() { return targetBox.SelectedIndex == 1 ? ApplyTarget.LooseFiles : ApplyTarget.Workspace; }
+
+        // ---- the mod list ----
+
+        /// <summary>Reads the mods folder again and shows its list; the selection stays on the same folder.</summary>
         void FillMods()
         {
-            modsBox.Items.Clear();
-            if (session == null || session.ModsDir == null || !Directory.Exists(session.ModsDir)) return;
-            string[] dirs = Directory.GetDirectories(session.ModsDir);
-            Array.Sort(dirs, StringComparer.OrdinalIgnoreCase);
-            foreach (string d in dirs)
-                if (File.Exists(Path.Combine(d, "mod.xml"))) modsBox.Items.Add(Path.GetFileName(d));
+            string selected = modList != null && modsList.SelectedIndex >= 0 && modsList.SelectedIndex < modList.Items.Count
+                ? modList.Items[modsList.SelectedIndex].Folder : null;
+            bool was = filling;
+            filling = true;
+            try
+            {
+                modsList.Items.Clear();
+                modList = null;
+                if (session == null) return;
+                modList = session.ModList();
+                foreach (ModListItem it in modList.Items)
+                {
+                    bool editing = it.Error == null && it.Id == session.Mod.Id;
+                    modsList.Items.Add(it + (editing ? "  [editing, always applied]" : ""), it.Enabled);
+                    if (it.Folder == selected) modsList.SelectedIndex = modsList.Items.Count - 1;
+                }
+            }
+            finally { filling = was; }
+        }
+
+        void OnModCheck(object sender, ItemCheckEventArgs e)
+        {
+            if (filling || modList == null || e.Index < 0 || e.Index >= modList.Items.Count) return;
+            ModListItem it = modList.Items[e.Index];
+            bool on = e.NewValue == CheckState.Checked;
+            if (!Guard(delegate { it.Enabled = on; modList.Save(); })) { it.Enabled = !on; e.NewValue = e.CurrentValue; }
+        }
+
+        ModListItem SelectedMod()
+        {
+            if (modList == null || modsList.SelectedIndex < 0 || modsList.SelectedIndex >= modList.Items.Count)
+                throw new ModKitException("select a mod in the list first");
+            return modList.Items[modsList.SelectedIndex];
+        }
+
+        void MoveMod(int delta)
+        {
+            SelectedMod();
+            int to = modList.Move(modsList.SelectedIndex, delta);
+            modList.Save();
+            FillMods();
+            modsList.SelectedIndex = to;
         }
 
         // ---- the table ----
@@ -442,6 +533,7 @@ namespace MS2.Tables
             s.NewMod(modIdBox.Text.Trim());
             ReopenTable();
             ShowMod();
+            FillMods();
             Say("new mod " + s.Mod.Id);
         }
 
@@ -456,52 +548,156 @@ namespace MS2.Tables
         void LoadMod()
         {
             EditorSession s = Session();
-            string name = modsBox.Text.Trim();
-            if (name.Length == 0) throw new ModKitException("pick a mod of the mods folder in the box left of Load mod, or type the path of a mod folder");
+            ModListItem it = SelectedMod();
+            if (it.Error != null) throw new ModKitException(it.Error);
             grid.CancelEdit();
-            s.LoadMod(name);
+            if (s.Mod.Ops.Count > 0 && s.Mod.Id != it.Id && MessageBox.Show(this, "Load mod " + it.Id + "? Changes of mod " + s.Mod.Id + " that are not saved are dropped.",
+                    "MS2 Tables", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
+            s.LoadMod(it.Folder);
             ReopenTable();
             ShowMod();
+            FillMods();
             Say("loaded mod " + s.Mod.Id + " from " + s.Mod.Dir + ": " + s.Mod.Ops.Count + " operation block(s)");
+        }
+
+        // ---- jobs on the worker thread ----
+
+        delegate void Job(Action<ProgressInfo> progress);
+
+        bool IsBusy()
+        {
+            if (busy == null) return false;
+            Say(busy + " is still running");
+            return true;
+        }
+
+        void SetBusy(string what)
+        {
+            busy = what;
+            foreach (Control c in lockable) c.Enabled = what == null;
+            busyLabel.Text = what == null ? "" : what + "...";
+            UseWaitCursor = what != null;
+        }
+
+        /// <summary>
+        /// Runs work on a worker thread while the view is locked, then done on the window's thread. The work must
+        /// not touch a control; what it throws is shown in the output pane. Returns false when a job is running.
+        /// </summary>
+        bool RunJob(string what, Job work, MethodInvoker done)
+        {
+            if (IsBusy()) return false;
+            SetBusy(what);
+            Say(what + "...");
+            var t = new Thread(delegate()
+            {
+                Exception error = null;
+                try { work(delegate(ProgressInfo p) { OnProgress(what, p); }); }
+                catch (Exception ex) { error = ex; }
+                Post(delegate
+                {
+                    worker = null;
+                    SetBusy(null);
+                    if (error == null) { Guard(done); return; }
+                    bool known = error is ModKitException || error is IOException || error is UnauthorizedAccessException;
+                    Say(known ? error.Message : what + " failed: " + error);
+                    Logger.Warning("MS2 Tables: " + what + ": " + error.Message);
+                });
+            });
+            t.Name = "MS2 Tables " + what;
+            t.IsBackground = false;     // an apply that is writing is not cut off when the window closes
+            worker = t;
+            t.Start();
+            return true;
+        }
+
+        void Post(MethodInvoker m)
+        {
+            try { if (IsHandleCreated && !IsDisposed) BeginInvoke(m); }
+            catch (InvalidOperationException) { }     // the view went away meanwhile
+        }
+
+        // on the worker thread: at most ten updates a second reach the window
+        void OnProgress(string what, ProgressInfo p)
+        {
+            int now = Environment.TickCount;
+            if (unchecked(now - lastProgress) < 100) return;
+            lastProgress = now;
+            string text = what + ": " + p.Stage + (string.IsNullOrEmpty(p.Item) ? "" : " " + p.Item) + (p.Total > 0 ? " " + p.Done + "/" + p.Total : "");
+            Post(delegate { if (busy != null) busyLabel.Text = text; });
+        }
+
+        // ---- the width at first show ----
+
+        protected override void OnVisibleChanged(EventArgs e)
+        {
+            base.OnVisibleChanged(e);
+            if (Visible && !widened && IsHandleCreated) { widened = true; BeginInvoke((MethodInvoker)Widen); }
+        }
+
+        /// <summary>
+        /// A plain view is docked at the right edge at a fifth of the window, too narrow for a grid. Once per
+        /// start, a view found docked at a side and under 600 pixels wide gets 60 % of the window.
+        /// </summary>
+        void Widen()
+        {
+            try
+            {
+                for (Control c = Parent; c != null; c = c.Parent)
+                {
+                    var dc = c as DockContent;
+                    if (dc == null) continue;
+                    DockPanel p = dc.DockPanel;
+                    if (p == null || Width >= 600) return;
+                    if (dc.DockState == DockState.DockRight && p.DockRightPortion < 0.6) p.DockRightPortion = 0.6;
+                    else if (dc.DockState == DockState.DockLeft && p.DockLeftPortion < 0.6) p.DockLeftPortion = 0.6;
+                    return;
+                }
+            }
+            catch (Exception ex) { Logger.Warning("MS2 Tables: could not widen the view: " + ex.Message); }
         }
 
         // ---- plan, apply, revert (also behind the MS2 Mods menu) ----
 
+        /// <summary>Starts the plan; true when it was started. The result goes to the output pane when it is done.</summary>
         public bool DoPlan()
         {
-            return Guard(delegate
-            {
-                grid.EndEdit();
-                Plan p = Session().Plan();
-                Say(EditorSession.Report(p));
-                Logger.Info("MS2 Tables: plan: " + p.Changes.Count + " change(s), " + p.Errors.Count + " error(s), " + p.Conflicts.Count + " conflict(s)");
-            });
+            Plan p = null;
+            return Guard(delegate { grid.EndEdit(); Session(); })
+                && RunJob("Plan", delegate(Action<ProgressInfo> progress) { p = session.Plan(progress); }, delegate
+                {
+                    Say(EditorSession.Report(p));
+                    Logger.Info("MS2 Tables: plan: " + p.Changes.Count + " change(s), " + p.Errors.Count + " error(s), " + p.Conflicts.Count + " conflict(s)");
+                });
         }
 
         public bool DoApply()
         {
-            bool applied = false;
-            Guard(delegate
-            {
-                grid.EndEdit();
-                ApplyResult r = Session().Apply();
-                FillMods();
-                Say(EditorSession.Report(r));
-                applied = r.Applied;
-                if (r.Applied) Logger.Info("MS2 Tables: applied " + r.Plan.Mods.Count + " mod(s) to " + session.WorkspaceDir);
-                else Logger.Warning("MS2 Tables: nothing applied: " + r.Reason);
-            });
-            return applied;
+            ApplyResult r = null;
+            return Guard(delegate { grid.EndEdit(); Session(); })
+                && RunJob("Apply", delegate(Action<ProgressInfo> progress) { r = session.Apply(progress); }, delegate
+                {
+                    FillMods();
+                    ShowMod();
+                    Say(EditorSession.Report(r));
+                    if (r.Applied) Logger.Info("MS2 Tables: applied " + r.Plan.Mods.Count + " mod(s) to " + Where());
+                    else Logger.Warning("MS2 Tables: nothing applied: " + r.Reason);
+                });
         }
 
         public bool DoRevert()
         {
-            return Guard(delegate
-            {
-                ApplyResult r = Session().Revert();
-                Say(EditorSession.Report(r));
-                Logger.Info("MS2 Tables: removed " + r.Removed.Count + " file(s) from " + session.WorkspaceDir);
-            });
+            ApplyResult r = null;
+            return Guard(delegate { Session(); })
+                && RunJob("Revert", delegate(Action<ProgressInfo> progress) { r = session.Revert(); }, delegate
+                {
+                    Say(EditorSession.Report(r));
+                    Logger.Info("MS2 Tables: revert removed " + r.Removed.Count + " file(s)");
+                });
+        }
+
+        string Where()
+        {
+            return session.Target == ApplyTarget.LooseFiles ? session.GameDir + " (loose files)" : session.WorkspaceDir;
         }
     }
 }

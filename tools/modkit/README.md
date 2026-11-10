@@ -171,9 +171,9 @@ modkit status -w <workspace>
   conflict or an error nothing is written (exit code 1). `--allow-conflicts` applies anyway, and the later mod wins.
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
-- Point the game and the server at the copies yourself (or copy them over a **copy** of the game folder). That step,
-  and proof in the running game, is not part of this tool yet (the table editor section below says where to put
-  them).
+- Point the game and the server at the copies yourself (or copy them over a **copy** of the game folder). The table
+  editor can also write the client's part as loose files into a game folder (`LooseTarget` in the library); see
+  [How the game gets the changes](#how-the-game-gets-the-changes).
 
 What "kept" means: an entry that no mod touches is copied as stored (compressed and encrypted bytes, flags, order).
 In an edited entry only the edited spans change: encoding, byte order mark, line ends, attribute order, quotes,
@@ -259,16 +259,17 @@ environment variable is used, so a script can start Toolbench with the folders a
 |-|-|-|
 | Client data folder | `MS2_CLIENT_DATA` | the `Data` folder of your client (holds `Xml.m2d`). Only read |
 | Server data folder | `MS2_SERVER_DATA` | the data folder of your local server (holds its `Xml.m2d`). Only read |
-| Mods folder | `MS2_MODS` | a folder of mod folders. Save mod writes `<mods>/<mod id>/mod.xml`; Plan and Apply use every mod in it (a folder whose name starts with `.` or `_` is left out) |
-| Workspace folder | `MS2_MOD_WORKSPACE` | where Apply writes the patched copies |
+| Mods folder | `MS2_MODS` | a folder of mod folders. Save mod writes `<mods>/<mod id>/mod.xml`; the view lists its mods (a folder whose name starts with `.` or `_` is left out) |
+| Workspace folder | `MS2_MOD_WORKSPACE` | where Apply writes patched copies of archives: the server's always, the client's when you apply to the workspace |
+| Game folder | `MS2_GAME_DIR` | the folder of a **copy** of your client that holds `Data`. Apply writes the client's changed tables there as plain files |
 
-One data folder is enough to look around; saving needs the mods folder, and apply the workspace folder as well. After
-changing a setting press **Reload settings** in the view.
+One data folder is enough to look around; saving needs the mods folder, and apply the game folder or the workspace
+folder as well. After changing a setting press **Reload settings** in the view.
 
 Using it:
 
-1. The view opens docked at the right edge and is narrow at first: drag its left edge to make room for the grid
-   (menu **MS2 Mods > Tables** shows the view again). Pick an archive, type part of an
+1. The view opens docked at the right edge, at 60 % of the window (menu **MS2 Mods > Tables** shows the view
+   again). Pick an archive, type part of an
    entry name into **Entry filter** and press Enter, or double-click an entry in the list. Each child element of the
    root element is a row and each attribute a column. For rows that sit deeper, put a selector of their parent into
    **Rows under** (for example `pet[id=101]` to see that pet's `<skill>` rows).
@@ -279,27 +280,51 @@ Using it:
    row has yet.
 3. A table that is in the client and in the server archive has to be changed in both. **Copy edits to other side**
    writes the edits of the open table into the mod for the other data root too.
-4. **Save mod** writes the mod folder. **Load mod** reads one back into the grid: pick a folder of the mods folder
-   or type a path. **New mod** starts an empty mod with the id in **Mod id** (the first mod is called `my.mod`).
-5. **Plan** shows what all mods of the mods folder plus the pending edits would change, with errors, conflicts and
-   warnings, and writes nothing. **Apply** saves the mod being edited and writes the patched copies into the
-   workspace; with an error or a conflict it writes nothing and says why. **Revert** removes the copies again. The
-   three are also in the **MS2 Mods** menu.
+4. **Save mod** writes the mod folder. **New mod** starts an empty mod with the id in **Mod id** (the first mod is
+   called `my.mod`).
+5. The **Mods** list shows the mods of the mods folder. A checked mod is applied, an unchecked one stays in the
+   folder and is left out. Mods are applied from the top down, which matters when you allow conflicts (the later mod
+   wins); **Up** and **Down** move the selected mod. **Load mod** (or a double-click) loads the selected mod into the
+   grid. The mod being edited is marked and always takes part, checked or not. The checks and the order are kept in
+   `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them.
+6. **Apply to** chooses where the client's tables go: **game folder (loose files)**, the default once a game folder is
+   set, or **workspace (patched archives)**.
+7. **Plan** shows what the checked mods plus the pending edits would change, with errors, conflicts and
+   warnings, and writes nothing. **Apply** saves the mod being edited and writes; with an error or a conflict it
+   writes nothing and says why. **Revert** removes what Apply wrote. The three are also in the **MS2 Mods** menu.
+   They run in the background: the view is greyed out and shows the progress beside the buttons until the result
+   is in the **Output** pane.
 
-Where the copies go, and how the game gets them: Apply writes `<workspace>/client/Xml.m2d` and `Xml.m2h` and
-`<workspace>/server/Xml.m2d` (only the archives a mod touches) and `modkit-state.xml`. The original data folders are
-never written. To run with the mods:
+### How the game gets the changes
 
-- client: make a copy of your client folder once, and copy `<workspace>/client/*` over the files of the same name in
-  the copy's `Data` folder after each apply. Start the copy.
-- local server: point the server's data path at a folder that holds `<workspace>/server/Xml.m2d` in place of the
-  original one (a copy of the server data folder with that file replaced), and restart it.
+**Client: loose files.** The client looks for a data file as a plain file under its `Data` folder before it looks
+into the archives: `Data/Xml/table/pet.xml` is used in place of the entry `table/pet.xml` of `Data/Xml.m2d` (a file in
+a region sub-folder of `Data/Xml`, if there is one, comes before both). So with **Apply to: game folder**, Apply writes
+each client entry that a mod changes, whole and merged, to `<game folder>/Data/Xml/<entry>`, and the archives of the
+game folder stay as they are. Start the copy of the client; nothing else is to be done.
 
-After Revert the copies are gone from the workspace; put the original files back the same way.
+- `modkit-loose.xml` in the game folder records every file Apply wrote, with its hash. **Revert** deletes exactly
+  those files (and the folders Apply made, when they are empty) and nothing else. A recorded file that was changed
+  since is left where it is and reported.
+- A file that is already there and is not in the record is never overwritten. Plan lists it as a conflict and Apply
+  writes nothing, also when conflicts between mods are allowed; move the file away yourself if the mod should win.
+- A mod that deletes a client entry cannot be applied this way (a loose file can replace an entry, not hide it);
+  Plan says so. Use the workspace target for such a mod.
+- Use a copy of the client, as with every change to a game folder.
+
+**Client: patched archives.** With **Apply to: workspace**, Apply writes `<workspace>/client/Xml.m2d` and `Xml.m2h`
+(only the archives a mod touches). Copy them over the files of the same name in the `Data` folder of a copy of the
+client after each apply; after Revert put the original files back the same way.
+
+**Local server.** The server reads its own archive and has no loose files. Apply always writes
+`<workspace>/server/Xml.m2d` when a mod touches it. Point the server's data path at a folder that holds that file in
+place of the original one (a copy of the server data folder with the file replaced), and restart the server.
+
+The original data folders in the settings are never written. Switching **Apply to** and applying again removes what
+the other target left behind.
 
 Not in this editor yet: schema checks (the command line `--schema`), `<ids>` ranges, `<entry>` operations and edits
-of element text. A mod that holds them loads, plans and applies as it is; the grid just has no cell for them. Apply
-runs on the window's thread, so Toolbench does not react while a large archive is written.
+of element text. A mod that holds them loads, plans and applies as it is; the grid just has no cell for them.
 
 ## Tests
 

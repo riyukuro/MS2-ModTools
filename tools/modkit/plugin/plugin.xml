@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8" ?>
 <!-- MS2 table editor for Gamebryo Toolbench (usage: tools/modkit/README.md, "The table editor in Toolbench").
      A front end over MS2.ModKit.dll: the view shows one XML entry of a data archive as a grid, keeps the edits as a
-     mod.xml, and Plan / Apply / Revert run the mod kit over the mods folder. The original archives are only read;
-     patched copies go to the workspace folder. All four folders are per-user settings, empty by default. -->
+     mod.xml, and Plan / Apply / Revert run the mod kit over the enabled mods of the mods folder. The original archives
+     are only read; an apply writes loose files into the game folder or patched copies into the workspace folder. All
+     five folders are per-user settings, empty by default. -->
 <plugin
   xmlns="http://www.emergent.net/schemas/plugin-base-schema.xsd"
   name="MS2 table editor"
@@ -26,12 +27,17 @@
       <setting scope="PerUser" id="MS2.Mods.ModsDir" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
         <display-name>Mods folder</display-name>
-        <description>Folder of mod folders (each with a mod.xml). Save mod writes here; Plan and Apply use every mod in it. Empty = the environment variable MS2_MODS.</description>
+        <description>Folder of mod folders (each with a mod.xml). Save mod writes here; Plan and Apply use the mods that are checked in the view's list, in its order (kept in modkit-mods.xml in this folder). Empty = the environment variable MS2_MODS.</description>
       </setting>
       <setting scope="PerUser" id="MS2.Mods.Workspace" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
         <display-name>Workspace folder</display-name>
-        <description>Where Apply writes the patched copies (client/ and server/ under it). Point a copy of the client and the local server at these files. Empty = the environment variable MS2_MOD_WORKSPACE.</description>
+        <description>Where Apply writes patched copies of the archives (client/ and server/ under it): the server's always, the client's when "Apply to" is the workspace. Empty = the environment variable MS2_MOD_WORKSPACE.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.GameDir" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Game folder</display-name>
+        <description>The folder of a COPY of your client that holds Data. With "Apply to: game folder", Apply writes the changed client tables there as plain files (Data/Xml/...), which the game reads before its archives; Revert removes exactly those files. Empty = the environment variable MS2_GAME_DIR.</description>
       </setting>
     </settings>
   </extension>
@@ -52,11 +58,11 @@
       <menuitem id="MS2.Tables.Menu.Apply" action="MS2.Tables.ApplyAction" path="MS2 Mods" priority="30"/>
       <menuitem id="MS2.Tables.Menu.Revert" action="MS2.Tables.RevertAction" path="MS2 Mods" priority="40"/>
       <action label="Tables" tooltip="Shows the MS2 Tables view" handler="MS2.Tables.ShowAction" id="MS2.Tables.ShowAction"/>
-      <action label="Plan" tooltip="Shows what the mods in the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
+      <action label="Plan" tooltip="Shows what the enabled mods of the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
               handler="MS2.Tables.PlanAction" id="MS2.Tables.PlanAction"/>
-      <action label="Apply" tooltip="Saves the mod being edited and writes patched copies of the archives into the workspace folder"
+      <action label="Apply" tooltip="Saves the mod being edited and writes what the enabled mods change: loose files into the game folder, or patched copies of the archives into the workspace folder"
               handler="MS2.Tables.ApplyAction" id="MS2.Tables.ApplyAction"/>
-      <action label="Revert" tooltip="Removes the patched copies from the workspace folder"
+      <action label="Revert" tooltip="Removes what Apply wrote: the loose files in the game folder and the patched copies in the workspace folder"
               handler="MS2.Tables.RevertAction" id="MS2.Tables.RevertAction"/>
     </actionset>
   </extension>
