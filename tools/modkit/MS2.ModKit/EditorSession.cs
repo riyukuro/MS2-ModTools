@@ -2,9 +2,11 @@
 // and Plan / Apply / Revert over the whole mods folder with their results as text. The Toolbench plugin
 // (tools/modkit/plugin) is a set of controls over this class and TableDraft.
 //
-// The mods folder is the set that gets applied: every subfolder with a mod.xml (see ModFolder). The mod being
-// edited is planned from memory and saved into the mods folder before an apply, so the workspace state names a
-// folder for every mod and a later revert of one mod can load the others again.
+// The mods folder holds the mods; the ones that are enabled there get applied, in the order of its list (see
+// ModList). The mod being edited always takes part: it is planned from memory and saved into the mods folder
+// before an apply, so the state names a folder for every mod and a later revert of one mod can load the others.
+// An apply writes patched archives into the workspace, or (ApplyTarget.LooseFiles) the client's entries as
+// plain files into a game folder (see LooseTarget).
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -13,6 +15,14 @@ using MS2.ModKit.M2d;
 
 namespace MS2.ModKit
 {
+    public enum ApplyTarget
+    {
+        /// <summary>Patched copies of the archives in the workspace folder.</summary>
+        Workspace,
+        /// <summary>Plain files under the Data folder of a game folder (client only).</summary>
+        LooseFiles
+    }
+
     public sealed class EditorSession : IDisposable
     {
         public readonly DataSet Data;
@@ -116,27 +126,124 @@ namespace MS2.ModKit
 
         // ---- plan, apply, revert ----
 
-        /// <summary>The mods that an apply would use: the mods folder, with the mod being edited as it is in memory.</summary>
-        public List<Mod> ActiveMods() { return ModFolder.LoadAllWith(ModsDir, Mod); }
+        /// <summary>Where an apply writes the client's part. The server's part always goes to the workspace as patched archives.</summary>
+        public ApplyTarget Target = ApplyTarget.Workspace;
 
-        public Plan Plan() { return Planner.Build(Data, ActiveMods(), null); }
+        /// <summary>The game folder (the one that holds Data) that loose files are written into; needed for ApplyTarget.LooseFiles.</summary>
+        public string GameDir;
 
-        /// <summary>Saves the mod being edited (if it holds anything) and writes patched copies of every archive the mods touch into the workspace.</summary>
-        public ApplyResult Apply()
+        /// <summary>The mods folder as a list with order and enabled states.</summary>
+        public ModList ModList() { return MS2.ModKit.ModList.Load(ModsDir); }
+
+        /// <summary>The mods that a plan or an apply uses: the enabled mods in list order, with the mod being edited as it is in memory.</summary>
+        public List<Mod> ActiveMods() { return ModList().LoadEnabled(Mod); }
+
+        LooseTarget Loose()
         {
-            if (WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
-            if (ModsDir == null) throw new ModKitException("the mods folder is not set");
-            if (Mod.Ops.Count > 0) SaveMod();
-            List<Mod> mods = ModFolder.LoadAll(ModsDir);
-            if (mods.Count == 0) throw new ModKitException("no mod in " + ModsDir + " and no pending change; there is nothing to apply");
-            return new Workspace(WorkspaceDir).Apply(Data, mods, null);
+            if (string.IsNullOrEmpty(GameDir)) throw new ModKitException("the game folder is not set (it is where the loose files go)");
+            return new LooseTarget(GameDir);
         }
 
-        /// <summary>Removes every patched copy from the workspace. The mods folder is left as it is.</summary>
+        // the roots whose archives go to the workspace when the client is served by loose files
+        List<string> OtherRoots()
+        {
+            var roots = new List<string>();
+            foreach (string r in Data.Roots) if (r != LooseTarget.Root) roots.Add(r);
+            return roots;
+        }
+
+        static bool HasOtherRoot(Plan p)
+        {
+            foreach (PlanArchive a in p.Archives) if (!LooseTarget.Serves(a.Archive)) return true;
+            return false;
+        }
+
+        public Plan Plan() { return Plan(null); }
+
+        public Plan Plan(Action<ProgressInfo> progress)
+        {
+            Plan p = Planner.Build(Data, ActiveMods(), new PlanOptions { Progress = progress });
+            if (Target == ApplyTarget.LooseFiles)
+            {
+                Loose().Check(p);
+                if (WorkspaceDir == null && HasOtherRoot(p))
+                    p.Msg(p.Warnings, null, null, null, "the workspace folder is not set: the server's archives would not be written");
+            }
+            return p;
+        }
+
+        public ApplyResult Apply() { return Apply(null); }
+
+        /// <summary>
+        /// Saves the mod being edited (if it holds anything) and writes what the enabled mods change.
+        /// Target Workspace: patched copies of every touched archive go into the workspace.
+        /// Target LooseFiles: the client's entries go into the game folder as plain files, the archives of the
+        /// other roots into the workspace. What the other target left behind from an earlier apply is removed.
+        /// </summary>
+        public ApplyResult Apply(Action<ProgressInfo> progress)
+        {
+            if (ModsDir == null) throw new ModKitException("the mods folder is not set");
+            if (Target == ApplyTarget.Workspace && WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
+            LooseTarget loose = Target == ApplyTarget.LooseFiles ? Loose() : null;
+            if (Mod.Ops.Count > 0) SaveMod();
+            List<Mod> mods = ActiveMods();
+            if (mods.Count == 0) throw new ModKitException("no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
+            var options = new ApplyOptions { Progress = progress };
+
+            if (loose == null)
+            {
+                ApplyResult r = new Workspace(WorkspaceDir).Apply(Data, mods, options);
+                if (r.Applied && !string.IsNullOrEmpty(GameDir) && Directory.Exists(Path.Combine(GameDir, "Data")))
+                {
+                    var old = new LooseTarget(GameDir);
+                    if (old.ReadState() != null) Merge(r, old.Revert());
+                }
+                return r;
+            }
+
+            Plan plan = Planner.Build(Data, mods, new PlanOptions { Progress = progress });
+            ApplyResult res = loose.Apply(mods, plan, options);
+            if (!res.Applied) return res;
+            if (WorkspaceDir != null)
+            {
+                var ws = new Workspace(WorkspaceDir);
+                if (HasOtherRoot(plan) || ws.ReadState() != null)
+                {
+                    options.Roots = OtherRoots();
+                    Merge(res, ws.Apply(Data, mods, plan, options));
+                }
+            }
+            else if (HasOtherRoot(plan))
+                plan.Msg(plan.Warnings, null, null, null, "the workspace folder is not set: the server's archives were not written");
+            return res;
+        }
+
+        static void Merge(ApplyResult into, ApplyResult from)
+        {
+            into.Outputs.AddRange(from.Outputs);
+            into.Removed.AddRange(from.Removed);
+            into.Written.AddRange(from.Written);
+            into.Left.AddRange(from.Left);
+        }
+
+        /// <summary>Removes what an apply wrote: the loose files of the record in the game folder and every patched copy in the workspace. The mods folder is left as it is.</summary>
         public ApplyResult Revert()
         {
-            if (WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
-            return new Workspace(WorkspaceDir).Revert(Data, null, null);
+            var res = new ApplyResult { Applied = true };
+            bool any = false;
+            if (!string.IsNullOrEmpty(GameDir) && Directory.Exists(Path.Combine(GameDir, "Data")))
+            {
+                var loose = new LooseTarget(GameDir);
+                if (loose.ReadState() != null) { Merge(res, loose.Revert()); any = true; }
+            }
+            if (WorkspaceDir != null)
+            {
+                var ws = new Workspace(WorkspaceDir);
+                if (ws.ReadState() != null) { Merge(res, ws.Revert(Data, null, null)); any = true; }
+            }
+            if (!any)
+                throw new ModKitException("nothing is applied: no " + Workspace.StateFile + " in the workspace" + (string.IsNullOrEmpty(GameDir) ? "" : " and no " + LooseTarget.StateFile + " in the game folder"));
+            return res;
         }
 
         // ---- results as text ----
@@ -164,8 +271,10 @@ namespace MS2.ModKit
                 sb.Append("wrote ").Append(o.Path).Append(" (").Append(o.Archive).Append(": ")
                   .Append(o.Copied ? "copied as it is" : o.Replaced + " replaced, " + o.Added + " added, " + o.Deleted + " deleted, " + o.Kept + " kept")
                   .Append(")\r\n");
+            foreach (string f in r.Written) sb.Append("wrote ").Append(f).Append("\r\n");
             foreach (string f in r.Removed) sb.Append("removed ").Append(f).Append("\r\n");
-            if (r.Outputs.Count == 0 && r.Removed.Count == 0) sb.Append("nothing to write or remove\r\n");
+            foreach (string f in r.Left) sb.Append("left alone, changed since it was written: ").Append(f).Append("\r\n");
+            if (r.Outputs.Count == 0 && r.Removed.Count == 0 && r.Written.Count == 0 && r.Left.Count == 0) sb.Append("nothing to write or remove\r\n");
             return sb.ToString();
         }
     }

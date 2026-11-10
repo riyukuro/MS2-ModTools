@@ -24,6 +24,9 @@ namespace MS2.ModKit
         public bool VerifyAll;
         public SchemaSet Schemas;
         public Action<ProgressInfo> Progress;
+        /// <summary>When set, only archives of these data roots ("client", "server") are written; the copies of
+        /// the other roots are removed from the workspace. Null writes every root.</summary>
+        public List<string> Roots;
     }
 
     public sealed class ApplyOutput
@@ -42,6 +45,8 @@ namespace MS2.ModKit
         public string Reason = "";      // why nothing was written
         public readonly List<ApplyOutput> Outputs = new List<ApplyOutput>();
         public readonly List<string> Removed = new List<string>();     // copies of an earlier apply that are no longer needed
+        public readonly List<string> Written = new List<string>();     // loose files written into a game folder (LooseTarget)
+        public readonly List<string> Left = new List<string>();        // loose files of the record that were changed since and are left alone
     }
 
     public sealed class WorkspaceMod { public string Id, Path, Version; }
@@ -137,15 +142,25 @@ namespace MS2.ModKit
         {
             if (options == null) options = new ApplyOptions();
             Guard(data);
-            var res = new ApplyResult();
-            res.Plan = Planner.Build(data, mods, new PlanOptions { Schemas = options.Schemas, Progress = options.Progress });
+            return Apply(data, mods, Planner.Build(data, mods, new PlanOptions { Schemas = options.Schemas, Progress = options.Progress }), options);
+        }
+
+        /// <summary>The same with a plan that was built already from these mods.</summary>
+        public ApplyResult Apply(DataSet data, IList<Mod> mods, Plan plan, ApplyOptions options)
+        {
+            if (options == null) options = new ApplyOptions();
+            Guard(data);
+            var res = new ApplyResult { Plan = plan };
             if (res.Plan.HasErrors) { res.Reason = res.Plan.Errors.Count + " error(s)"; return res; }
             if (res.Plan.HasConflicts && !options.AllowConflicts) { res.Reason = res.Plan.Conflicts.Count + " conflict(s)"; return res; }
 
             var targets = new List<PlanArchive>(res.Plan.Archives);
+            if (options.Roots != null)
+                targets.RemoveAll(delegate(PlanArchive t) { return !options.Roots.Contains(DataSet.RootOf(t.Archive)); });
             foreach (string extra in options.AlsoCopy)
             {
                 string name = DataSet.NormalizeRef(extra);
+                if (options.Roots != null && !options.Roots.Contains(DataSet.RootOf(name))) continue;
                 if (res.Plan.Find(name) == null && targets.Find(delegate(PlanArchive t) { return t.Archive == name; }) == null)
                     targets.Add(new PlanArchive { Archive = name });
             }
@@ -198,7 +213,13 @@ namespace MS2.ModKit
                     if (state.Archives.Find(delegate(WorkspaceArchive n) { return n.Archive == a.Archive; }) != null) continue;
                     RemoveCopy(a.Archive, res.Removed);
                 }
-            WriteState(state);
+            if (state.Archives.Count == 0 && options.Roots != null)
+            {
+                // a root filter left nothing for the workspace: no state, as after a revert
+                string sf = System.IO.Path.Combine(Dir, StateFile);
+                if (File.Exists(sf)) File.Delete(sf);
+            }
+            else WriteState(state);
             res.Applied = true;
             return res;
         }
