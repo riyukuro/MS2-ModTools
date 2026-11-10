@@ -500,6 +500,95 @@ that a further mod changes.
 - The field map keeps the two sides together, so a mod normally changes both. A field changed on one side only is
   a warning in Plan.
 
+## Shops and drops
+
+A fourth view, **MS2 Shops and Drops** (menu **MS2 Mods > Shops and Drops**), edits shops and drop boxes. A shop
+or a box is one id with many rows: a shop is one header row and its stock rows, and a drop box is groups of item
+rows. The view writes into the same mod as the other three, with the same Save, Plan, Apply and Revert. The NPC view
+has **Open shop** and **Open drop box** buttons that open the shop or box an npc points at.
+
+### What a shop or drop mod looks like
+
+A mod does not hold a copy of the shop or the box. It holds the changes, row by row: "set the price of row 3",
+"add this row", "remove row 4". So a mod still applies where the copies you have ship slightly different rows,
+and two mods that change different rows of one shop do not get in each other's way.
+
+```xml
+<shop id="1234">
+  <header><set name="iconName" value="my_icon" /></header>
+  <row sn="3"><set name="price" value="500" /></row>
+  <add><xml><item id="50001234" price="100" paymentType="5" category="Etc" /></xml></add>
+  <remove sn="4" />
+</shop>
+
+<dropbox id="5678">
+  <row group="1" item="50001234"><set name="itemID" value="50004321" /></row>
+  <add group="1"><xml><v itemID="50001111" minCount="1" maxCount="1" weight="10" /></xml></add>
+</dropbox>
+```
+
+- **Which row is meant.** A shop row is named by its `sn`, the row number inside that shop. Numbers are counted per
+  shop: row 3 of one shop has nothing to do with row 3 of another (most numbers are used by many shops). A new row
+  without an `sn` gets the next free number of its shop; Plan says which. A drop row is named by its group, its item
+  and, when one group lists the same item more than once, which of them it is (`n="2"` for the second). Two rows with
+  the same item are never treated as one.
+- **A row that is not there.** When a target does not have the row a change names, Plan shows a warning and Apply
+  leaves that target out for this change. Everything else is still written.
+- **New and cloned shops and boxes** are written whole: `new="true"` with the complete header or box in `<xml>`, or
+  **Clone to new id** in the view, which copies a shipped one (or one your mod adds) under a new id. New ids come from
+  the mod's reserved range: shops from 900000000 to 900009999, drop boxes from 900010000 to 900019999. The ids go into
+  the mod's `<ids>`, so two mods that take the same id are reported as a conflict.
+
+### Shop stock is server only
+
+What a shop sells, at which price and in which currency is decided by the server alone. The server ships the shop
+tables; the clients do not, and Apply writes shop rows to the server target only. On the client targets Plan only
+checks things: that the items a shop sells exist in each client, and that each stock row's category is one of the
+client's shop tabs. To try a shop change, the server has to take the new data (see
+[How the game gets the changes](#how-the-game-gets-the-changes)).
+
+Which shop an npc opens is a field of the npc (`shopId`), changed in the NPC view. Plan checks that the shop exists on
+the server once the mods are applied.
+
+### Drops: weights are shares
+
+A drop box holds groups, and each group holds rows. Each row's `weight` is its share of the group, not a percentage:
+weights 1 and 3 mean one time in four and three times in four. Making every weight bigger by the same factor changes
+nothing. To make an item drop every time, give it a group of its own with that one row.
+
+The game data stores drops in two layouts. The server and the Korean client keep one box with its groups inside
+(the "nested" layout). The global client, and the server in a second copy, keep one flat row per item that names its
+box and group (the "flat" layout), spread over several files. A mod is written against the nested layout; modkit
+writes the same change into the flat copies. The view's **Show** box lets you look at each copy. A new box goes into
+the server's nested table, the Korean client's nested table and, in the flat copies, the file
+`table/individualitemdrop.xml`; a mod can name another of the flat files with `split="..."`. Region folders of the
+flat layout are never created.
+
+The global client's copy of the drops only shows a preview: what a box may drop, in the item's tooltip or a
+drop-info window. What really drops is decided by the server.
+
+### What the warnings mean
+
+| Warning | Meaning | What to do |
+|-|-|-|
+| `this target has no such shop` / `box; its changes are skipped here` | This copy of the data does not have that shop or box | Nothing, if the copy is not meant to have it (shops are never in a client) |
+| `no stock row sn N here; skipped` / `no row group 1 item ... here; skipped` | The row the change names is not in this copy | Check the sn, group and item. The other copies still get the change |
+| `... is not an item id` / `is not an item of the ...` | A stock or drop row names an item that does not exist in that target | Fix the item id, or add the item in the same mod |
+| `paymentType "N" is not a known currency (0 to 14)` | The currency number is not one the game uses | Use a known currency |
+| `paymentType 1 is paid with an item, and paymentItemID is not set` | Currency 1 means "pay with an item", and no item is named | Set `paymentItemID`. Only the item id before an optional `:` suffix is checked |
+| `categoryID N is not a category of the ...` / `category "X" is in no tab ...` | The client's shop tab list does not know the shop's category or the row's tab | Use a category and tab the client ships |
+| `every row of group N has weight 0` / `group N has no rows` / `the box has no groups` | The group (or box) can drop nothing | Give a row a weight above 0, or remove the group |
+| `isApplySmartGenderDrop is "..."; this layout writes ...` | Yes/no fields are spelled `1`/`0` in one layout and `True`/`False` in the other | Use the spelling the message names |
+| `shopId N is not a shop on the server after the mods` | An npc points at a shop that does not exist | Fix the npc's `shopId`, or add the shop |
+| `... is not a drop box of the ... after the mods` | An npc's drop box id is not in that target | Fix the id, or add the box |
+| `the box id is already used on this target` | A new box takes an id that is taken | Use a free id from the reserved range |
+
+### What Revert does not undo
+
+Revert puts the data files back. It does not touch the game's database. When a character has bought from a shop,
+the server can keep per-character shop state there, such as how much of a limited stock row is bought. That stays
+after Revert, and also after the shop is removed. Clear it with your server's own tools if you need a clean state.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
@@ -655,7 +744,8 @@ and one of:
 
 Shops, drops, item options and NPC behaviour exist only on the server. They are tables like any other: in the Tables
 view pick `server:Xml.m2d` or `server:Server.m2d` in **Archive**, open the entry, and edit, Plan, Apply and Revert as
-for a client table. Rows that sit inside another row (the items of one shop) are reached with **Rows under**.
+for a client table. Rows that sit inside another row (the items of one shop) are reached with **Rows under**. For one shop or one drop box,
+the [Shops and Drops view](#shops-and-drops) is easier.
 
 To find the rows that belong to one item, press **Server rows** in the Items view, or run `modkit refs <id>... [mod...]`. It
 lists the option rows the item's server file points at, and the drop and shop rows that hold its id, each with
