@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- What the shipped data cannot show about the tables (tools/modkit/README.md, "Schemas").
+     One <attr> per attribute that is valid although no shipped row sets it. Names only: no values from the game data.
+
+       <attr archive="client:Xml.m2d" table="table/example.xml" element="ms2/row" name="attribute"
+             source="client" ref="where the loader reads it"/>
+
+     archive   the archive, or leave it out for every archive
+     table     the table name as "modkit schema show" prints it (npc/#.xml for npc/21000001.xml)
+     element   the element path from the root element
+     source    "client": the client's loader reads the attribute, ref cites the source file
+               "maple2": only the Maple2 server code says so; reported as unverified
+     Order of trust: shipped data, then the client loader, then Maple2.
+
+     No entry yet: add one when a mod needs an attribute that the data never sets and its reader has been checked. -->
+<notes>
+</notes>
