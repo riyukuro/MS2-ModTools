@@ -31,14 +31,16 @@ namespace MS2.ModKit
         // the name of a side in the messages: the data root ("client", "server", "gms-client")
         static string SideName(string archive) { return DataSet.RootOf(archive); }
 
-        // the archives a change of this side is synced to: the kms-client one, or every per-id target there is
+        // the archives a change of this side is synced to: every profile of the data set whose layout of the entity
+        // is the map's other side (Layout.cs): a kms-client change goes to the server and the gms-client, a server
+        // or gms-client change to the kms-client
         static List<string> SyncTargets(Run run, EntityMap em, bool client)
         {
             var list = new List<string>();
-            if (!client) { list.Add(em.Client.Archive); return list; }
+            EntitySide other = client ? em.Server : em.Client;
             foreach (Profile p in run.Data.Profiles)
-                if (!p.Bundles) list.Add(p.ArchiveIn(em.Server.Archive));
-            if (list.Count == 0) list.Add(em.Server.Archive);
+                if (p.Holds(em, other)) list.Add(p.ArchiveIn(other.Archive));
+            if (list.Count == 0) list.Add(other.Archive);
             return list;
         }
 

@@ -124,6 +124,44 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void EachEntityHasALayoutPerProfile()
+        {
+            EntityLayout kn = Profile.KmsClient.Layout("npc"), sn = Profile.Server.Layout("npc"), gn = Profile.GmsClient.Layout("npc");
+            Assert.That(kn.Bundle, Is.True);
+            Assert.That(kn.Row, Is.EqualTo("npc"));
+            Assert.That(sn.Bundle, Is.False);
+            Assert.That(sn.SameShape(gn), Is.True);
+            Assert.That(sn.SameShape(kn), Is.False);
+            Assert.That(Profile.KmsClient.Layout("item").SameShape(kn), Is.False, "another entity");
+            Assert.That(Profile.Server.Layout("skill"), Is.Null);
+
+            // where a new id goes
+            Assert.That(kn.EntryOf(1234567), Is.EqualTo("npcdata/012.xml"));
+            Assert.That(sn.EntryOf(12345678), Is.EqualTo("npc/12/34/12345678.xml"));
+            Assert.That(sn.EntryOf(345), Is.EqualTo("npc/00/00/00000345.xml"));
+            Assert.That(Profile.Server.Layout("item").EntryOf(12345678), Is.EqualTo("item/1/23/12345678.xml"));
+            long id;
+            Assert.That(sn.Match("npc/12/34/12345678.xml", out id) && id == 12345678, Is.True);
+            Assert.That(kn.Match("npcdata/012.xml", out id) && id == 12, Is.True);
+
+            Assert.That(Profile.KmsClient.LayoutText(), Is.EqualTo("item, npc bundles"));
+            Assert.That(Profile.Server.LayoutText(), Is.EqualTo("item, npc one file per id"));
+            Assert.That(Profile.GmsClient.SameLayout(Profile.Server), Is.True);
+            Assert.That(Profile.KmsClient.SameLayout(Profile.GmsClient), Is.False);
+
+            // a field map side stands for every profile with that layout
+            EntityMap npc = FieldMaps.Default.Entity("npc");
+            Assert.That(Profile.GmsClient.Holds(npc, npc.Server), Is.True);
+            Assert.That(Profile.KmsClient.Holds(npc, npc.Client), Is.True);
+            Assert.That(Profile.KmsClient.Holds(npc, npc.Server), Is.False);
+            bool client;
+            Assert.That(FieldMaps.Default.Find("gms-client:Xml.m2d", "npc/12/34/12345678.xml", out client), Is.SameAs(npc));
+            Assert.That(client, Is.False);
+            Assert.That(FieldMaps.Default.Find("gms-client:Xml.m2d", "npcdata/012.xml", out client), Is.Null, "the gms-client has no bundle");
+            Assert.That(FieldMaps.Default.Find("server:Server.m2d", "npc/12/34/12345678.xml", out client), Is.Null, "another archive");
+        }
+
+        [Test]
         public void AnOldPairReadsAsKmsClientAndServer()
         {
             // an old data set (client + server) and an old mod naming "client:" and "server:"

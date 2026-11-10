@@ -253,7 +253,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (string r in Targets.Roots(x.Data))
             {
                 Profile p = Profile.Find(r);
-                string what = p == null || p.Root != r ? "" : "\t" + (p.Bundles ? "bundles" : "one file per id") + ", table/" + p.Region + ", strings " + string.Join(" ", p.Languages);
+                string what = p == null || p.Root != r ? "" : "\t" + p.LayoutText() + ", table/" + p.Region + ", strings " + string.Join(" ", p.Languages);
                 Console.WriteLine(Targets.NameOf(r) + "\t" + r + ":\t" + x.Data.RootFolder(r) + what);
             }
             return 0;

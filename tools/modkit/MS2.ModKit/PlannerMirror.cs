@@ -70,7 +70,7 @@ namespace MS2.ModKit
                 foreach (ModOp op in m.Ops)
                 {
                     Profile from = Profile.OfArchive(op.Archive);
-                    if (from == null || from.Bundles) continue;
+                    if (from == null) continue;
                     var en = op as EntryOp; var ed = op as EditOp;
                     if (en == null && ed == null) continue;
                     foreach (Profile to in have)

@@ -430,15 +430,25 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// The entity an entry belongs to, and on which side; null when no map covers it. A map's server side
-        /// (the per-id layout) stands for the gms-client too: "gms-client:Xml.m2d" is found as "server:Xml.m2d".
+        /// The entity an entry belongs to, and on which side; null when no map covers it. A side of a map stands
+        /// for every profile that keeps the entity the same way (Layout.cs): the server side (one file per id) is
+        /// also the gms-client's, so "gms-client:Xml.m2d" is found there.
         /// </summary>
         public EntityMap Find(string archive, string entry, out bool clientSide)
         {
             long n;
-            if (Profile.OfArchive(archive) == Profile.GmsClient) archive = Profile.Server.ArchiveIn(archive);
+            Profile p = Profile.OfArchive(archive);
             foreach (EntityMap e in Entities)
             {
+                if (p != null && p.Layout(e.Name) != null)
+                {
+                    foreach (EntitySide s in new[] { e.Client, e.Server })
+                        if (p.Holds(e, s) && string.Equals(DataSet.PathOf(s.Archive), DataSet.PathOf(archive), StringComparison.OrdinalIgnoreCase) && s.Match(entry, out n))
+                        {
+                            clientSide = s == e.Client;
+                            return e;
+                        }
+                }
                 if (string.Equals(e.Client.Archive, archive, StringComparison.OrdinalIgnoreCase) && e.Client.Match(entry, out n)) { clientSide = true; return e; }
                 if (string.Equals(e.Server.Archive, archive, StringComparison.OrdinalIgnoreCase) && e.Server.Match(entry, out n)) { clientSide = false; return e; }
             }

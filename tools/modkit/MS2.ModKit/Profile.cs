@@ -27,8 +27,8 @@ namespace MS2.ModKit
         public readonly string Name;
         /// <summary>The data root of the profile: the first word of its archive names ("client", "gms-client", "server").</summary>
         public readonly string Root;
-        /// <summary>True for the bundle layout (itemdata/, npcdata/, skilldata/); false for one file per id (item/, npc/, skill/).</summary>
-        public readonly bool Bundles;
+        /// <summary>Where this profile keeps each entity (Layout.cs): a bundle file or one file per id.</summary>
+        public readonly IDictionary<string, EntityLayout> Layouts;
         public readonly bool IsServer;
         /// <summary>The folder of the region tables under table/: "kr" or "na".</summary>
         public readonly string Region;
@@ -38,14 +38,14 @@ namespace MS2.ModKit
         public readonly string EnvVar;
         public readonly string Title;
 
-        Profile(string name, string root, bool bundles, bool server, string region, string[] languages, string env, string title)
+        Profile(string name, string root, Dictionary<string, EntityLayout> layouts, bool server, string region, string[] languages, string env, string title)
         {
-            Name = name; Root = root; Bundles = bundles; IsServer = server; Region = region; Languages = languages; EnvVar = env; Title = title;
+            Name = name; Root = root; Layouts = layouts; IsServer = server; Region = region; Languages = languages; EnvVar = env; Title = title;
         }
 
-        public static readonly Profile KmsClient = new Profile("kms-client", "client", true, false, "kr", new[] { "cn", "de", "en", "jp", "kr", "pt" }, "MS2_CLIENT_DATA", "Korean client");
-        public static readonly Profile GmsClient = new Profile("gms-client", "gms-client", false, false, "na", new[] { "de", "en", "pt" }, "MS2_GMS_CLIENT_DATA", "global client");
-        public static readonly Profile Server = new Profile("server", "server", false, true, "na", new[] { "de", "en", "pt" }, "MS2_SERVER_DATA", "server");
+        public static readonly Profile KmsClient = new Profile("kms-client", "client", ModKit.Layouts.Of(ModKit.Layouts.ItemBundle, ModKit.Layouts.NpcBundle), false, "kr", new[] { "cn", "de", "en", "jp", "kr", "pt" }, "MS2_CLIENT_DATA", "Korean client");
+        public static readonly Profile GmsClient = new Profile("gms-client", "gms-client", ModKit.Layouts.Of(ModKit.Layouts.ItemFiles, ModKit.Layouts.NpcFiles), false, "na", new[] { "de", "en", "pt" }, "MS2_GMS_CLIENT_DATA", "global client");
+        public static readonly Profile Server = new Profile("server", "server", ModKit.Layouts.Of(ModKit.Layouts.ItemFiles, ModKit.Layouts.NpcFiles), true, "na", new[] { "de", "en", "pt" }, "MS2_SERVER_DATA", "server");
 
         /// <summary>The three profiles in their fixed order.</summary>
         public static readonly Profile[] All = { KmsClient, GmsClient, Server };
@@ -105,8 +105,50 @@ namespace MS2.ModKit
             return false;
         }
 
-        /// <summary>The profiles that share the per-id layout and so mirror each other one to one (gms-client and server).</summary>
-        public bool Mirrors(Profile other) { return other != null && other != this && !Bundles && !other.Bundles; }
+        /// <summary>The layout of an entity in this profile, or null.</summary>
+        public EntityLayout Layout(string entity)
+        {
+            EntityLayout l;
+            return entity != null && Layouts.TryGetValue(entity, out l) ? l : null;
+        }
+
+        /// <summary>Every entity has the same layout in both profiles.</summary>
+        public bool SameLayout(Profile other)
+        {
+            if (other == null || other.Layouts.Count != Layouts.Count) return false;
+            foreach (KeyValuePair<string, EntityLayout> kv in Layouts)
+                if (!kv.Value.SameShape(other.Layout(kv.Key))) return false;
+            return true;
+        }
+
+        /// <summary>The entity's layout in this profile has the same shape as that side of a field map.</summary>
+        public bool Holds(EntityMap map, EntitySide side)
+        {
+            EntityLayout l = map == null ? null : Layout(map.Name);
+            return l != null && l.SameShape(side);
+        }
+
+        /// <summary>
+        /// The profiles that keep every entity the same way and so mirror each other one to one: an edit of one is
+        /// the same edit of the other (gms-client and server).
+        /// </summary>
+        public bool Mirrors(Profile other) { return other != null && other != this && SameLayout(other); }
+
+        /// <summary>A short description of the layouts: "item bundles, npc bundles" or "item, npc one file per id".</summary>
+        public string LayoutText()
+        {
+            var bundle = new List<string>();
+            var files = new List<string>();
+            foreach (string e in ModKit.Layouts.Entities)
+            {
+                EntityLayout l = Layout(e);
+                if (l != null) (l.Bundle ? bundle : files).Add(e);
+            }
+            var parts = new List<string>();
+            if (bundle.Count > 0) parts.Add(string.Join(", ", bundle.ToArray()) + " bundles");
+            if (files.Count > 0) parts.Add(string.Join(", ", files.ToArray()) + " one file per id");
+            return string.Join("; ", parts.ToArray());
+        }
 
         public override string ToString() { return Name; }
     }
