@@ -37,7 +37,8 @@ namespace MS2.ModKit.Tests
             return Head + "<ms2>\n\t<key id=\"02900001\" name=\"" + a + suffix + "\" />\n\t<key id=\"02900002\" name=\"" + b + suffix + "\" />\n</ms2>\n";
         }
 
-        static string Row(long id, int level, int hp) { return "\t<npc id=\"" + id + "\">\n\t\t<environment level=\"" + level + "\">\n\t\t\t<model kfm=\"Fake_Kfm_" + id + "\" />\n\t\t\t<stat hp=\"" + hp + "\" pap=\"3\" />\n\t\t</environment>\n\t</npc>\n"; }
+        // level 0: the row has no level attribute (the client's default), as some shipped rows have it
+        static string Row(long id, int level, int hp) { return "\t<npc id=\"" + id + "\">\n\t\t<environment" + (level == 0 ? " hpBar=\"1\"" : " level=\"" + level + "\"") + ">\n\t\t\t<model kfm=\"Fake_Kfm_" + id + "\" />\n\t\t\t<stat hp=\"" + hp + "\" pap=\"3\" />\n\t\t</environment>\n\t</npc>\n"; }
 
         static string File(long id, int level, int difficulty, int hp)
         {
@@ -65,7 +66,7 @@ namespace MS2.ModKit.Tests
             if (kms)
             {
                 k = Path.Combine(Dir, "kms"); Directory.CreateDirectory(k);
-                var l = new List<KeyValuePair<string, byte[]>> { E("npcdata/029.xml", Head + "<ms2>\n" + Row(2900001, 5, 100) + Row(2900002, 7, 40) + "</ms2>\n"), E("emotion/npc/02900001.xml", Emotion) };
+                var l = new List<KeyValuePair<string, byte[]>> { E("npcdata/029.xml", Head + "<ms2>\n" + Row(2900001, 5, 100) + Row(2900002, 0, 40) + "</ms2>\n"), E("emotion/npc/02900001.xml", Emotion) };
                 Strings(l, "en", "zz");
                 M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, l);
             }
@@ -171,6 +172,22 @@ namespace MS2.ModKit.Tests
                 Plan p = f.Plan();
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(Fake.Text(p, S, "npc/02/90/02900002.xml"), Does.Contain("level=\"20\" difficulty=\"0\""));
+            }
+        }
+
+        [Test]
+        public void ALevelTheClientRowLacksIsReadFromTheFileAndWrittenToBoth()
+        {
+            using (var f = new FakeNpcs(true, true, true))
+            {
+                NpcDraft d = f.Editor().Open(2900002);
+                Assert.That(d.Level, Is.EqualTo("7"), "the server's basic@level");
+                Assert.That(d.GetFieldShipped("@level"), Is.EqualTo("7"));
+                d.SetLevel(11);
+                Plan p = f.Plan();
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Text(p, K, "npcdata/029.xml"), Does.Contain("<environment hpBar=\"1\" level=\"11\">"));
+                foreach (string a in new[] { S, G }) Assert.That(Fake.Text(p, a, "npc/02/90/02900002.xml"), Does.Contain("level=\"11\" difficulty=\"0\""), a);
             }
         }
 

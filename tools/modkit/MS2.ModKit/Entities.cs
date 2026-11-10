@@ -202,7 +202,7 @@ namespace MS2.ModKit
             return n;
         }
 
-        /// <summary>The value of a field of the bundle row (as the map's client side names it), else of the per-id file's mapped field.</summary>
+        /// <summary>The value of a field of the bundle row (as the map's client side names it); where the row lacks it, of the per-id file's mapped field.</summary>
         public string GetField(string clientField) { return FieldValue(clientField, false); }
 
         /// <summary>The value GetField gives as the data set has it, without the mod.</summary>
@@ -218,7 +218,12 @@ namespace MS2.ModKit
             {
                 if (!s.Chain.StartsWith("environment[", StringComparison.Ordinal)) continue;
                 if (s.Part.Kind == Editor.Entity && BelowEnv(s.Chain) == FieldMapEntry.ElemOf(clientField))
-                    return shipped ? GetOriginal(s, FieldMapEntry.AttrOf(clientField)) : Get(s, FieldMapEntry.AttrOf(clientField));
+                {
+                    // a bundle row without the attribute (the client then uses its default) falls through to the file
+                    string own = shipped ? GetOriginal(s, FieldMapEntry.AttrOf(clientField)) : Get(s, FieldMapEntry.AttrOf(clientField));
+                    if (own != null) return own;
+                    continue;
+                }
                 if (fileValue == null && e != null && s.Part.Kind == EntityEditor.FileKind && BelowEnv(s.Chain) == FieldMapEntry.ElemOf(e.Server))
                 {
                     string attr = FieldMapEntry.AttrOf(e.Server), c, why;
