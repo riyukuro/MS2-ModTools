@@ -283,6 +283,15 @@ namespace MS2.ModKit.Tests
                 Assert.That(text, Does.Contain("DIFFERS  client trade@locked"), text);
                 Assert.That(text, Does.Contain("after:  client \"false\", server \"1\"  (differ)"), text);
 
+                // a field that one side does not carry is listed apart and is not counted as a difference
+                EntityMap wide = FieldMaps.Parse(FakeItems.MapXml.Replace("<map client=\"property@slotMax\"", "<map client=\"odd@a\" server=\"odd@a\" /><map client=\"property@slotMax\"")).Entity("item");
+                SyncReport odd = SyncReport.ForId(f.Data, null, wide, 1200005);
+                Assert.That(odd.Disagreeing(true), Is.EqualTo(1), odd.ToText(true));
+                Assert.That(odd.Omitted(true), Is.EqualTo(1));
+                Assert.That(odd.ToText(false), Does.Not.Contain("odd@a"));
+                Assert.That(odd.ToText(false), Does.Contain("1 carried by one side only (listed with all fields)"));
+                Assert.That(odd.ToText(true), Does.Contain("server omits it  client odd@a"));
+
                 Assert.Throws<ModKitException>(() => SyncReport.ForId(f.Data, null, em, 1299999));
             }
         }

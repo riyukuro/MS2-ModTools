@@ -19,6 +19,10 @@ namespace MS2.ModKit
         /// <summary>Values after the mods of the plan.</summary>
         public string NowClient, NowServer;
         public bool ShippedAgree, NowAgree;
+        /// <summary>One side has no such attribute and the other has one (and it is not the map's default). The
+        /// map's evidence covers ids where both sides carry the field, so this is listed apart, not as a difference.</summary>
+        public bool ShippedOmitted { get { return !ShippedAgree && (ShippedClient == null) != (ShippedServer == null); } }
+        public bool NowOmitted { get { return !NowAgree && (NowClient == null) != (NowServer == null); } }
         public bool Changed { get { return ShippedClient != NowClient || ShippedServer != NowServer; } }
     }
 
@@ -35,7 +39,15 @@ namespace MS2.ModKit
         public int Disagreeing(bool now)
         {
             int n = 0;
-            foreach (SyncLine l in Lines) if (!l.Entry.Candidate && !(now ? l.NowAgree : l.ShippedAgree)) n++;
+            foreach (SyncLine l in Lines) if (!l.Entry.Candidate && !(now ? l.NowAgree : l.ShippedAgree) && !(now ? l.NowOmitted : l.ShippedOmitted)) n++;
+            return n;
+        }
+
+        /// <summary>Mapped fields that one side does not carry at all.</summary>
+        public int Omitted(bool now)
+        {
+            int n = 0;
+            foreach (SyncLine l in Lines) if (!l.Entry.Candidate && (now ? l.NowOmitted : l.ShippedOmitted)) n++;
             return n;
         }
 
@@ -147,23 +159,24 @@ namespace MS2.ModKit
             foreach (SyncLine l in Lines)
             {
                 if (!l.Entry.Candidate) mapped++;
-                bool differ = !l.ShippedAgree || !l.NowAgree;
+                bool differ = (!l.ShippedAgree && !l.ShippedOmitted) || (!l.NowAgree && !l.NowOmitted);
                 if (!all && !l.Changed && (!differ || l.Entry.Candidate)) continue;
                 shown++;
-                string what = l.Entry.Candidate ? "candidate" : !l.NowAgree ? "DIFFERS" : !l.ShippedAgree ? "differed, agrees now" : l.Changed ? "changed, agrees" : "agrees";
+                string what = l.Entry.Candidate ? "candidate" : l.NowOmitted ? (l.NowClient == null ? "client omits it" : "server omits it") : !l.NowAgree ? "DIFFERS" : !l.ShippedAgree && !l.ShippedOmitted ? "differed, agrees now" : l.Changed ? "changed, agrees" : "agrees";
                 sb.Append("  ").Append(what).Append(l.Variant.Length > 0 ? " [" + l.Variant + "]" : "").Append("  client ").Append(l.Entry.Client);
                 if (l.Entry.Server != l.Entry.Client) sb.Append("  server ").Append(l.Entry.Server);
                 sb.Append("  (").Append(l.Entry.Convert).Append(l.Entry.Confidence.Length > 0 ? ", " + l.Entry.Confidence : "").Append(")\r\n");
                 if (l.Changed)
                 {
-                    sb.Append("      before: client ").Append(V(l.ShippedClient)).Append(", server ").Append(V(l.ShippedServer)).Append(l.ShippedAgree ? "" : "  (differ)").Append("\r\n");
-                    sb.Append("      after:  client ").Append(V(l.NowClient)).Append(", server ").Append(V(l.NowServer)).Append(l.NowAgree ? "" : "  (differ)").Append("\r\n");
+                    sb.Append("      before: client ").Append(V(l.ShippedClient)).Append(", server ").Append(V(l.ShippedServer)).Append(l.ShippedAgree || l.ShippedOmitted ? "" : "  (differ)").Append("\r\n");
+                    sb.Append("      after:  client ").Append(V(l.NowClient)).Append(", server ").Append(V(l.NowServer)).Append(l.NowAgree || l.NowOmitted ? "" : "  (differ)").Append("\r\n");
                 }
                 else sb.Append("      client ").Append(V(l.NowClient)).Append(", server ").Append(V(l.NowServer)).Append("\r\n");
             }
             sb.Append(mapped).Append(" mapped field(s) present; ").Append(Disagreeing(false)).Append(" differ before the mods, ")
               .Append(Disagreeing(true)).Append(" after");
-            if (!all && shown < Lines.Count) sb.Append("; ").Append(Lines.Count - shown).Append(" line(s) that agree and are unchanged are not listed");
+            if (Omitted(true) > 0) sb.Append("; ").Append(Omitted(true)).Append(" carried by one side only").Append(all ? "" : " (listed with all fields)");
+            if (!all && shown < Lines.Count) sb.Append("; ").Append(Lines.Count - shown).Append(" unchanged line(s) without a difference are not listed");
             sb.Append("\r\n");
             return sb.ToString();
         }

@@ -103,7 +103,8 @@
     <map client="property@slotIcon" server="property@slotIcon" convert="affix" prefix="./Data/Resource/Image/item/icon/" suffix=".png" compared="23080" agree="21996" differ="1084" clientAbsent="7718" loader="yes" confidence="medium" />
     <map client="property@slotMax" server="property@slotMax" convert="same" default="1" compared="12939" agree="12899" differ="40" clientAbsent="17859" loader="yes" confidence="high" />
     <map client="property@socketDataId" server="property@socketDataId" convert="same" compared="5189" agree="4852" differ="337" clientAbsent="153" loader="yes" confidence="medium" />
-    <map client="property@subtype" server="property@subtype" convert="same" compared="18341" agree="2444" differ="15897" clientAbsent="12457" loader="yes" confidence="low" />
+    <!-- same name on both sides, but the values agree on 13% of the ids only: not the same field, never synced -->
+    <candidate client="property@subtype" server="property@subtype" convert="same" compared="18341" agree="2444" differ="15897" clientAbsent="12457" loader="yes" confidence="low" />
     <map client="property@type" server="property@type" convert="same" compared="30798" agree="26824" differ="3974" clientAbsent="0" loader="no" confidence="low" />
     <map client="property@unlimitedEnchantMaxGrade" server="property@unlimitedEnchantMaxGrade" convert="same" compared="11" agree="11" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
     <map client="skill@skillID" server="skill@skillID" convert="same" default="0" compared="1100" agree="1080" differ="20" clientAbsent="29698" loader="yes" confidence="high" />
