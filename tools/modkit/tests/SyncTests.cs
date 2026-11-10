@@ -254,5 +254,37 @@ namespace MS2.ModKit.Tests
             Assert.That(FieldMaps.Default.Find(C, "table/pet.xml", out client), Is.Null);
             Assert.Throws<ModKitException>(() => FieldMaps.Parse("<fieldmaps><entity name=\"x\"><client archive=\"client:Xml.m2d\" entry=\"a/{nope}.xml\" under=\"e\"/></entity></fieldmaps>"));
         }
+        [Test]
+        public void TheSyncReportListsWhatDiffersBeforeAndAfter()
+        {
+            using (var f = new FakeItems(true))
+            {
+                EntityMap em = FakeItems.Maps.Entity("item");
+                SyncReport shipped = SyncReport.ForId(f.Data, null, em, 1200005);
+                string text = shipped.ToText(false);
+                Assert.That(shipped.ClientEntry, Is.EqualTo(Bucket));
+                Assert.That(shipped.ServerEntry, Is.EqualTo(Five));
+                Assert.That(shipped.Disagreeing(false), Is.EqualTo(1), text);
+                Assert.That(text, Does.Contain("DIFFERS  client property@sellPrice"));
+                Assert.That(text, Does.Contain("client \"7\", server \"8\""));
+                Assert.That(text, Does.Not.Contain("look@icon"), "fields that agree are not listed");
+                Assert.That(shipped.ToText(true), Does.Contain("agrees  client look@icon  server look@iconPath  (affix"));
+
+                const string env = "item[id=1200005]/environment/";
+                Plan p = Build(f, Client(Set(env + "property", "sellPrice", "8") + Set(env + "look", "icon", "drum") +
+                    "<change at=\"" + env + "trade\" sync=\"false\"><set name=\"locked\" value=\"false\"/></change>"));
+                SyncReport after = SyncReport.ForId(f.Data, p, em, 1200005);
+                text = after.ToText(false);
+                Assert.That(after.Disagreeing(false), Is.EqualTo(1), text);
+                Assert.That(after.Disagreeing(true), Is.EqualTo(1), text);
+                Assert.That(text, Does.Contain("differed, agrees now"), text);
+                Assert.That(text, Does.Contain("changed, agrees  client look@icon"), text);
+                Assert.That(text, Does.Contain("after:  client \"drum\", server \"./img/drum.png\""), text);
+                Assert.That(text, Does.Contain("DIFFERS  client trade@locked"), text);
+                Assert.That(text, Does.Contain("after:  client \"false\", server \"1\"  (differ)"), text);
+
+                Assert.Throws<ModKitException>(() => SyncReport.ForId(f.Data, null, em, 1299999));
+            }
+        }
     }
 }

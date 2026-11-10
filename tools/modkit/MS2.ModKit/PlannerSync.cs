@@ -22,6 +22,7 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, PlanChange> LooseFirst = new Dictionary<string, PlanChange>();
             internal readonly Dictionary<string, string> LooseOther = new Dictionary<string, string>();
             internal readonly List<string> LooseOrder = new List<string>();
+            internal readonly Dictionary<string, string> EntryOf = new Dictionary<string, string>();
         }
 
         static string SideName(bool client) { return client ? "client" : "server"; }
@@ -194,7 +195,9 @@ namespace MS2.ModKit
             string otherPath = FieldMapEntry.ElemOf(otherField), otherAttr = FieldMapEntry.AttrOf(otherField);
             string idText = loc.Id.ToString(CultureInfo.InvariantCulture);
 
-            string otherEntry = other.EntryOf(loc.Id, Names(sr, arch, other.Archive));
+            string otherEntry;
+            if (!sr.EntryOf.TryGetValue(other.Archive + "\n" + idText, out otherEntry))
+                sr.EntryOf[other.Archive + "\n" + idText] = otherEntry = other.EntryOf(loc.Id, Names(sr, arch, other.Archive));
             if (otherEntry == null)
             {
                 plan.Msg(plan.Warnings, mod, archive, entry, what + ": " + em.Name + " " + idText + " has no entry in " + other.Archive + "; changed on the " + here + " only");
