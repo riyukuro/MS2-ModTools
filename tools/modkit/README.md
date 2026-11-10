@@ -158,6 +158,9 @@ modkit diff <mod>...                     the same, and every change
 modkit apply -w <workspace> <mod>...     write the modded copies
 modkit revert -w <workspace> [mod id]    without that mod / without any
 modkit status -w <workspace>
+modkit apply --game <game folder> <mod>...   the client's changed tables as plain files under <game folder>/Data/Xml
+modkit revert --game <game folder>           remove the files that apply --game wrote
+modkit status --game <game folder>
 ```
 
 - The workspace is a folder of your choice. `apply` writes `<workspace>/client/Xml.m2d` (+ `.m2h`),
@@ -171,9 +174,12 @@ modkit status -w <workspace>
   conflict or an error nothing is written (exit code 1). `--allow-conflicts` applies anyway, and the later mod wins.
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
-- Point the game and the server at the copies yourself (or copy them over a **copy** of the game folder). The table
-  editor can also write the client's part as loose files into a game folder (`LooseTarget` in the library); see
-  [How the game gets the changes](#how-the-game-gets-the-changes).
+- Point the game and the server at the copies yourself (or copy them over a **copy** of the game folder).
+- `--game` takes the folder of a **copy** of the client (the folder that holds `Data`) and writes the client's part
+  as loose files there, which the client reads without anything else being done; see
+  [How the game gets the changes](#how-the-game-gets-the-changes). The archives of the game folder are not changed.
+  With `--game` alone the server's part of the mods is planned and reported as left out; give `-w` as well and the
+  server archive is written to the workspace in the same run.
 
 What "kept" means: an entry that no mod touches is copied as stored (compressed and encrypted bytes, flags, order).
 In an edited entry only the edited spans change: encoding, byte order mark, line ends, attribute order, quotes,
@@ -329,6 +335,74 @@ the other target left behind.
 
 Not in this editor yet: schema checks (the command line `--schema`), `<ids>` ranges, `<entry>` operations and edits
 of element text. A mod that holds them loads, plans and applies as it is; the grid just has no cell for them.
+
+## The item editor in Toolbench
+
+The same plugin has a second view, **MS2 Items** (menu **MS2 Mods > Items**). It is for one thing: looking up an
+item, changing it, and making a new item from a shipped one. It writes into the mod that the MS2 Tables view is
+editing, so everything above holds: the same `mod.xml`, the same Save, mod list, Plan, Apply, Revert and the same
+question when Toolbench is closed. An edit made in one view shows in the other.
+
+### What one item is made of
+
+An item is not one row. The view collects the pieces and shows them as sections of one grid:
+
+| Section | Where it is | What it holds |
+|-|-|-|
+| client item | client `Xml.m2d`, `itemdata/NNN.xml`, one `<item id>` row | everything the client knows about the item: slot, icon, model, limits, the stat row it names. `NNN` is the id divided by 100000, and the client looks for an id only in the file of its block |
+| name | client, `string/<language>/itemname.xml` | the name, once per language folder |
+| plural | client, `string/<language>/itemnameplural.xml` | the plural name, where the language has one |
+| description | client, `string/<language>/koritemdescription.xml` | the tooltip text and a second line |
+| stat row | client, `table/itemoptionconstant.xml` | the fixed stats the item names by a code. **Shared**: many items name the same row |
+| server item | server `Xml.m2d`, `item/<d>/<dd>/<id>.xml` | the server's own file for the item, in its own format |
+
+A section that the data does not have for an item is simply not there. Without a server data folder the server
+section is missing and the mod holds the client half only.
+
+### Using it
+
+1. Type an id, or part of a name, into **Item id or name** and press Enter. **Names in** picks the language folder
+   whose names are searched and listed. The list shows shipped names; items the mod adds come first, marked `(new)`.
+2. Pick an item. The grid shows every field with its value and the shipped value. Edit the value: the cell turns
+   yellow, and typing the shipped value back takes the edit out of the mod.
+3. **Client and server together** (on by default): when the server's file has the same element and attribute as the
+   one edited on the client side, the same value is written there too. Fields that exist on one side only are
+   changed on that side only. Nothing is translated between the two formats.
+4. **Name**, **Description**, **Second line** and **Set texts** write the texts into every language folder at
+   once, so the item reads the same whichever one your client uses.
+5. The stat row is shared. Changing it changes every item that names its code. **Own stat row** copies the row to
+   the code you type (one that is not used yet) and points this item at the copy, so the edit stays with this item.
+6. **Save mod** is the Tables view's Save. Plan, Apply and Revert are in the **MS2 Mods** menu and in the Tables
+   view.
+
+### A new item: Clone to new id
+
+Select a shipped item and press **Clone to new id**. With the id box empty the next free id after the source is
+taken; or type one.
+
+- The new id must be in the same block of 100000 as the source (`1200001` can be cloned to `1200004`, not to
+  `1300000`). The client finds an item by the file of its block, and the block also says what kind of item it is.
+- The id must not be used by the data or by the mod. It is written into the mod's `<ids>` so that two mods that
+  take the same id are reported as a conflict.
+- The clone gets its own copy of every piece: the client row, a name, plural and description row in every
+  language, and the server's file under the new id. It keeps the source's icon, model and stat row until you change
+  them.
+- A clone cannot be cloned again; clone the shipped item once more. **Remove clone** takes a clone out of the mod.
+
+### What is client-side and what the server decides
+
+- **Client only, visible at once**: names, tooltip texts, icon, model and whatever else the client draws from its
+  own tables. Apply to the game folder, start the client, and they show for every such item you meet, on any
+  server. The server never sees these files.
+- **Decided by the server**: whether an item id exists at all, who gets it, what it sells for, its level and job
+  limits when you try to equip it, and the stats an item is rolled with. The server works from its own tables. A
+  changed number in the client's tables alone changes at most what a tooltip says, not what happens.
+- **How the server gets its half** depends on the server. Apply writes the patched server archive to the
+  workspace. A server that reads `Xml.m2d` when it starts takes it from there (see above). A server that was built
+  from the archives once, into a database, has to be built again from the patched archive before it knows a changed
+  or new item; that is the server's own procedure, and modkit does not touch a database.
+- **A new item shows nowhere by itself.** After Apply the client knows the clone, and nothing more happens until
+  the server knows the id too and gives the item to a character (a shop, a drop, a reward or a server command).
 
 ## Tests
 
