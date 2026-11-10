@@ -171,6 +171,8 @@ namespace MS2.ModKit
             internal XmlDoc Doc;
             internal XmlEditor Ed;
             internal bool DocFailed;
+            /// <summary>The bytes after the edits (set when the plan is built; null = Base).</summary>
+            internal byte[] Final;
             internal readonly Dictionary<string, Claim> Claims = new Dictionary<string, Claim>();
             internal readonly List<KeyValuePair<XmlElem, Mod>> Deleted = new List<KeyValuePair<XmlElem, Mod>>();
             internal readonly Dictionary<string, Mod> AddKeys = new Dictionary<string, Mod>();
@@ -188,6 +190,8 @@ namespace MS2.ModKit
             internal MirrorCtx Mirror;
             internal readonly Dictionary<string, Dropped> Dropped = new Dictionary<string, Dropped>(StringComparer.Ordinal);
             internal readonly List<Dropped> DroppedOrder = new List<Dropped>();
+            /// <summary>Shop and drop box state (PlannerGroups.cs).</summary>
+            internal readonly GroupRun Groups = new GroupRun();
 
             internal M2dArchive Open(Mod mod, string archive)
             {
@@ -234,7 +238,7 @@ namespace MS2.ModKit
 
             List<MirrorOp> mirrored = MirrorOps(run, mods);
             int total = mirrored.Count, done = 0;
-            foreach (Mod m in mods) total += m.Ops.Count * 2;
+            foreach (Mod m in mods) total += m.Ops.Count * 2 + m.Groups.Count;
 
             // whole entries first: an edit may then work on an entry that a mod adds
             foreach (Mod m in mods)
@@ -253,6 +257,12 @@ namespace MS2.ModKit
                     var ed = op as EditOp;
                     if (ed != null && Targeted(run, m, ed)) DoEditOp(run, m, ed);
                 }
+            foreach (Mod m in mods)
+                foreach (GroupOp g in m.Groups)
+                {
+                    ProgressUtil.Report(options.Progress, "plan", m.Id, ++done, total);
+                    DoGroup(run, m, g);
+                }
             foreach (MirrorOp mo in mirrored)
                 if (mo.Op is EditOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
             FinishMirror(run);
@@ -270,6 +280,7 @@ namespace MS2.ModKit
                     }
                     catch (ModKitException x) { plan.Msg(plan.Errors, null, st.Archive, st.Name, x.Message); continue; }
                 }
+                st.Final = final;
                 PlanArchive pa = plan.Find(st.Archive);
                 if (st.DeletedBy != null)
                 {
@@ -283,6 +294,8 @@ namespace MS2.ModKit
                     pa.Put.Add(new KeyValuePair<string, byte[]>(st.Name, final));
                 }
             }
+
+            GroupChecks(run);
 
             // a fixed order of the outputs, whatever the order of the ops
             plan.Archives.Sort(delegate (PlanArchive x, PlanArchive y) { return string.CompareOrdinal(x.Archive, y.Archive); });
@@ -550,7 +563,7 @@ namespace MS2.ModKit
             else
             {
                 frag = r.Xml.Trim();
-                fromIndent = XmlEditor.CommonIndent(frag);
+                fromIndent = r.FromIndent ?? XmlEditor.CommonIndent(frag);
             }
             XmlDoc fdoc = XmlDoc.ParseFragment(frag, "the new row");
             if (fdoc.Top.Count != 1) throw new ModKitException("<add> takes one element, the text holds " + fdoc.Top.Count);
@@ -596,7 +609,8 @@ namespace MS2.ModKit
             }
             string key = parent.Start + "\n" + RowKey(made);
             Mod other;
-            if (st.AddKeys.TryGetValue(key, out other))
+            if (r.Grouped) { }
+            else if (st.AddKeys.TryGetValue(key, out other))
                 plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, "adds the row " + row + " that " + Who(other, mod) + " also adds");
             else
             {
@@ -618,7 +632,7 @@ namespace MS2.ModKit
                         break;
                     }
             }
-            st.AddKeys[key] = mod;
+            if (!r.Grouped) st.AddKeys[key] = mod;
 
             if (anchor == null) st.Ed.Append(parent, frag, fromIndent);
             else if (before) st.Ed.InsertBefore(anchor, frag, fromIndent);
@@ -628,7 +642,7 @@ namespace MS2.ModKit
             var attrs = new Dictionary<string, string>();
             foreach (XmlAttr a in made.Attrs) attrs[a.Name] = a.Value;
             string names = RowPath.NamePath(parent, false);
-            plan.NewIds.Add(new NewId { Mod = mod, Archive = st.Archive, Entry = st.Name, NamePath = (names.Length > 0 ? names + "/" : "") + made.Name, Attrs = attrs });
+            if (!r.NoNewId) plan.NewIds.Add(new NewId { Mod = mod, Archive = st.Archive, Entry = st.Name, NamePath = (names.Length > 0 ? names + "/" : "") + made.Name, Attrs = attrs });
             AddProbes(plan, mod, st, RowPath.NamePath(parent, true), made);
         }
 
