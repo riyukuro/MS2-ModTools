@@ -36,7 +36,10 @@ namespace MS2.Tables
         readonly TextBox searchBox = new TextBox { Width = 200 };
         readonly ComboBox languageBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 60 };
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
-        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 280, IntegralHeight = false };
+        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 300, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 36 };
+        readonly IconBox iconBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };
+        // the icon entry of each listed item as the mod has it (null: none); filled when the row is drawn
+        readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();
         readonly Label itemLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly TextBox cloneIdBox = new TextBox { Width = 80 };
         readonly TextBox optionBox = new TextBox { Width = 80 };
@@ -125,11 +128,27 @@ namespace MS2.Tables
                 if (r == null || r.Field == null) e.Cancel = true;
             };
 
+            // the item's icon at the left of the three bars above the grid, as high as the bars (at least the icon)
+            var bars = new Panel { Dock = DockStyle.Fill };
+            bars.Controls.Add(descriptionBar);
+            bars.Controls.Add(textBar);
+            bars.Controls.Add(itemBar);
+            var iconPad = new Panel { Dock = DockStyle.Left, Width = 104, Padding = new Padding(6, 4, 2, 4) };
+            iconPad.Controls.Add(iconBox);
+            var head = new Panel { Dock = DockStyle.Top, Height = 104 };
+            head.Controls.Add(bars);
+            head.Controls.Add(iconPad);
+            bars.Layout += delegate
+            {
+                int h = itemBar.Height + textBar.Height + descriptionBar.Height;
+                int want = Math.Max(iconBox.Width + iconPad.Padding.Vertical, h);
+                if (head.Height != want) head.Height = want;
+            };
+            tips.SetToolTip(iconBox, "The item's icon (property@slotIcon), read from Resource/Image.m2d of your client or server data; a box with a cross: no data folder has that image");
+
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
-            right.Controls.Add(descriptionBar);
-            right.Controls.Add(textBar);
-            right.Controls.Add(itemBar);
+            right.Controls.Add(head);
 
             Controls.Add(right);
             Controls.Add(new Splitter { Dock = DockStyle.Left, Width = 4 });
@@ -155,6 +174,7 @@ namespace MS2.Tables
                 e.Handled = e.SuppressKeyPress = true;
                 Guard(delegate { Clone(); });
             };
+            hitList.DrawItem += OnDrawHit;
             hitList.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { OpenSelected(); }); };
             languageBox.SelectedIndexChanged += delegate
             {
@@ -300,6 +320,7 @@ namespace MS2.Tables
         // the mod or the whole session was replaced or edited in the Tables view: read the item again
         void OnHostChanged()
         {
+            iconOf.Clear();
             grid.CancelEdit();
             long id = draft != null ? draft.Id : 0;
             ShowItem(null);
@@ -316,6 +337,7 @@ namespace MS2.Tables
         void Edited()
         {
             grid.Invalidate();
+            if (draft != null) { iconOf.Remove(draft.Id); ShowIcon(draft); hitList.Invalidate(); }
             host.EditedOutside();
         }
 
@@ -374,6 +396,7 @@ namespace MS2.Tables
             if (d == null)
             {
                 itemLabel.Text = "(no item)";
+                iconBox.Show(null, null);
                 nameBox.Text = tooltipBox.Text = guideBox.Text = cloneIdBox.Text = optionBox.Text = "";
                 return;
             }
@@ -383,6 +406,7 @@ namespace MS2.Tables
                 foreach (string f in s.Fields) rows.Add(new GridRow { Section = s, Field = f });
             }
             grid.RowCount = rows.Count;
+            ShowIcon(d);
             itemLabel.Text = "Item " + d.Id.ToString(CultureInfo.InvariantCulture) + (d.IsNew ? " (new)" : "");
             nameBox.Text = d.Name ?? "";
             tooltipBox.Text = Lines(d.Tooltip);
@@ -391,6 +415,55 @@ namespace MS2.Tables
             List<string> codes = d.OptionCodes();
             optionBox.Text = "";
             tips.SetToolTip(optionBox, codes.Count == 0 ? "This item names no stat row" : "The code of the new stat row, a number no row of " + ItemEditor.OptionTable + " has yet. The item's stat row now: " + string.Join(", ", codes.ToArray()));
+        }
+
+        // ---- icons ----
+
+        IconCache Cache()
+        {
+            if (host == null) return null;
+            try { return IconCache.For(host.SharedSession().Data); }
+            catch (ModKitException) { return null; }
+            catch (System.IO.IOException) { return null; }
+        }
+
+        void ShowIcon(ItemDraft d)
+        {
+            string entry = null;
+            try { entry = d.IconEntry(); }
+            catch (ModKitException) { }
+            iconOf[d.Id] = entry;
+            iconBox.Show(Cache(), entry);
+            tips.SetToolTip(iconBox, entry == null ? "This item names no icon" : "Icon: " + entry + " in Resource/Image.m2d");
+        }
+
+        string IconEntryOf(long id)
+        {
+            string entry;
+            if (iconOf.TryGetValue(id, out entry)) return entry;
+            entry = null;
+            try { entry = Editor().Open(id).IconEntry(); }
+            catch (ModKitException) { }
+            catch (System.IO.IOException) { }
+            iconOf[id] = entry;
+            return entry;
+        }
+
+        void OnDrawHit(object sender, DrawItemEventArgs e)
+        {
+            e.DrawBackground();
+            if (e.Index < 0 || e.Index >= hitList.Items.Count) return;
+            var h = hitList.Items[e.Index] as EntityHit;
+            if (h == null) return;
+            int size = e.Bounds.Height - 4;
+            var box = new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 2, size, size);
+            IconCache cache = Cache();
+            string entry = cache != null ? IconEntryOf(h.Id) : null;
+            Image img = cache != null ? cache.Get(entry, hitList) : null;
+            IconCache.Draw(e.Graphics, box, img, entry == null || (cache != null && cache.IsMissing(entry)));
+            var text = new Rectangle(box.Right + 6, e.Bounds.Y, e.Bounds.Width - box.Width - 10, e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, h.ToString(), e.Font, text, e.ForeColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            e.DrawFocusRectangle();
         }
 
         static string Lines(string text) { return (text ?? "").Replace("\r\n", "\n").Replace("\n", "\r\n"); }
