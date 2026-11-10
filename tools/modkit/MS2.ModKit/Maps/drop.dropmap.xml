@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Drop boxes: the nested layout (server table/Server/individualItemDrop_Final.xml, Korean client
+  table/individualitemdrop_final.xml: <dropBox> / <group> / <v>) against the flat layout (server Xml.m2d and global
+  client table/individualitemdrop*.xml: one <individualDropBox> per item row). A drop mod is written in the nested
+  names; the planner writes a flat row with the flat names below.
+
+  level: 0 = the box (<dropBox>), 1 = the group (<group>), 2 = the item row (<v>). A flat row carries the box and
+  group fields of its row.
+  convert="bool": nested 1/0, flat True/False.
+
+  <score>: how far the shipped data agrees, per pair of sides (nested side, flat side). A box agrees when the
+  multisets of (group, item, value) of the two layouts are equal. common = boxes on both sides; comparable = boxes
+  whose rows all carry the field on both sides; agree = boxes that agree; pctAll = agree / common;
+  pctComparable = agree / comparable (NA: no comparable box). No boolean conversion and no default is applied in the
+  scores, so isApplySmartGenderDrop scores 0 although all 128 comparable boxes agree after 1 = True.
+
+  <unmapped>: nested fields the flat layout has no counterpart for. A flat target gets one summary line per
+  mod for them.
+-->
+<dropmap>
+  <field level="0" nested="dropBoxID" flat="individualDropBoxID">
+    <score nested="server" flat="gms" common="4406" comparable="4406" agree="4378" pctAll="99.365" pctComparable="99.365" />
+    <score nested="server" flat="serverxml" common="4406" comparable="4406" agree="4378" pctAll="99.365" pctComparable="99.365" />
+    <score nested="kms" flat="gms" common="3666" comparable="3666" agree="3085" pctAll="84.152" pctComparable="84.152" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="3666" agree="3085" pctAll="84.152" pctComparable="84.152" />
+  </field>
+  <field level="1" nested="dropGroupID" flat="dropGroup">
+    <score nested="server" flat="gms" common="4406" comparable="4406" agree="4378" pctAll="99.365" pctComparable="99.365" />
+    <score nested="server" flat="serverxml" common="4406" comparable="4406" agree="4378" pctAll="99.365" pctComparable="99.365" />
+    <score nested="kms" flat="gms" common="3666" comparable="3666" agree="3085" pctAll="84.152" pctComparable="84.152" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="3666" agree="3085" pctAll="84.152" pctComparable="84.152" />
+  </field>
+  <field level="2" nested="itemID" flat="item">
+    <score nested="server" flat="gms" common="4406" comparable="4406" agree="4378" pctAll="99.365" pctComparable="99.365" />
+    <score nested="server" flat="serverxml" common="4406" comparable="4406" agree="4378" pctAll="99.365" pctComparable="99.365" />
+    <score nested="kms" flat="gms" common="3666" comparable="3666" agree="3085" pctAll="84.152" pctComparable="84.152" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="3666" agree="3085" pctAll="84.152" pctComparable="84.152" />
+  </field>
+  <field level="2" nested="itemID2" flat="item2">
+    <score nested="server" flat="gms" common="4406" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="server" flat="serverxml" common="4406" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="kms" flat="gms" common="3666" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+  </field>
+  <field level="2" nested="minCount" flat="minCount">
+    <score nested="server" flat="gms" common="4406" comparable="4406" agree="4353" pctAll="98.797" pctComparable="98.797" />
+    <score nested="server" flat="serverxml" common="4406" comparable="4406" agree="4353" pctAll="98.797" pctComparable="98.797" />
+    <score nested="kms" flat="gms" common="3666" comparable="783" agree="627" pctAll="17.103" pctComparable="80.077" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="783" agree="627" pctAll="17.103" pctComparable="80.077" />
+  </field>
+  <field level="2" nested="maxCount" flat="maxCount">
+    <score nested="server" flat="gms" common="4406" comparable="4406" agree="4353" pctAll="98.797" pctComparable="98.797" />
+    <score nested="server" flat="serverxml" common="4406" comparable="4406" agree="4353" pctAll="98.797" pctComparable="98.797" />
+    <score nested="kms" flat="gms" common="3666" comparable="24" agree="21" pctAll="0.573" pctComparable="87.5" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="24" agree="21" pctAll="0.573" pctComparable="87.5" />
+  </field>
+  <field level="2" nested="uiItemRank" flat="PackageUIShowGrade">
+    <score nested="server" flat="gms" common="4406" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="server" flat="serverxml" common="4406" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="kms" flat="gms" common="3666" comparable="33" agree="22" pctAll="0.6" pctComparable="66.667" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="33" agree="22" pctAll="0.6" pctComparable="66.667" />
+  </field>
+  <field level="1" nested="smartDropRate" flat="smartDropRate">
+    <score nested="server" flat="gms" common="4406" comparable="805" agree="783" pctAll="17.771" pctComparable="97.267" />
+    <score nested="server" flat="serverxml" common="4406" comparable="805" agree="783" pctAll="17.771" pctComparable="97.267" />
+    <score nested="kms" flat="gms" common="3666" comparable="479" agree="0" pctAll="0.0" pctComparable="0.0" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="479" agree="0" pctAll="0.0" pctComparable="0.0" />
+  </field>
+  <field level="1" nested="isApplySmartGenderDrop" flat="isApplySmartGenderDrop" convert="bool">
+    <score nested="server" flat="gms" common="4406" comparable="128" agree="0" pctAll="0.0" pctComparable="0.0" />
+    <score nested="server" flat="serverxml" common="4406" comparable="128" agree="0" pctAll="0.0" pctComparable="0.0" />
+    <score nested="kms" flat="gms" common="3666" comparable="128" agree="0" pctAll="0.0" pctComparable="0.0" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="128" agree="0" pctAll="0.0" pctComparable="0.0" />
+  </field>
+  <field level="2" nested="enchantLevel" flat="enchantLevel">
+    <score nested="server" flat="gms" common="4406" comparable="8" agree="8" pctAll="0.182" pctComparable="100.0" />
+    <score nested="server" flat="serverxml" common="4406" comparable="8" agree="8" pctAll="0.182" pctComparable="100.0" />
+    <score nested="kms" flat="gms" common="3666" comparable="8" agree="8" pctAll="0.218" pctComparable="100.0" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="8" agree="8" pctAll="0.218" pctComparable="100.0" />
+  </field>
+  <field level="2" nested="showTooltip" flat="showTooltip">
+    <score nested="server" flat="gms" common="4406" comparable="535" agree="533" pctAll="12.097" pctComparable="99.626" />
+    <score nested="server" flat="serverxml" common="4406" comparable="535" agree="533" pctAll="12.097" pctComparable="99.626" />
+    <score nested="kms" flat="gms" common="3666" comparable="378" agree="321" pctAll="8.756" pctComparable="84.921" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="378" agree="321" pctAll="8.756" pctComparable="84.921" />
+  </field>
+  <field level="2" nested="showIconOnGachaUI" flat="showIconOnGachaUI">
+    <score nested="server" flat="gms" common="4406" comparable="5" agree="5" pctAll="0.113" pctComparable="100.0" />
+    <score nested="server" flat="serverxml" common="4406" comparable="5" agree="5" pctAll="0.113" pctComparable="100.0" />
+    <score nested="kms" flat="gms" common="3666" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+  </field>
+  <field level="2" nested="socketDataID" flat="socketDataID">
+    <score nested="server" flat="gms" common="4406" comparable="8" agree="8" pctAll="0.182" pctComparable="100.0" />
+    <score nested="server" flat="serverxml" common="4406" comparable="8" agree="8" pctAll="0.182" pctComparable="100.0" />
+    <score nested="kms" flat="gms" common="3666" comparable="4" agree="4" pctAll="0.109" pctComparable="100.0" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="4" agree="4" pctAll="0.109" pctComparable="100.0" />
+  </field>
+  <field level="2" nested="locale" flat="locale">
+    <score nested="server" flat="gms" common="4406" comparable="1832" agree="1812" pctAll="41.126" pctComparable="98.908" />
+    <score nested="server" flat="serverxml" common="4406" comparable="1832" agree="1812" pctAll="41.126" pctComparable="98.908" />
+    <score nested="kms" flat="gms" common="3666" comparable="28" agree="2" pctAll="0.055" pctComparable="7.143" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="28" agree="2" pctAll="0.055" pctComparable="7.143" />
+  </field>
+  <field level="2" nested="feature" flat="feature">
+    <score nested="server" flat="gms" common="4406" comparable="723" agree="718" pctAll="16.296" pctComparable="99.308" />
+    <score nested="server" flat="serverxml" common="4406" comparable="723" agree="718" pctAll="16.296" pctComparable="99.308" />
+    <score nested="kms" flat="gms" common="3666" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+    <score nested="kms" flat="serverxml" common="3666" comparable="0" agree="0" pctAll="0.0" pctComparable="NA" />
+  </field>
+  <unmapped level="0" nested="comment" />
+  <unmapped level="0" nested="feature" />
+  <unmapped level="1" nested="dropCount" />
+  <unmapped level="1" nested="dropCountProbability" />
+  <unmapped level="1" nested="dropGroupMinLevel" />
+  <unmapped level="1" nested="locale" />
+  <unmapped level="1" nested="serverDrop" />
+  <unmapped level="2" nested="assistBonus" />
+  <unmapped level="2" nested="constraintsQuest" />
+  <unmapped level="2" nested="disableBreak" />
+  <unmapped level="2" nested="grade" />
+  <unmapped level="2" nested="gradeProbability" />
+  <unmapped level="2" nested="imProperJobWeight" />
+  <unmapped level="2" nested="isAnnounce" />
+  <unmapped level="2" nested="isBindCharacter" />
+  <unmapped level="2" nested="itemLifeType" />
+  <unmapped level="2" nested="itemLifeValue" />
+  <unmapped level="2" nested="mapDependency" />
+  <unmapped level="2" nested="properJobWeight" />
+  <unmapped level="2" nested="rePackingLimitCountDeduction" />
+  <unmapped level="2" nested="reference1" />
+  <unmapped level="2" nested="tradableCountDeduction" />
+  <unmapped level="2" nested="weight" />
+</dropmap>

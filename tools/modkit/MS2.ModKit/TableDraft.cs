@@ -351,10 +351,10 @@ namespace MS2.ModKit
             for (int i = 0; i < mods.Count; i++)
                 if (mods[i].Id == current.Id)
                 {
-                    if (current.Ops.Count > 0) mods[i] = current; else mods.RemoveAt(i);
+                    if (!current.IsEmpty) mods[i] = current; else mods.RemoveAt(i);
                     return mods;
                 }
-            if (current.Ops.Count > 0) mods.Add(current);
+            if (!current.IsEmpty) mods.Add(current);
             return mods;
         }
 

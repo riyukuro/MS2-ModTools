@@ -82,7 +82,7 @@ namespace MS2.ModKit
         public string SaveMod()
         {
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
-            if (Mod.Ops.Count == 0) throw new ModKitException("mod " + Mod.Id + " holds no change yet; there is nothing to save");
+            if (Mod.IsEmpty) throw new ModKitException("mod " + Mod.Id + " holds no change yet; there is nothing to save");
             string dir = ModFolder.DirOf(ModsDir, Mod.Id);
             if ((Mod.Dir == null || !SamePath(Mod.Dir, dir)) && File.Exists(Path.Combine(dir, "mod.xml")))
                 throw new ModKitException(dir + " already holds a mod; give this one another id");
@@ -257,7 +257,7 @@ namespace MS2.ModKit
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
             if (Target == ApplyTarget.Workspace && WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
             LooseTarget loose = Target == ApplyTarget.LooseFiles ? Loose() : null;
-            if (Mod.Ops.Count > 0) SaveMod();
+            if (!Mod.IsEmpty) SaveMod();
             List<Mod> mods = ActiveMods();
             if (mods.Count == 0) throw new ModKitException("no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
             var options = new ApplyOptions { Progress = progress, Maps = Maps, NoSync = NoSync };

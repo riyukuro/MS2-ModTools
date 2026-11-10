@@ -65,6 +65,12 @@ namespace MS2.ModKit
         /// <summary>false (sync="false" in mod.xml): what this row changes is not carried to the other side by the field maps.</summary>
         public bool Sync = true;
         public int Line;
+        /// <summary>Set by the group planner: one of many rows with the same key (shop items share item ids, drop rows repeat); no duplicate-row check.</summary>
+        internal bool Grouped;
+        /// <summary>Set by the group planner: the indent Xml was cut out with (null = the indent of its lines).</summary>
+        internal string FromIndent;
+        /// <summary>Set by the group planner: a row added to a group that is already there; it brings no new id.</summary>
+        internal bool NoNewId;
     }
 
     public sealed class EditOp : ModOp
@@ -73,7 +79,7 @@ namespace MS2.ModKit
         public readonly List<RowOp> Rows = new List<RowOp>();
     }
 
-    public sealed class Mod
+    public sealed partial class Mod
     {
         public const int FormatVersion = 1;
 
@@ -85,6 +91,11 @@ namespace MS2.ModKit
         public string Dir;
         public readonly List<IdRange> Ids = new List<IdRange>();
         public readonly List<ModOp> Ops = new List<ModOp>();
+        /// <summary>Shops and drop boxes: row operations on "one id, many rows" groups (Groups.cs).</summary>
+        public readonly List<GroupOp> Groups = new List<GroupOp>();
+
+        /// <summary>The mod changes nothing: no entry, edit, shop or drop box op.</summary>
+        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0; } }
 
         // ---- load ----
 
@@ -107,11 +118,11 @@ namespace MS2.ModKit
 
         public static Mod Parse(string text, string label) { return Parse(new UTF8Encoding(false).GetBytes(text), label); }
 
-        sealed class Reader
+        sealed partial class Reader
         {
             internal string Label;
 
-            ModKitException Bad(XmlElem e, string what) { return new ModKitException(Label + " line " + e.Line + ": " + what); }
+            internal ModKitException Bad(XmlElem e, string what) { return new ModKitException(Label + " line " + e.Line + ": " + what); }
 
             void Only(XmlElem e, params string[] names)
             {
@@ -169,7 +180,9 @@ namespace MS2.ModKit
                         case "ids": m.Ids.Add(ReadIds(e)); break;
                         case "entry": m.Ops.Add(ReadEntry(e)); break;
                         case "edit": m.Ops.Add(ReadEdit(e)); break;
-                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit)");
+                        case "shop": m.Groups.Add(ReadGroup(e, GroupKind.Shop)); break;
+                        case "dropbox": m.Groups.Add(ReadGroup(e, GroupKind.DropBox)); break;
+                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox)");
                     }
                 }
                 return m;
@@ -337,6 +350,7 @@ namespace MS2.ModKit
                 }
                 sb.Append("  </edit>\n");
             }
+            foreach (GroupOp g in Groups) WriteGroup(sb, g);
             sb.Append("</mod>\n");
             return sb.ToString();
         }

@@ -275,7 +275,7 @@ namespace MS2.Tables
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
                 session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;
-                if (keep != null && keep.Ops.Count > 0) session.Adopt(keep);
+                if (keep != null && !keep.IsEmpty) session.Adopt(keep);
                 else MarkSaved();
                 filling = true;
                 foreach (string a in session.Archives()) archiveBox.Items.Add(a);
@@ -289,7 +289,7 @@ namespace MS2.Tables
                 // a mod saved under the id being edited is the one being edited: without this an Apply right after
                 // a start would leave that saved mod out, because the (empty) mod in memory stands for it
                 string resumed = "";
-                ModListItem saved = session.Mod.Ops.Count == 0 && modList != null ? modList.FindId(session.Mod.Id) : null;
+                ModListItem saved = session.Mod.IsEmpty && modList != null ? modList.FindId(session.Mod.Id) : null;
                 if (saved != null)
                 {
                     session.LoadMod(saved.Folder);
@@ -490,7 +490,7 @@ namespace MS2.Tables
         {
             if (session == null) { pendingBox.Text = ""; return; }
             modIdBox.Text = session.Mod.Id;
-            pendingBox.Text = session.Mod.Ops.Count == 0
+            pendingBox.Text = session.Mod.IsEmpty
                 ? "(mod " + session.Mod.Id + " holds no change yet)"
                 : session.Mod.ToXml().Replace("\r\n", "\n").Replace("\n", "\r\n");
         }
@@ -554,7 +554,7 @@ namespace MS2.Tables
         {
             EditorSession s = Session();
             grid.CancelEdit();
-            if (s.Mod.Ops.Count > 0 && MessageBox.Show(this, "Drop the pending changes of mod " + s.Mod.Id + "?", "MS2 Tables",
+            if (!s.Mod.IsEmpty && MessageBox.Show(this, "Drop the pending changes of mod " + s.Mod.Id + "?", "MS2 Tables",
                     MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             s.NewMod(modIdBox.Text.Trim());
             MarkSaved();
@@ -580,14 +580,14 @@ namespace MS2.Tables
             ModListItem it = SelectedMod();
             if (it.Error != null) throw new ModKitException(it.Error);
             grid.CancelEdit();
-            if (s.Mod.Ops.Count > 0 && MessageBox.Show(this, (s.Mod.Id == it.Id ? "Load mod " + it.Id + " again as it was saved?" : "Load mod " + it.Id + "?") + " Changes of mod " + s.Mod.Id + " that are not saved are dropped.",
+            if (!s.Mod.IsEmpty && MessageBox.Show(this, (s.Mod.Id == it.Id ? "Load mod " + it.Id + " again as it was saved?" : "Load mod " + it.Id + "?") + " Changes of mod " + s.Mod.Id + " that are not saved are dropped.",
                     "MS2 Tables", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             s.LoadMod(it.Folder);
             MarkSaved();
             ReopenTable();
             ShowMod();
             FillMods();
-            Say("loaded mod " + s.Mod.Id + " from " + s.Mod.Dir + ": " + s.Mod.Ops.Count + " operation block(s)");
+            Say("loaded mod " + s.Mod.Id + " from " + s.Mod.Dir + ": " + (s.Mod.Ops.Count + s.Mod.Groups.Count) + " operation block(s)");
             NotifyChanged();
         }
 

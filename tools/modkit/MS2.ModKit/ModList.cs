@@ -124,7 +124,7 @@ namespace MS2.ModKit
             {
                 if (current != null && it.Error == null && it.Id == current.Id)
                 {
-                    if (!seen && current.Ops.Count > 0) mods.Add(current);
+                    if (!seen && !current.IsEmpty) mods.Add(current);
                     seen = true;
                     continue;
                 }
@@ -132,7 +132,7 @@ namespace MS2.ModKit
                 if (it.Error != null) throw new ModKitException("mod folder " + it.Folder + " is enabled but cannot be read: " + it.Error);
                 mods.Add(Mod.Load(Path.Combine(Dir, it.Folder)));
             }
-            if (current != null && !seen && current.Ops.Count > 0) mods.Add(current);
+            if (current != null && !seen && !current.IsEmpty) mods.Add(current);
             return mods;
         }
     }
