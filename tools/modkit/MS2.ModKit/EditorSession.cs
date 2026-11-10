@@ -106,6 +106,9 @@ namespace MS2.ModKit
             return list;
         }
 
+        /// <summary>The item editor over the data and the mod being edited (see Items.cs). Ask again after the mod is replaced.</summary>
+        public ItemEditor Items() { return new ItemEditor(Data, Mod); }
+
         public TableDraft OpenTable(string archive, string entry, string parentSelector)
         {
             return new TableDraft(Data, Mod, archive, entry, parentSelector);
