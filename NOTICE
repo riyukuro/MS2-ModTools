@@ -47,5 +47,8 @@ It grants no rights in anything owned by others, and nothing here is a statement
 - Third-party software is not included and keeps its own license:
   - tools/m2d and tools/tok/extract download the NuGet package Maple2.File.Parser.Tadeucci when built
     (GPL-3.0-or-later, https://github.com/AngeloTadeucci/Maple2.File).
+  - tools/modkit/MS2.ModKit/M2d holds its own .m2d/.m2h reader and writer. The file layouts, the entry
+    encoding and the key tables in M2dKeys.cs were taken from Maple2.File.IO of that same package
+    (GPL-3.0-or-later). The tests use the package as the reference reader.
   - tools/nif reads niftools' nif.xml (BSD, https://github.com/niftools/nifxml) at run time; you download it.
   - The PathEngine, Gamebryo, PhysX and Toolbench SDKs and tools need your own licensed copies.

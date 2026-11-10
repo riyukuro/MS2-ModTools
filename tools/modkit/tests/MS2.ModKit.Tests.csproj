@@ -1,0 +1,20 @@
+<!-- Tests of MS2.ModKit. Synthetic data only, except the fixtures in Real*.cs, which are skipped unless
+     MS2_CLIENT_DATA / MS2_SERVER_DATA point at game data. Maple2.File.IO (through the same package tools/m2d uses)
+     is here only as the reference reader for those checks. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <LangVersion>12</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RollForward>Major</RollForward>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.8.0" />
+    <PackageReference Include="NUnit" Version="3.14.0" />
+    <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
+    <PackageReference Include="Maple2.File.Parser.Tadeucci" Version="2.3.7" />
+    <ProjectReference Include="../MS2.ModKit/MS2.ModKit.csproj" />
+  </ItemGroup>
+</Project>

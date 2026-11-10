@@ -1,0 +1,18 @@
+<!-- MS2.ModKit: row-level patcher for MapleStory2 data archives (tools/modkit/README.md).
+     net35 is for hosts on CLR 2.0 / .NET 3.5 (a Toolbench plugin loads it in-process); net8.0 is for the CLI and tests.
+     No run-time NuGet dependency: the reference-assemblies package is build-time only. -->
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFrameworks>net35;net8.0</TargetFrameworks>
+    <LangVersion>7.3</LangVersion>
+    <AssemblyName>MS2.ModKit</AssemblyName>
+    <RootNamespace>MS2.ModKit</RootNamespace>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(TargetFramework)' == 'net35'">
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+  </ItemGroup>
+</Project>
