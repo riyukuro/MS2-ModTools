@@ -417,6 +417,87 @@ taken; or type one.
 - **A new item shows nowhere by itself.** After Apply the client knows the clone, and nothing more happens until
   the server knows the id too and gives the item to a character (a shop, a drop, a reward or a server command).
 
+## The NPC editor in Toolbench
+
+A third view, **MS2 NPCs** (menu **MS2 Mods > NPCs**), does for npcs what MS2 Items does for items: look one up,
+change it, or make a new npc from a shipped one. It writes into the same mod as the other two views, with the same
+Save, Plan, Apply, Revert and the same question when Toolbench is closed.
+
+One mod covers all three targets (see [Profiles](#profiles-which-data-you-have)). You edit an npc once; Apply
+writes the Korean client's bundle row, the server's per-id file and the global client's per-id file in one go, and
+Revert takes all of it back.
+
+### What one npc is made of
+
+| Piece | Where it is | What it holds |
+|-|-|-|
+| npc row | `kms-client`: `npcdata/NNN.xml`, one `<npc id>` row | what the Korean client knows about the npc: model, level, stats, name tag, effects. `NNN` is the id divided by 100000, and the client looks for an id only in the file of its block |
+| npc file | `server` and `gms-client`: `npc/<aa>/<bb>/<id>.xml`, the id written with 8 digits | the same npc in the per-id format, plus fields only the server reads (for example `basic@difficulty`) |
+| name, plural | `string/<language>/npcname.xml`, `npcnameplural.xml` | the name over the npc's head, once per language folder |
+| title | `string/<language>/npctitle.xml` | the line under the name. Many npcs have none, or have it in a few languages only |
+| function name | `string/<language>/npcfunctionname.xml` | the label of what the npc does (shop, quest, ...) |
+| face | `emotion/npc/<id>.xml` | the npc's face animations, where it has them |
+| talk | `server` and `gms-client`: `script/npc/<id>.xml` | the npc's talk script, where it has one |
+
+Each target has its own set of language folders, and the editor writes to each target in the languages it ships.
+
+### Using it
+
+1. Type an id, or part of a name, into **NPC id or name** and press Enter or **Find**. **Names in** picks the
+   language whose names are searched and listed. Npcs the mod adds come first.
+2. Pick an npc. The grid starts with **Fields on every target (field map)**: the fields the Korean client and the
+   server both hold, under the Korean client's names (`@level`, `stat@hp`, `model@kfm`, ...). Editing one of these
+   writes it to every target, each in its own format. Below come the sections of each piece, with every field as
+   that piece stores it; an edit there stays in that piece.
+3. The value and the shipped value are side by side. An edited row turns yellow; typing the shipped value back
+   takes the edit out of the mod. A new npc's rows are green.
+4. The level is special in one way: where the server's `basic@difficulty` equalled the level (as most shipped npcs
+   have it), it follows the new level. Where a Korean row has no level at all (the client then takes 1), the form
+   shows the server's level, and an edit writes it to both.
+5. **Name** and **Title** with **Set texts** write the texts into every language of every target. With **only in
+   this language** ticked they go to the language chosen under **Names in** only. A language that has a title
+   file but no title row for this npc gets one, so the title shows whichever language your client uses.
+6. **Plan** lists every change, entry by entry, under one line per target. **Apply** writes them, **Revert** takes
+   them back. **Sync report** and **All fields** show the mapped fields where the Korean client and the server
+   disagree (see [The sync report](#the-sync-report)).
+
+### A new npc: Clone to new id
+
+Select a shipped npc, fill the boxes beside **Clone to new id** and press it. Empty boxes keep the source's values;
+an empty id box takes the next free id of the source's block.
+
+- The new id must be in the same block of 100000 as the source: the client reads an npc from the file of its block.
+- The id must be free in the data and in the mod. An id counts as used when the data ships any piece of it,
+  including a face or talk file of an id that has no npc (shipped data has some). A clone would replace such a
+  file, so the editor refuses the id and the next free id skips it.
+- The id is written into the mod's `<ids>`, so two mods that take the same id are reported as a conflict.
+- The clone gets its own copy of every piece the source has: the npc row, the npc file, the name, plural, title and
+  function name rows in every language of every target, and the face and talk files. It keeps the source's model
+  and everything else until you change it.
+- A clone cannot be cloned again; clone the shipped npc once more. **Remove clone** takes a clone out of the mod.
+
+Where a new id is written, per target (the plan view also lists this for a new npc):
+
+| Target | Places |
+|-|-|
+| `kms-client` | the `<npc id>` row in `npcdata/NNN.xml`; a row in each string file of each language where the source has one; `emotion/npc/<id>.xml` where the source has one |
+| `server` | `npc/<aa>/<bb>/<id>.xml`; the string rows as above; `emotion/npc/<id>.xml` and `script/npc/<id>.xml` where the source has them |
+| `gms-client` | the server's lines, mirrored: the same files and rows, without server-only fields and without languages it does not ship |
+
+Nothing else names an npc that merely exists. Map spawn lists, finder lists and quest tables name npcs that a
+feature uses. A new npc appears where the server spawns it: by a GM spawn command, or by a spawn or quest table
+that a further mod changes.
+
+### What the client shows and what the server decides
+
+- **Client side**: the name, title and model the client draws, and the level and HP bar it shows, come from the
+  client's own tables. Apply to the game folder, start the client, and they show.
+- **Server side**: whether the npc exists in a map, its real level and HP, how hard it hits and how much
+  experience it gives are decided by the server's per-id file. The server takes its half from the workspace by copy
+  or by its ingest step (see [How the game gets the changes](#how-the-game-gets-the-changes)).
+- The field map keeps the two sides together, so a mod normally changes both. A field changed on one side only is
+  a warning in Plan.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
@@ -458,7 +539,7 @@ targets: kms-client (Korean client), gms-client (global client), server
 ```
 
 After Apply and Revert, the lines say which file was written or removed for each target. The Tables view shows the
-`targets:` line when it loads its settings, and the Items view shows the per-target lines of Plan, Apply and Revert
+`targets:` line when it loads its settings, and the Items and NPCs views show the per-target lines of Plan, Apply and Revert
 in its output box. A target that is not set is named on the `targets:` line as "not in this data set", and nothing
 is written for it.
 

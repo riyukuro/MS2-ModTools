@@ -101,7 +101,7 @@ namespace MS2.Tables
             textBar.Controls.Add(titleBox);
             textBar.Controls.Add(oneLanguageBox);
             tips.SetToolTip(oneLanguageBox, "Ticked: the name and title are written to the language chosen under \"Names in\" only, on every target that has it. Unticked: to every language of every target");
-            textBar.Controls.Add(Btn("Set texts", "Writes the name and the title into the mod. An npc without a title gets a title row in every language", delegate { SetTexts(); }));
+            textBar.Controls.Add(Btn("Set texts", "Writes the name and the title into the mod. A language that has a title file but no title row of the npc gets one", delegate { SetTexts(); }));
 
             grid.VirtualMode = true;
             grid.AllowUserToAddRows = false;
