@@ -304,7 +304,7 @@ namespace MS2.ModKit.Tests
             foreach (XmlElem e in root.Children)
                 Assert.That(RowPath.Parse(RowPath.Canonical(e)).Resolve(root), Is.SameAs(e), RowPath.Canonical(e));
             Assert.That(RowPath.Canonical(root.Children[1].Children[1]), Is.EqualTo("pet[id=101]/skill[id=8]"));
-            Assert.That(RowPath.Canonical(root.Children[2]), Is.EqualTo("pet[id=102][hp=55]"));
+            Assert.That(RowPath.Canonical(root.Children[2]), Is.EqualTo("pet[id=102][feature=]"));
         }
     }
 

@@ -225,11 +225,22 @@ namespace MS2.ModKit.Xml
             foreach (XmlElem c in e.Parent.Children) if (c.Name == e.Name) left.Add(c);
             string id = e.Attr("id");
             if (id != null) { step.Tests.Add(new KeyValuePair<string, string>("id", id)); left = Filter(left, "id", id); }
+            // rows that share an id are variants of one another: tell them apart by what makes them variants
+            // ("[feature=]" is the row without one) before any attribute a mod is likely to change
+            foreach (string v in new[] { "feature", "locale" })
+            {
+                if (left.Count < 2) break;
+                string val = e.Attr(v) ?? "";
+                List<XmlElem> f = Filter(left, v, val);
+                if (f.Count == left.Count) continue;
+                step.Tests.Add(new KeyValuePair<string, string>(v, val));
+                left = f;
+            }
             if (left.Count > 1)
             {
                 foreach (XmlAttr a in e.Attrs)
                 {
-                    if (a.Name == "id") continue;
+                    if (a.Name == "id" || a.Name == "feature" || a.Name == "locale") continue;
                     List<XmlElem> f = Filter(left, a.Name, a.Value);
                     if (f.Count == left.Count) continue;
                     step.Tests.Add(new KeyValuePair<string, string>(a.Name, a.Value));
