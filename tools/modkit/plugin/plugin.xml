@@ -48,16 +48,23 @@
           class="MS2.Tables.TablesView"
           default-dock="Document"
           default-visible="true"/>
+    <view id="MS2.Tables.ItemsView"
+          name="MS2 Items"
+          class="MS2.Tables.ItemsView"
+          default-dock="Document"
+          default-visible="true"/>
   </extension>
 
   <extension point="Emergent.Toolbench.Workbench.ActionSet">
     <actionset label="MS2 Mods Actions" visible="true" id="MS2.Tables.Actions">
       <menu label="MS2 &amp;Mods" id="MS2.Tables.Menu" priority="70"/>
       <menuitem id="MS2.Tables.Menu.Show" action="MS2.Tables.ShowAction" path="MS2 Mods" priority="10"/>
+      <menuitem id="MS2.Tables.Menu.ShowItems" action="MS2.Tables.ShowItemsAction" path="MS2 Mods" priority="15"/>
       <menuitem id="MS2.Tables.Menu.Plan" action="MS2.Tables.PlanAction" path="MS2 Mods" priority="20"/>
       <menuitem id="MS2.Tables.Menu.Apply" action="MS2.Tables.ApplyAction" path="MS2 Mods" priority="30"/>
       <menuitem id="MS2.Tables.Menu.Revert" action="MS2.Tables.RevertAction" path="MS2 Mods" priority="40"/>
       <action label="Tables" tooltip="Shows the MS2 Tables view" handler="MS2.Tables.ShowAction" id="MS2.Tables.ShowAction"/>
+      <action label="Items" tooltip="Shows the MS2 Items view: one item across its files, with clone to a new id" handler="MS2.Tables.ShowItemsAction" id="MS2.Tables.ShowItemsAction"/>
       <action label="Plan" tooltip="Shows what the enabled mods of the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
               handler="MS2.Tables.PlanAction" id="MS2.Tables.PlanAction"/>
       <action label="Apply" tooltip="Saves the mod being edited and writes what the enabled mods change: loose files into the game folder, or patched copies of the archives into the workspace folder"
@@ -76,6 +83,7 @@
   <extension point="Emergent.Toolbench.Workbench.PerspectiveMapping">
     <mapping perspectiveId="Emergent.Toolbench.Workbench.GlobalPerspective">
       <view id="MS2.Tables.View"/>
+      <view id="MS2.Tables.ItemsView"/>
       <actionset id="MS2.Tables.Actions"/>
     </mapping>
   </extension>

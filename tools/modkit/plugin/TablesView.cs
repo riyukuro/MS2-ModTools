@@ -211,6 +211,7 @@ namespace MS2.Tables
         void Say(string text)
         {
             outputBox.Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
+            if (Said != null) Said(outputBox.Text);
         }
 
         /// <summary>Runs one command of the view; what goes wrong is shown in the output pane and logged.</summary>
@@ -296,6 +297,7 @@ namespace MS2.Tables
                     + "\napply to:    " + targetBox.Text + "\n" + archiveBox.Items.Count + " archive(s), " + modsList.Items.Count + " mod(s)" + resumed);
                 if (archiveBox.Items.Count > 0) archiveBox.SelectedIndex = PreferredArchive();
             });
+            NotifyChanged();
         }
 
         static string Shown(string folder) { return string.IsNullOrEmpty(folder) ? "(not set)" : folder; }
@@ -473,6 +475,7 @@ namespace MS2.Tables
             SyncColumns();
             if (rowIndex >= 0 && rowIndex < grid.RowCount) grid.InvalidateRow(rowIndex); else grid.Invalidate();
             ShowMod();
+            NotifyChanged();
         }
 
         void ShowMod()
@@ -534,6 +537,7 @@ namespace MS2.Tables
             int n = draft.CopyEditsTo(other);
             ShowMod();
             Say(n + " operation(s) on " + draft.Entry + " written for " + other + " too");
+            NotifyChanged();
         }
 
         // ---- the mod ----
@@ -550,11 +554,12 @@ namespace MS2.Tables
             ShowMod();
             FillMods();
             Say("new mod " + s.Mod.Id);
+            NotifyChanged();
         }
 
         void SaveMod()
         {
-            grid.EndEdit();
+            FlushEdits();
             string dir = Session().SaveMod();
             MarkSaved();
             FillMods();
@@ -575,6 +580,7 @@ namespace MS2.Tables
             ShowMod();
             FillMods();
             Say("loaded mod " + s.Mod.Id + " from " + s.Mod.Dir + ": " + s.Mod.Ops.Count + " operation block(s)");
+            NotifyChanged();
         }
 
         // ---- unsaved changes ----
@@ -588,7 +594,7 @@ namespace MS2.Tables
         bool Unsaved()
         {
             if (session == null) return false;
-            try { grid.EndEdit(); } catch (Exception) { }
+            try { FlushEdits(); } catch (Exception) { }
             return session.Mod.ToXml() != savedXml;
         }
 
@@ -634,6 +640,49 @@ namespace MS2.Tables
             return true;
         }
 
+        // ---- for the other views of the plugin (MS2 Items) ----
+        //
+        // The session, the mod being edited, the worker thread and the close question are this view's. Another view
+        // edits the same mod through the session and tells this view; it does not keep any of them itself.
+
+        /// <summary>The session or its mod was replaced or edited here: what another view shows of the mod is stale.</summary>
+        internal event MethodInvoker Changed;
+        /// <summary>The mod is about to be read (save, plan, apply, close question): commit edits still in a cell.</summary>
+        internal event MethodInvoker Flushing;
+        /// <summary>A job started (true) or ended (false) on the worker thread.</summary>
+        internal event Action<bool> BusyChanged;
+        /// <summary>The text of the output pane changed.</summary>
+        internal event Action<string> Said;
+
+        void NotifyChanged() { if (Changed != null) Changed(); }
+
+        void FlushEdits()
+        {
+            grid.EndEdit();
+            if (Flushing != null) Flushing();
+        }
+
+        internal EditorSession SharedSession() { return Session(); }
+
+        internal bool Busy { get { return busy != null; } }
+
+        /// <summary>Another view changed the mod: the table on screen and the pending pane follow.</summary>
+        internal void EditedOutside()
+        {
+            ReopenTable();
+            ShowMod();
+        }
+
+        /// <summary>Save mod, for another view.</summary>
+        internal void SaveFromOutside() { SaveMod(); }
+
+        /// <summary>Runs a command of another view the way this view runs its own: errors go to the output pane.</summary>
+        internal bool RunGuarded(MethodInvoker body) { return Guard(body); }
+
+        internal void SayOutside(string text) { Say(text); }
+
+        internal string OutputText { get { return outputBox.Text; } }
+
         // ---- jobs on the worker thread ----
 
         delegate void Job(Action<ProgressInfo> progress);
@@ -651,6 +700,7 @@ namespace MS2.Tables
             foreach (Control c in lockable) c.Enabled = what == null;
             busyLabel.Text = what == null ? "" : what + "...";
             UseWaitCursor = what != null;
+            if (BusyChanged != null) BusyChanged(what != null);
         }
 
         /// <summary>
@@ -736,7 +786,7 @@ namespace MS2.Tables
         public bool DoPlan()
         {
             Plan p = null;
-            return Guard(delegate { grid.EndEdit(); Session(); })
+            return Guard(delegate { FlushEdits(); Session(); })
                 && RunJob("Plan", delegate(Action<ProgressInfo> progress) { p = session.Plan(progress); }, delegate
                 {
                     Say(EditorSession.Report(p));
@@ -747,7 +797,7 @@ namespace MS2.Tables
         public bool DoApply()
         {
             ApplyResult r = null;
-            return Guard(delegate { grid.EndEdit(); Session(); })
+            return Guard(delegate { FlushEdits(); Session(); })
                 && RunJob("Apply", delegate(Action<ProgressInfo> progress) { r = session.Apply(progress); }, delegate
                 {
                     FillMods();
