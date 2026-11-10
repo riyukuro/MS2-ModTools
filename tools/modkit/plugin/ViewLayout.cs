@@ -14,9 +14,9 @@ namespace MS2.Tables
         /// bound to a document: for any other view it takes Document out of the allowed dock areas when the view is
         /// made, so default-dock="Document" in plugin.xml ends up as a pane at the right edge, a fifth of the window
         /// wide, beside an empty centre. The view's dock window is a DockContent; this allows Document again and shows
-        /// it there. A floating view is left where the user put it.
+        /// it there, as a tab of the document pane. A floating view is left where the user put it.
         /// </summary>
-        public static void ToCentre(Control view)
+        public static bool ToCentre(Control view)
         {
             try
             {
@@ -25,25 +25,50 @@ namespace MS2.Tables
                     var dc = c as DockContent;
                     if (dc == null) continue;
                     DockPanel p = dc.DockPanel;
-                    if (p == null || dc.DockState == DockState.Document || dc.DockState == DockState.Float) return;
+                    if (p == null) return false;
+                    if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) return true;
                     dc.DockAreas |= DockAreas.Document;
-                    dc.Show(p, DockState.Document);
-                    return;
+                    // Show(panel, Document) keeps the pane the window already has (the right one), so the window
+                    // joins the document pane that is there as a tab, or makes the document pane when there is none.
+                    DockPane doc = p.ActiveDocumentPane;
+                    if (doc == null || doc.DockState != DockState.Document)
+                    {
+                        doc = null;
+                        foreach (DockPane pane in p.Panes)
+                            if (pane.DockState == DockState.Document && !pane.IsHidden) { doc = pane; break; }
+                    }
+                    if (doc != null) dc.Show(doc, null);
+                    else dc.DockTo(p, DockStyle.Fill);
+                    dc.Activate();
+                    return true;
                 }
             }
-            catch (Exception ex) { Logger.Warning("MS2 Mods: could not move the view to the centre area: " + ex.Message); }
+            catch (Exception ex) { Logger.Warning("MS2 Mods: could not move the view to the centre area: " + ex.Message); return true; }
+            return false;
         }
 
-        /// <summary>The first time the view becomes visible (Toolbench shows it at start), it moves to the centre area.</summary>
+        /// <summary>
+        /// The first time the view is shown in a dock window (Toolbench shows the views it had open at start, before or
+        /// after their window handle exists), it moves to the centre area.
+        /// </summary>
         public static void CentreOnFirstShow(Control view)
         {
-            bool done = false;
-            view.VisibleChanged += delegate
+            bool done = false, queued = false;
+            EventHandler attempt = null;
+            attempt = delegate
             {
-                if (done || !view.Visible || !view.IsHandleCreated) return;
-                done = true;
-                view.BeginInvoke((MethodInvoker)delegate { ToCentre(view); });
+                if (done || queued || !view.IsHandleCreated) return;
+                queued = true;
+                view.BeginInvoke((MethodInvoker)delegate
+                {
+                    queued = false;
+                    if (done || view.IsDisposed) return;
+                    done = ToCentre(view);
+                });
             };
+            view.HandleCreated += attempt;
+            view.VisibleChanged += attempt;
+            view.ParentChanged += attempt;
         }
 
         /// <summary>
