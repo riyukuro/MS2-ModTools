@@ -286,7 +286,9 @@ Using it:
    folder and is left out. Mods are applied from the top down, which matters when you allow conflicts (the later mod
    wins); **Up** and **Down** move the selected mod. **Load mod** (or a double-click) loads the selected mod into the
    grid. The mod being edited is marked and always takes part, checked or not. The checks and the order are kept in
-   `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them.
+   `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them. When the view opens and
+   the mods folder already has a mod with the id being edited (`my.mod` at first), that saved mod is loaded, so work
+   goes on where it was saved. Changes that were not saved are lost when Toolbench is closed; it does not ask.
 6. **Apply to** chooses where the client's tables go: **game folder (loose files)**, the default once a game folder is
    set, or **workspace (patched archives)**.
 7. **Plan** shows what the checked mods plus the pending edits would change, with errors, conflicts and

@@ -276,10 +276,20 @@ namespace MS2.Tables
                 session.Target = target;
                 filling = false;
                 FillMods();
+                // a mod saved under the id being edited is the one being edited: without this an Apply right after
+                // a start would leave that saved mod out, because the (empty) mod in memory stands for it
+                string resumed = "";
+                ModListItem saved = session.Mod.Ops.Count == 0 && modList != null ? modList.FindId(session.Mod.Id) : null;
+                if (saved != null)
+                {
+                    session.LoadMod(saved.Folder);
+                    FillMods();
+                    resumed = "\nediting:     mod " + session.Mod.Id + " as saved in the mods folder";
+                }
                 ShowMod();
                 Say("client data: " + Shown(s.ClientData) + "\nserver data: " + Shown(s.ServerData) + "\nmods folder: " + Shown(s.ModsDir)
                     + "\nworkspace:   " + Shown(s.Workspace) + "\ngame folder: " + Shown(s.GameDir)
-                    + "\napply to:    " + targetBox.Text + "\n" + archiveBox.Items.Count + " archive(s), " + modsList.Items.Count + " mod(s)");
+                    + "\napply to:    " + targetBox.Text + "\n" + archiveBox.Items.Count + " archive(s), " + modsList.Items.Count + " mod(s)" + resumed);
                 if (archiveBox.Items.Count > 0) archiveBox.SelectedIndex = PreferredArchive();
             });
         }
@@ -551,7 +561,7 @@ namespace MS2.Tables
             ModListItem it = SelectedMod();
             if (it.Error != null) throw new ModKitException(it.Error);
             grid.CancelEdit();
-            if (s.Mod.Ops.Count > 0 && s.Mod.Id != it.Id && MessageBox.Show(this, "Load mod " + it.Id + "? Changes of mod " + s.Mod.Id + " that are not saved are dropped.",
+            if (s.Mod.Ops.Count > 0 && MessageBox.Show(this, (s.Mod.Id == it.Id ? "Load mod " + it.Id + " again as it was saved?" : "Load mod " + it.Id + "?") + " Changes of mod " + s.Mod.Id + " that are not saved are dropped.",
                     "MS2 Tables", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK) return;
             s.LoadMod(it.Folder);
             ReopenTable();
