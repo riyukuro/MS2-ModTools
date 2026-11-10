@@ -1,0 +1,253 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Field map of the item entity: which attribute of the client's item table corresponds to which attribute of
+     the server's item file. It names files, elements and attributes only; it holds no row of either side.
+
+     How it was made: the same ids were read on both sides of one shipped data set and every pair of fields was
+     compared id by id. Only ids with exactly one row and one <environment> on each side were compared ("sample").
+       compared      ids where both sides carry the field
+       agree/differ  of those, how many correspond under "convert"
+       clientAbsent  ids where only the server carries it; "default" is given when the server holds that one
+                     value in 97% or more of them (an absent client attribute then counts as that value)
+       loader        yes = the attribute name was also found in the client's item loader
+       confidence    high: 97% or more agree and at least 20 compared; medium: 90% or more; low: the rest
+     Fields are written as element-path@attribute, the path counted from <environment>.
+
+     map         both sides are kept equal: a mod that changes one side changes the other (see README)
+     candidate   a pair with different names that agrees too rarely to be trusted; reported, never synced
+     clientOnly  no counterpart in the server file
+     serverOnly  no counterpart in the client table
+
+     convert     same     equal text
+                 bool     client true/false, server 1/0
+                 numlist  numbers separated by commas, compared as numbers (the server writes 0.000000, 0.000000)
+                 affix    the client may hold the bare name, the server holds prefix + name + suffix
+                 pick     the server holds a list; the client holds the same list, or the one element chosen by
+                          the "index" field of the server file (counted from 1) -->
+<fieldmaps version="1">
+  <entity name="item" sample="30798">
+    <client archive="client:Xml.m2d" entry="itemdata/{id/100000}.xml" row="item" key="id" under="environment" />
+    <server archive="server:Xml.m2d" entry="item/*/*/{id}.xml" under="environment" />
+    <map client="AdditionalEffect@dropEffect" server="AdditionalEffect@dropEffect" convert="same" default="1" compared="8" agree="8" differ="0" clientAbsent="2" loader="yes" confidence="medium" />
+    <map client="AdditionalEffect@id" server="AdditionalEffect@id" convert="same" default="" compared="1937" agree="1929" differ="8" clientAbsent="28861" loader="no" confidence="high" />
+    <map client="AdditionalEffect@level" server="AdditionalEffect@level" convert="same" default="" compared="1937" agree="1929" differ="8" clientAbsent="28861" loader="no" confidence="high" />
+    <map client="PCBang@PCBang" server="PCBang@PCBang" convert="same" default="0" compared="342" agree="342" differ="0" clientAbsent="30456" loader="yes" confidence="high" />
+    <map client="basic@originID" server="basic@originID" convert="same" compared="2198" agree="2088" differ="110" clientAbsent="49" loader="yes" confidence="medium" />
+    <map client="basic@stringTag" server="basic@stringTag" convert="same" default="" compared="590" agree="571" differ="19" clientAbsent="30208" loader="yes" confidence="medium" />
+    <map client="effect@battleIdle" server="effect@battleIdle" convert="same" default="" compared="64" agree="64" differ="0" clientAbsent="30734" loader="yes" confidence="high" />
+    <map client="effect@characterBattleIdle" server="effect@characterBattleIdle" convert="same" default="" compared="137" agree="131" differ="6" clientAbsent="30661" loader="yes" confidence="medium" />
+    <map client="effect@characterIdle" server="effect@characterIdle" convert="same" default="" compared="131" agree="123" differ="8" clientAbsent="30667" loader="yes" confidence="medium" />
+    <map client="effect@enchantShape" server="effect@enchantShape" convert="same" default="1" compared="215" agree="214" differ="1" clientAbsent="30583" loader="yes" confidence="high" />
+    <map client="effect@idle" server="effect@idle" convert="same" default="" compared="86" agree="59" differ="27" clientAbsent="30712" loader="yes" confidence="low" />
+    <map client="function@name" server="function@name" convert="same" default="" compared="6687" agree="6633" differ="54" clientAbsent="24111" loader="yes" confidence="high" />
+    <map client="function@parameter" server="function@parameter" convert="same" compared="4362" agree="4314" differ="48" clientAbsent="26436" loader="yes" confidence="high" />
+    <map client="fusion@fusionable" server="fusion@fusionable" convert="same" default="0" compared="3432" agree="3432" differ="0" clientAbsent="27366" loader="yes" confidence="high" />
+    <map client="install@animatable" server="install@animatable" convert="same" default="0" compared="464" agree="464" differ="0" clientAbsent="30334" loader="yes" confidence="high" />
+    <map client="install@asset" server="install@asset" convert="same" default="" compared="360" agree="354" differ="6" clientAbsent="30438" loader="yes" confidence="high" />
+    <map client="install@attachable" server="install@attachable" convert="same" default="0" compared="93" agree="93" differ="0" clientAbsent="30705" loader="yes" confidence="high" />
+    <map client="install@cannotStackAttach" server="install@cannotStackAttach" convert="same" default="0" compared="25" agree="25" differ="0" clientAbsent="30773" loader="yes" confidence="high" />
+    <map client="install@cubeProp" server="install@cubeProp" convert="same" default="0" compared="449" agree="449" differ="0" clientAbsent="30349" loader="yes" confidence="high" />
+    <map client="install@generatePhysX" server="install@generatePhysX" convert="same" default="0" compared="605" agree="605" differ="0" clientAbsent="30193" loader="yes" confidence="high" />
+    <map client="install@indoor" server="install@indoor" convert="same" default="0" compared="56" agree="56" differ="0" clientAbsent="30742" loader="no" confidence="high" />
+    <map client="install@mapAttribute" server="install@mapAttribute" convert="same" default="" compared="289" agree="289" differ="0" clientAbsent="30509" loader="yes" confidence="high" />
+    <map client="install@objCode" server="install@objCode" convert="same" default="0" compared="368" agree="368" differ="0" clientAbsent="30430" loader="yes" confidence="high" />
+    <map client="install@physXdimension" server="install@physXdimension" convert="numlist" compared="581" agree="581" differ="0" clientAbsent="30217" loader="yes" confidence="high" />
+    <map client="install@placeable" server="install@placeable" convert="same" default="0" compared="2269" agree="2269" differ="0" clientAbsent="28529" loader="yes" confidence="high" />
+    <map client="install@preset" server="install@preset" convert="same" default="" compared="1909" agree="1909" differ="0" clientAbsent="28889" loader="yes" confidence="high" />
+    <map client="install@propCollisionGroup" server="install@propCollisionGroup" convert="same" default="" compared="5" agree="5" differ="0" clientAbsent="30793" loader="yes" confidence="medium" />
+    <map client="install@space" server="install@space" convert="same" default="0" compared="2269" agree="2269" differ="0" clientAbsent="28529" loader="yes" confidence="high" />
+    <map client="install@stackable" server="install@stackable" convert="same" default="0" compared="640" agree="639" differ="1" clientAbsent="30158" loader="yes" confidence="high" />
+    <map client="install@staticAngle" server="install@staticAngle" convert="same" default="0" compared="24" agree="24" differ="0" clientAbsent="30774" loader="yes" confidence="high" />
+    <map client="install@unchangeable" server="install@unchangeable" convert="same" default="0" compared="199" agree="199" differ="0" clientAbsent="30599" loader="yes" confidence="high" />
+    <map client="install@useInstancing" server="install@useInstancing" convert="same" compared="5" agree="5" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="install@wall" server="install@wall" convert="same" default="0" compared="414" agree="414" differ="0" clientAbsent="30384" loader="yes" confidence="high" />
+    <map client="life@expirationPeriod" server="life@expirationPeriod" convert="same" default="" compared="828" agree="802" differ="26" clientAbsent="29970" loader="yes" confidence="medium" />
+    <map client="life@expirationType" server="life@expirationType" convert="same" default="2" compared="287" agree="287" differ="0" clientAbsent="17" loader="yes" confidence="high" />
+    <map client="life@numberOfWeeksMonths" server="life@numberOfWeeksMonths" convert="same" default="2" compared="285" agree="285" differ="0" clientAbsent="17" loader="yes" confidence="high" />
+    <map client="life@usePeriod" server="life@usePeriod" convert="same" default="0" compared="825" agree="818" differ="7" clientAbsent="29973" loader="yes" confidence="high" />
+    <map client="limit@disableJobLimit" server="limit@disableJobLimit" convert="same" compared="6" agree="6" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="limit@enableBreak" server="limit@enableBreak" convert="same" default="0" compared="11644" agree="11500" differ="144" clientAbsent="19154" loader="yes" confidence="high" />
+    <map client="limit@enableRegisterMeratMarket" server="limit@enableRegisterMeratMarket" convert="same" default="0" compared="139" agree="139" differ="0" clientAbsent="30659" loader="yes" confidence="high" />
+    <map client="limit@enableSocketTransfer" server="limit@enableSocketTransfer" convert="same" default="false" compared="2" agree="2" differ="0" clientAbsent="1622" loader="no" confidence="medium" />
+    <map client="limit@exceptEnchant" server="limit@exceptEnchant" convert="same" default="0" compared="400" agree="400" differ="0" clientAbsent="30398" loader="yes" confidence="high" />
+    <map client="limit@genderLimit" server="limit@genderLimit" convert="same" default="2" compared="3930" agree="3930" differ="0" clientAbsent="26868" loader="yes" confidence="high" />
+    <map client="limit@globalTransferType" server="limit@globalTransferType" convert="same" compared="1730" agree="1655" differ="75" clientAbsent="2603" loader="yes" confidence="medium" />
+    <map client="limit@jobLimit" server="limit@jobLimit" convert="same" default="" compared="6618" agree="6598" differ="20" clientAbsent="24180" loader="yes" confidence="high" />
+    <map client="limit@levelLimit" server="limit@levelLimit" convert="same" default="1" compared="10095" agree="10084" differ="11" clientAbsent="20703" loader="yes" confidence="high" />
+    <map client="limit@recommendJobs" server="limit@recommendJobs" convert="same" default="0" compared="12330" agree="12327" differ="3" clientAbsent="18468" loader="yes" confidence="high" />
+    <map client="limit@shopSell" server="limit@shopSell" convert="same" default="0" compared="11081" agree="11076" differ="5" clientAbsent="19717" loader="yes" confidence="high" />
+    <map client="limit@transferType" server="limit@transferType" convert="same" compared="28378" agree="25768" differ="2610" clientAbsent="2420" loader="yes" confidence="medium" />
+    <map client="limit@vip" server="limit@vip" convert="same" default="1" compared="11" agree="11" differ="0" clientAbsent="1" loader="yes" confidence="medium" />
+    <map client="limit@wedding" server="limit@wedding" convert="same" compared="1" agree="1" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="material@attack" server="material@attack" convert="same" default="0" compared="3936" agree="3905" differ="31" clientAbsent="26862" loader="yes" confidence="high" />
+    <map client="material@ui" server="material@ui" convert="same" compared="17233" agree="17209" differ="24" clientAbsent="13565" loader="yes" confidence="high" />
+    <map client="option@optionLevelFactor" server="option@optionLevelFactor" convert="same" compared="675" agree="551" differ="124" clientAbsent="30123" loader="yes" confidence="low" />
+    <map client="property/sell@price" server="property/sell@price" convert="pick" index="property@rank" compared="9661" agree="7659" differ="2002" clientAbsent="21137" loader="yes" confidence="low" />
+    <map client="property@applyFatiguePenalty" server="property@applyFatiguePenalty" convert="same" compared="17" agree="17" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="property@blackMarketCategory" server="property@blackMarketCategory" convert="same" default="None" compared="30129" agree="30052" differ="77" clientAbsent="669" loader="yes" confidence="high" />
+    <map client="property@category" server="property@category" convert="same" default="" compared="29134" agree="29088" differ="46" clientAbsent="1664" loader="yes" confidence="high" />
+    <map client="property@collection" server="property@collection" convert="same" default="0" compared="44" agree="44" differ="0" clientAbsent="30754" loader="yes" confidence="high" />
+    <map client="property@doNotPreview" server="property@doNotPreview" convert="same" default="0" compared="11204" agree="11204" differ="0" clientAbsent="19594" loader="yes" confidence="high" />
+    <map client="property@gearScore" server="property@gearScore" convert="same" default="0" compared="8773" agree="8711" differ="62" clientAbsent="22025" loader="yes" confidence="high" />
+    <map client="property@globalRePackingItemConsumeCount" server="property@globalRePackingItemConsumeCount" convert="same" compared="538" agree="538" differ="0" clientAbsent="1313" loader="yes" confidence="high" />
+    <map client="property@globalRePackingScrollID" server="property@globalRePackingScrollID" convert="same" compared="486" agree="486" differ="0" clientAbsent="1022" loader="yes" confidence="high" />
+    <map client="property@iconCode" server="property@iconCode" convert="same" compared="30132" agree="30083" differ="49" clientAbsent="666" loader="no" confidence="high" />
+    <map client="property@itemGroup" server="property@itemGroup" convert="same" compared="12440" agree="12366" differ="74" clientAbsent="18358" loader="no" confidence="high" />
+    <map client="property@moveDisable" server="property@moveDisable" convert="bool" compared="1133" agree="1133" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="property@movie" server="property@movie" convert="same" default="" compared="1136" agree="1133" differ="3" clientAbsent="29662" loader="yes" confidence="high" />
+    <map client="property@rank" server="property@rank" convert="same" compared="29143" agree="28888" differ="255" clientAbsent="615" loader="yes" confidence="high" />
+    <map client="property@rePackingItemConsumeCount" server="property@rePackingItemConsumeCount" convert="same" default="0" compared="1332" agree="1105" differ="227" clientAbsent="29466" loader="yes" confidence="low" />
+    <map client="property@rePackingLimitCount" server="property@rePackingLimitCount" convert="same" default="0" compared="1673" agree="1481" differ="192" clientAbsent="29125" loader="yes" confidence="low" />
+    <map client="property@rePackingScrollID" server="property@rePackingScrollID" convert="same" compared="52" agree="52" differ="0" clientAbsent="0" loader="yes" confidence="high" />
+    <map client="property@remakeDisable" server="property@remakeDisable" convert="same" default="false" compared="269" agree="269" differ="0" clientAbsent="30529" loader="yes" confidence="high" />
+    <map client="property@skinType" server="property@skinType" convert="same" compared="6768" agree="6768" differ="0" clientAbsent="0" loader="no" confidence="high" />
+    <map client="property@slotIcon" server="property@slotIcon" convert="affix" prefix="./Data/Resource/Image/item/icon/" suffix=".png" compared="23080" agree="21996" differ="1084" clientAbsent="7718" loader="yes" confidence="medium" />
+    <map client="property@slotMax" server="property@slotMax" convert="same" default="1" compared="12939" agree="12899" differ="40" clientAbsent="17859" loader="yes" confidence="high" />
+    <map client="property@socketDataId" server="property@socketDataId" convert="same" compared="5189" agree="4852" differ="337" clientAbsent="153" loader="yes" confidence="medium" />
+    <map client="property@subtype" server="property@subtype" convert="same" compared="18341" agree="2444" differ="15897" clientAbsent="12457" loader="yes" confidence="low" />
+    <map client="property@type" server="property@type" convert="same" compared="30798" agree="26824" differ="3974" clientAbsent="0" loader="no" confidence="low" />
+    <map client="property@unlimitedEnchantMaxGrade" server="property@unlimitedEnchantMaxGrade" convert="same" compared="11" agree="11" differ="0" clientAbsent="0" loader="yes" confidence="medium" />
+    <map client="skill@skillID" server="skill@skillID" convert="same" default="0" compared="1100" agree="1080" differ="20" clientAbsent="29698" loader="yes" confidence="high" />
+    <map client="skill@skillLevel" server="skill@skillLevel" convert="same" default="1" compared="54" agree="54" differ="0" clientAbsent="30744" loader="yes" confidence="high" />
+    <map client="tool@itemPreset" server="tool@itemPreset" convert="same" compared="16458" agree="15775" differ="683" clientAbsent="14340" loader="yes" confidence="medium" />
+    <map client="ucc@mesh" server="ucc@mesh" convert="same" default="" compared="147" agree="147" differ="0" clientAbsent="30651" loader="yes" confidence="high" />
+    <candidate client="option@constantID" server="option@optionID" convert="same" compared="9606" agree="5458" differ="4148" clientAbsent="21192" loader="yes" confidence="low" />
+    <candidate client="option@optionLevel" server="option@optionLevelFactor" convert="same" compared="8814" agree="6468" differ="2346" clientAbsent="21984" loader="yes" confidence="low" />
+    <candidate client="property@slotIcon" server="property@slotIconCustom" convert="same" compared="23080" agree="785" differ="22295" clientAbsent="7718" loader="yes" confidence="low" />
+    <clientOnly field="function@param1" seen="2207" loader="yes" />
+    <clientOnly field="function@param2" seen="28" loader="yes" />
+    <clientOnly field="limit@transferTypeVersion" seen="33" loader="yes" />
+    <clientOnly field="option@randomID" seen="5369" loader="yes" />
+    <clientOnly field="property@param1" seen="1465" loader="yes" />
+    <clientOnly field="property@param2" seen="41" loader="yes" />
+    <serverOnly field="MusicScore@fileName" seen="30798" />
+    <serverOnly field="MusicScore@isCustomNote" seen="30798" />
+    <serverOnly field="MusicScore@masteryValue" seen="30798" />
+    <serverOnly field="MusicScore@masteryValueMax" seen="30798" />
+    <serverOnly field="MusicScore@noteLengthMax" seen="30798" />
+    <serverOnly field="MusicScore@playCount" seen="30798" />
+    <serverOnly field="MusicScore@playTime" seen="30798" />
+    <serverOnly field="MusicScore@recommendCategoryId" seen="30798" />
+    <serverOnly field="Shop@systemShopID" seen="56" />
+    <serverOnly field="basic@attributeTag" seen="1" />
+    <serverOnly field="basic@friendly" seen="30798" />
+    <serverOnly field="customize/CP/transform@position" seen="259" />
+    <serverOnly field="customize/CP/transform@rotation" seen="259" />
+    <serverOnly field="customize/CP/transform@scale" seen="259" />
+    <serverOnly field="customize/CP@attach" seen="30798" />
+    <serverOnly field="customize/CP@scale" seen="30798" />
+    <serverOnly field="customize/CP@xrotation" seen="30798" />
+    <serverOnly field="customize/CP@yrotation" seen="30798" />
+    <serverOnly field="customize/CP@zrotation" seen="30798" />
+    <serverOnly field="customize/FD@rotation" seen="30798" />
+    <serverOnly field="customize/FD@scale" seen="30798" />
+    <serverOnly field="customize/FD@translation" seen="30798" />
+    <serverOnly field="customize/HR@pony" seen="30798" />
+    <serverOnly field="customize/HR@scale" seen="30798" />
+    <serverOnly field="customize@ch0" seen="30798" />
+    <serverOnly field="customize@ch1" seen="30798" />
+    <serverOnly field="customize@ch2" seen="30798" />
+    <serverOnly field="customize@color" seen="30798" />
+    <serverOnly field="customize@colorPalette" seen="30798" />
+    <serverOnly field="customize@colordetail" seen="30798" />
+    <serverOnly field="customize@defaultColorIndex" seen="30798" />
+    <serverOnly field="cutting/mesh@gender" seen="485" />
+    <serverOnly field="cutting/mesh@name" seen="485" />
+    <serverOnly field="drop@dropDisplay" seen="30798" />
+    <serverOnly field="drop@dropNif" seen="30798" />
+    <serverOnly field="function@onlyShadowContinent" seen="30798" />
+    <serverOnly field="gem@property" seen="30798" />
+    <serverOnly field="gem@system" seen="30798" />
+    <serverOnly field="housing@categoryIndex" seen="30798" />
+    <serverOnly field="housing@categoryTag" seen="30798" />
+    <serverOnly field="housing@doNotInstallBlueprint" seen="376" />
+    <serverOnly field="housing@filter" seen="30798" />
+    <serverOnly field="housing@interiorLevel" seen="30798" />
+    <serverOnly field="housing@setItemID" seen="11" />
+    <serverOnly field="housing@trophyID" seen="30798" />
+    <serverOnly field="housing@trophyLevel" seen="30798" />
+    <serverOnly field="install@bankType" seen="30798" />
+    <serverOnly field="install@funcCode" seen="30798" />
+    <serverOnly field="install@stackableD" seen="30798" />
+    <serverOnly field="limit@globalTransferTypeNA" seen="599" />
+    <serverOnly field="limit@levelLimitMax" seen="30798" />
+    <serverOnly field="limit@tradeLimitRank" seen="10" />
+    <serverOnly field="maid@maidID" seen="30798" />
+    <serverOnly field="mutation@assets" seen="30798" />
+    <serverOnly field="mutation@changeeffect" seen="30798" />
+    <serverOnly field="mutation@interval" seen="30798" />
+    <serverOnly field="mutation@skills" seen="30798" />
+    <serverOnly field="objectWeaponSkill@skillID" seen="30798" />
+    <serverOnly field="objectWeaponSkill@skillLevel" seen="30798" />
+    <serverOnly field="option@constant" seen="30798" />
+    <serverOnly field="option@constantMakeType" seen="30798" />
+    <serverOnly field="option@globalOptionLevelFactor" seen="867" />
+    <serverOnly field="option@optionID" seen="30798" />
+    <serverOnly field="option@optionRandom" seen="30798" />
+    <serverOnly field="option@random" seen="30798" />
+    <serverOnly field="option@randomMakeType" seen="30798" />
+    <serverOnly field="option@static" seen="30798" />
+    <serverOnly field="option@staticMakeType" seen="30798" />
+    <serverOnly field="option@title" seen="30798" />
+    <serverOnly field="pet@petID" seen="30798" />
+    <serverOnly field="property/exp@adventureExp" seen="30798" />
+    <serverOnly field="property/exp@attackExp" seen="30798" />
+    <serverOnly field="property/exp@lifeExp" seen="30798" />
+    <serverOnly field="property/sell@priceCustom" seen="30798" />
+    <serverOnly field="property@doNotSkipRender" seen="30798" />
+    <serverOnly field="property@functionTags" seen="582" />
+    <serverOnly field="property@globalRePackingLimitCount" seen="743" />
+    <serverOnly field="property@globalTradableCount" seen="1221" />
+    <serverOnly field="property@globalTradableCountDeduction" seen="471" />
+    <serverOnly field="property@globalTradableCountNA" seen="130" />
+    <serverOnly field="property@presetPath" seen="30798" />
+    <serverOnly field="property@reference" seen="30798" />
+    <serverOnly field="property@representOption" seen="30798" />
+    <serverOnly field="property@skin" seen="30798" />
+    <serverOnly field="property@slotIconCustom" seen="30798" />
+    <serverOnly field="property@survival" seen="7" />
+    <serverOnly field="property@tradableCount" seen="30798" />
+    <serverOnly field="property@tradableCountDeduction" seen="1161" />
+    <serverOnly field="property@useSurvival" seen="119" />
+    <serverOnly field="property@xmlData" seen="30798" />
+    <serverOnly field="ride@rideBuildScale" seen="30798" />
+    <serverOnly field="ride@rideMonster" seen="30798" />
+    <serverOnly field="slots/slot/asset/custom@icon" seen="13" />
+    <serverOnly field="slots/slot/asset/custom@position" seen="13" />
+    <serverOnly field="slots/slot/asset/custom@rotation" seen="13" />
+    <serverOnly field="slots/slot/asset/dummy@gender" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@rotation" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@sequence" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@step" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@targetnode" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@translation" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@worldlerp" seen="29" />
+    <serverOnly field="slots/slot/asset/dummy@worldmode" seen="29" />
+    <serverOnly field="slots/slot/asset/physx@action" seen="12172" />
+    <serverOnly field="slots/slot/asset@ani" seen="12172" />
+    <serverOnly field="slots/slot/asset@attachnode" seen="12172" />
+    <serverOnly field="slots/slot/asset@capscale" seen="12172" />
+    <serverOnly field="slots/slot/asset@earfold" seen="12172" />
+    <serverOnly field="slots/slot/asset@emotionhide" seen="12172" />
+    <serverOnly field="slots/slot/asset@gender" seen="12172" />
+    <serverOnly field="slots/slot/asset@name" seen="12172" />
+    <serverOnly field="slots/slot/asset@placeable" seen="12172" />
+    <serverOnly field="slots/slot/asset@pony" seen="12172" />
+    <serverOnly field="slots/slot/asset@replace" seen="12172" />
+    <serverOnly field="slots/slot/asset@selfnode" seen="12172" />
+    <serverOnly field="slots/slot/asset@targetnode" seen="12172" />
+    <serverOnly field="slots/slot/asset@weapon" seen="12172" />
+    <serverOnly field="slots/slot/asset@zalign" seen="12172" />
+    <serverOnly field="slots/slot/decal/custom@icon" seen="46" />
+    <serverOnly field="slots/slot/decal/custom@position" seen="46" />
+    <serverOnly field="slots/slot/decal/custom@rotation" seen="46" />
+    <serverOnly field="slots/slot/decal@controlTexture" seen="207" />
+    <serverOnly field="slots/slot/decal@texture" seen="207" />
+    <serverOnly field="slots/slot/scale@max" seen="402" />
+    <serverOnly field="slots/slot/scale@min" seen="402" />
+    <serverOnly field="slots/slot/scale@reverse" seen="402" />
+    <serverOnly field="slots/slot/scale@value" seen="402" />
+    <serverOnly field="slots/slot@name" seen="27579" />
+    <serverOnly field="title@maxCount" seen="30798" />
+    <serverOnly field="tool@itemPresetPath" seen="30798" />
+  </entity>
+</fieldmaps>
