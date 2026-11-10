@@ -271,7 +271,7 @@ namespace MS2.Tables
                 archiveBox.Items.Clear();
                 entryList.Items.Clear();
                 TablesSettings s = TablesSettings.Load();
-                session = new EditorSession(s.ClientData, s.ServerData, s.ModsDir, s.Workspace);
+                session = new EditorSession(s.ClientData, s.GmsData, s.ServerData, s.ModsDir, s.Workspace);
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
                 session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;
@@ -298,7 +298,7 @@ namespace MS2.Tables
                     resumed = "\nediting:     mod " + session.Mod.Id + " as saved in the mods folder";
                 }
                 ShowMod();
-                Say("client data: " + Shown(s.ClientData) + "\nserver data: " + Shown(s.ServerData) + "\nmods folder: " + Shown(s.ModsDir)
+                Say(Targets.Line(session.Data) + "\nkms-client data: " + Shown(s.ClientData) + "\ngms-client data: " + Shown(s.GmsData) + "\nserver data: " + Shown(s.ServerData) + "\nmods folder: " + Shown(s.ModsDir)
                     + "\nworkspace:   " + Shown(s.Workspace) + "\ngame folder: " + Shown(s.GameDir)
                     + "\nserver target folder: " + (session.Server.HasTarget ? session.Server.TargetDir : "(not set: the server archive stays in the workspace)")
                     + "\ncommand after apply:  " + (session.Server.HasCommand ? session.Server.Command : "(not set: nothing is run)")
@@ -822,7 +822,7 @@ namespace MS2.Tables
             return Guard(delegate { FlushEdits(); Session(); })
                 && RunJob("Plan", delegate(Action<ProgressInfo> progress) { p = session.Plan(progress); }, delegate
                 {
-                    Say(EditorSession.Report(p));
+                    Say(session.Describe(p));
                     Logger.Info("MS2 Tables: plan: " + p.Changes.Count + " change(s), " + p.Errors.Count + " error(s), " + p.Conflicts.Count + " conflict(s)");
                 });
         }
@@ -835,7 +835,7 @@ namespace MS2.Tables
                 {
                     FillMods();
                     ShowMod();
-                    Say(EditorSession.Report(r));
+                    Say(session.Describe(r));
                     if (r.Applied) Logger.Info("MS2 Tables: applied " + r.Plan.Mods.Count + " mod(s) to " + Where());
                     else Logger.Warning("MS2 Tables: nothing applied: " + r.Reason);
                 });
@@ -869,7 +869,7 @@ namespace MS2.Tables
             return Guard(delegate { Session(); })
                 && RunJob("Revert", delegate(Action<ProgressInfo> progress) { r = session.Revert(); }, delegate
                 {
-                    Say(EditorSession.Report(r));
+                    Say(session.Describe(r));
                     Logger.Info("MS2 Tables: revert removed " + r.Removed.Count + " file(s)");
                 });
         }

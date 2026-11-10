@@ -71,7 +71,7 @@ namespace MS2.Tables
             applyBar.Controls.Add(Lbl("Apply to"));
             targetBox.Items.Add("workspace (patched archives)");
             targetBox.Items.Add("game folder (loose files)");
-            tips.SetToolTip(targetBox, "Where Apply writes the client's tables (the same choice as in the MS2 Tables view): patched copies of the archives in the workspace folder, or plain files under Data/ of the game folder. The server's archives always go to the workspace.");
+            tips.SetToolTip(targetBox, "Where Apply writes the client's tables (the same choice as in the MS2 Tables view): patched copies of the archives in the workspace folder, or plain files under Data/ of the game folder. The archives of the server and of the global client (gms-client) always go to the workspace.");
             applyBar.Controls.Add(targetBox);
             applyBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
             applyBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change", delegate { return host.DoApply(); }));
@@ -88,7 +88,7 @@ namespace MS2.Tables
             itemBar.Controls.Add(Btn("Own stat row", "Stat rows are shared between items. This copies the item's stat row to the code in the box and points the item at the copy, so a stat change touches this item only", delegate { OwnOption(); }));
             itemBar.Controls.Add(optionBox);
             itemBar.Controls.Add(mirrorBox);
-            tips.SetToolTip(mirrorBox, "A field changed in the client's item row is changed in the server's item file too (and the other way round) when the two corresponded before; the field map says which field corresponds and how the value is written there. Unticked, the change stays on one side and Plan says so");
+            tips.SetToolTip(mirrorBox, "A field changed in the client's item row is changed in the server's item file too (and the other way round) when the two corresponded before; the field map says which field corresponds and how the value is written there. Unticked, the change stays on one side and Plan says so. On Plan, a global client (gms-client) in the workspace gets the server's item change as well, since its item files are the same as the server's; Plan lists what each target gets");
             itemBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             FlowLayoutPanel textBar = Bar();

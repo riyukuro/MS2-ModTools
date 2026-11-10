@@ -1,6 +1,6 @@
 // MS2.Tables: Gamebryo Toolbench plugin with the table editor of the mod kit. Usage: tools/modkit/README.md.
 //
-// This file: the plugin class, the five folder settings and the menu actions. TablesView.cs and ItemsView.cs are
+// This file: the plugin class, the six folder settings and the menu actions. TablesView.cs and ItemsView.cs are
 // the views. All the
 // work (reading archives, the mod.xml model, plan, apply, revert) is in MS2.ModKit.dll, which sits beside this DLL.
 // Targets .NET 3.5 / C# 7.3 (Toolbench is a CLR 2 x86 host).
@@ -21,13 +21,14 @@ namespace MS2.Tables
     /// <summary>The folders and the command after an apply. A setting that is empty falls back to its environment variable.</summary>
     internal sealed class TablesSettings
     {
-        public string ClientData, ServerData, ModsDir, Workspace, GameDir, ServerTarget, AfterApply;
+        public string ClientData, GmsData, ServerData, ModsDir, Workspace, GameDir, ServerTarget, AfterApply;
 
         public static TablesSettings Load()
         {
             ISettingService s = Platform.GetService<ISettingService>();
             var t = new TablesSettings();
             t.ClientData = Get(s, "MS2.Mods.ClientData", "MS2_CLIENT_DATA");
+            t.GmsData = Get(s, "MS2.Mods.GmsData", "MS2_GMS_CLIENT_DATA");
             t.ServerData = Get(s, "MS2.Mods.ServerData", "MS2_SERVER_DATA");
             t.ModsDir = Get(s, "MS2.Mods.ModsDir", "MS2_MODS");
             t.Workspace = Get(s, "MS2.Mods.Workspace", "MS2_MOD_WORKSPACE");

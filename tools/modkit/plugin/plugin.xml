@@ -16,8 +16,13 @@
     <settings>
       <setting scope="PerUser" id="MS2.Mods.ClientData" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
-        <display-name>Client data folder</display-name>
-        <description>The Data folder of your own MapleStory2 client (the one holding Xml.m2d and Xml.m2h). It is only read. Empty = the environment variable MS2_CLIENT_DATA.</description>
+        <display-name>Korean client data folder (kms-client)</display-name>
+        <description>The Data folder of a Korean MapleStory2 client, the one whose item data is in bundles (Xml.m2d holds itemdata/*.xml). It is only read. Empty = the environment variable MS2_CLIENT_DATA. Leave it empty when you have no such client.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.GmsData" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Global client data folder (gms-client)</display-name>
+        <description>The Data folder of a global (North America / Europe) MapleStory2 client, the one with one file per item (Xml.m2d holds item/...). It is only read. Empty = the environment variable MS2_GMS_CLIENT_DATA. Leave it empty when you have no such client.</description>
       </setting>
       <setting scope="PerUser" id="MS2.Mods.ServerData" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
