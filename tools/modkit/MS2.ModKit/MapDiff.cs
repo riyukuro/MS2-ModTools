@@ -53,6 +53,8 @@ namespace MS2.ModKit
             var map = new MapOp { XBlock = xblock };
             foreach (XEntity e in a)
             {
+                // the second entity of a twice-used id is not compared: which of the two an op means cannot be said
+                if (inA.ContainsKey(e.Id)) { problems.Add("the shipped map has the entity id " + e.Id + " twice; a mod names an entity by its id and cannot say which one"); continue; }
                 inA[e.Id] = e;
                 XEntity n;
                 if (!inB.TryGetValue(e.Id, out n))

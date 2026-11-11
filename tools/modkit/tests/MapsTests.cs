@@ -751,6 +751,20 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void EntityIdTwiceInTheShippedMapIsReported()
+        {
+            List<XEntity> l = FakeMaps.A(false);
+            byte[] edited = XBlock.Bytes(l, XDialect.Tab);
+            var twin = new XEntity { Id = l[0].Id, Model = l[0].Model, Name = l[0].Name, Iterations = 1 };
+            twin.Props.Add(new XProp("Position", "900, 900, 900"));
+            l.Insert(1, twin);
+            var problems = new List<string>();
+            Assert.That(MapDiff.Build(FakeMaps.MapA, XBlock.Bytes(l, XDialect.Tab), edited, problems), Is.Null);
+            Assert.That(problems.Count, Is.EqualTo(1));
+            Assert.That(problems[0], Does.Contain("the shipped map has the entity id " + l[0].Id + " twice"));
+        }
+
+        [Test]
         public void EntityIdAndOrderOfANewEntity()
         {
             const string open = "<add name=\"c\" model=\"Crate_A\" entity-name=\"Crate_A_900\"";
