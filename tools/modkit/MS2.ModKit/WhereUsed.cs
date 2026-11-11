@@ -9,8 +9,10 @@
 //
 // The shipped places are read once per data set (each file parsed and dropped again, no document kept) and the index
 // is kept in the data set's cache, as the plan's inputs are. The mod is laid over it on every question: each quest,
-// npc, item, shop or drop box the mod adds or edits is read as the mod leaves it (the editors' own drafts) and its
-// places replace the shipped ones, so an edit that adds a name shows (as "new") and one that removes it hides it.
+// npc, item, shop or drop box the mod adds or edits is read as the mod leaves it (the editors' own drafts; for the
+// shops and drop boxes the plan of the mod's group ops and its raw row edits of the group tables, so a cell edited
+// in the Tables view counts as the mod's too) and its places replace the shipped ones, so an edit that adds a name
+// shows (as "new") and one that removes it hides it.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -81,6 +83,7 @@ namespace MS2.ModKit
         GroupEditor Groups() { return groups ?? (groups = session.Groups()); }
 
         static string Inv(long v) { return v.ToString(CultureInfo.InvariantCulture); }
+        static string GroupSpace(GroupKind k) { return k == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox; }
         static string TargetKey(string kind, long id) { return kind + "\n" + Inv(id); }
 
         /// <summary>The ids of a value: one id, or a comma list.</summary>
@@ -248,8 +251,33 @@ namespace MS2.ModKit
             QuestEditor q = Quests();
             if (q != null) { List<long> a = q.AddedIds(); foreach (long id in a) add(IdLookup.Quest, id, true); foreach (long id in q.TouchedIds()) add(IdLookup.Quest, id, false); }
             foreach (GroupOp g in Mod.Groups)
-                add(g.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, g.Id, g.New || g.IsClone);
+                add(GroupSpace(g.Kind), g.Id, g.New || g.IsClone);
+            foreach (KeyValuePair<GroupKind, long> kv in Groups().RawTouched()) add(GroupSpace(kv.Key), kv.Value, false);
             return l;
+        }
+
+        Dictionary<string, Refs> modGroups;
+
+        /// <summary>
+        /// The places of the shops and drop boxes as the mod leaves them (its group ops and its raw row edits of the
+        /// group tables, planned once per question), by source.
+        /// </summary>
+        Dictionary<string, Refs> ModGroups()
+        {
+            if (modGroups != null) return modGroups;
+            var by = new Dictionary<string, Refs>();
+            try
+            {
+                Groups().ScanMod(delegate(GroupKind kind, long id, int index, string describe, XmlElem row)
+                {
+                    string k = TargetKey(GroupSpace(kind), id);
+                    Refs r;
+                    if (!by.TryGetValue(k, out r)) by[k] = r = new Refs();
+                    GroupRow(r, kind, id, index, describe, Attrs(row));
+                });
+            }
+            catch (ModKitException) { }
+            return modGroups = by;
         }
 
         /// <summary>The places of one source as the mod leaves it.</summary>
@@ -283,11 +311,8 @@ namespace MS2.ModKit
                 }
                 else
                 {
-                    GroupKind kind = s.Kind == IdLookup.Shop ? GroupKind.Shop : GroupKind.DropBox;
-                    GroupView v = Groups().Open(kind, s.Id);
-                    foreach (GroupSideView side in v.Sides)
-                        for (int i = 0; i < side.Rows.Count; i++)
-                            GroupRow(r, kind, s.Id, i, GroupEditor.RowLabel(kind, side.Rows[i]), side.Rows[i].Fields);
+                    Refs g;
+                    if (ModGroups().TryGetValue(TargetKey(s.Kind, s.Id), out g)) return g;
                 }
             }
             catch (ModKitException) { }     // a source the mod leaves unreadable names nothing
@@ -306,7 +331,8 @@ namespace MS2.ModKit
                 if (kind == IdLookup.Shop || kind == IdLookup.DropBox)
                 {
                     GroupOp g = Mod.FindGroup(kind == IdLookup.Shop ? GroupKind.Shop : GroupKind.DropBox, id);
-                    return g == null ? "" : g.IsClone ? "copy of " + Inv(g.Clone) : g.New ? "" : "changed";
+                    if (g == null) return touched ? "changed" : "";
+                    return g.IsClone ? "copy of " + Inv(g.Clone) : g.New ? "" : "changed";
                 }
             }
             catch (ModKitException) { }
@@ -323,6 +349,7 @@ namespace MS2.ModKit
         {
             if (Array.IndexOf(Kinds, kind) < 0) throw new ModKitException("no where-used list for \"" + kind + "\" (" + string.Join(", ", Kinds) + ")");
             Index ix = Shipped();
+            modGroups = null;
             string tk = TargetKey(kind, id);
             var touched = new Dictionary<string, Source>();
             var hits = new List<UseHit>();
@@ -529,70 +556,135 @@ namespace MS2.ModKit
     {
         internal delegate void RowVisit(GroupKind kind, long id, int index, string describe, XmlElem row);
 
-        /// <summary>How a row is named in a where-used line: a shop row by its sn, a drop row by its group.</summary>
-        internal static string RowLabel(GroupKind kind, GroupRowView r)
-        {
-            if (kind == GroupKind.Shop) return "sn " + (r.Sn ?? "?");
-            return r.Group != null ? "group " + r.Group : "row";
-        }
-
         /// <summary>Every shipped stock row of the shops and every shipped row of the drop boxes.</summary>
-        internal void ScanShipped(RowVisit visit)
+        internal void ScanShipped(RowVisit visit) { Scan(null, visit); }
+
+        /// <summary>The entries that hold group rows: (archive, entry, row element under the root, its id attribute, kind).</summary>
+        sealed class RowEntry { internal string Archive, Entry, Row, Key; internal GroupKind Kind; internal bool Flat; }
+
+        List<RowEntry> RowEntries()
         {
-            XmlDoc stock = Read(null, Planner.ServerTables, Planner.ShopStockEntry);
-            if (stock != null && stock.Root != null)
-            {
-                var n = new Dictionary<long, int>();
-                foreach (XmlElem s in stock.Root.Children)
-                {
-                    long id;
-                    if (s.Name != "shop" || !long.TryParse(s.Attr("shopID") ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out id)) continue;
-                    int i;
-                    n.TryGetValue(id, out i);
-                    foreach (XmlElem it in s.Children)
-                        if (it.Name == "item") visit(GroupKind.Shop, id, i++, "sn " + (it.Attr("sn") ?? "?"), it);
-                    n[id] = i;
-                }
-            }
-            foreach (KeyValuePair<string, string> src in new[] {
-                new KeyValuePair<string, string>(Planner.ServerTables, Planner.ServerDropEntry),
-                new KeyValuePair<string, string>(Profile.KmsClient.ArchiveIn("x:Xml.m2d"), Planner.KmsDropEntry) })
-            {
-                XmlDoc d = Read(null, src.Key, src.Value);
-                if (d == null || d.Root == null) continue;
-                foreach (XmlElem box in d.Root.Children)
-                {
-                    long id;
-                    if (box.Name != DropMap.BoxNested || !long.TryParse(box.Attr("dropBoxID") ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out id)) continue;
-                    int i = 0;
-                    foreach (XmlElem g in box.Children)
-                    {
-                        if (g.Name != DropMap.GroupNested) continue;
-                        string label = "group " + (g.Attr("dropGroupID") ?? g.Attr("id") ?? "?");
-                        foreach (XmlElem r in g.Children) if (r.Name == DropMap.RowNested) visit(GroupKind.DropBox, id, i++, label, r);
-                    }
-                }
-            }
+            var l = new List<RowEntry>();
+            l.Add(new RowEntry { Archive = Planner.ServerTables, Entry = Planner.ShopStockEntry, Row = "shop", Key = "shopID", Kind = GroupKind.Shop });
+            l.Add(new RowEntry { Archive = Planner.ServerTables, Entry = Planner.ServerDropEntry, Row = DropMap.BoxNested, Key = "dropBoxID", Kind = GroupKind.DropBox });
+            l.Add(new RowEntry { Archive = Profile.KmsClient.ArchiveIn("x:Xml.m2d"), Entry = Planner.KmsDropEntry, Row = DropMap.BoxNested, Key = "dropBoxID", Kind = GroupKind.DropBox });
             foreach (Profile p in new[] { Profile.Server, Profile.GmsClient })
             {
                 string a = p.ArchiveIn("x:Xml.m2d");
                 if (!Data.Has(p) || !Data.Exists(a)) continue;
-                var n = new Dictionary<long, int>();
                 foreach (string entry in Planner.FlatSplits(Data.Open(a)))
+                    l.Add(new RowEntry { Archive = a, Entry = entry, Row = DropMap.RowFlat, Key = "individualDropBoxID", Kind = GroupKind.DropBox, Flat = true });
+            }
+            return l;
+        }
+
+        static long RowId(XmlElem e, RowEntry re)
+        {
+            long id;
+            return e != null && e.Name == re.Row && long.TryParse(e.Attr(re.Key) ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out id) ? id : 0;
+        }
+
+        /// <summary>The stock rows and drop rows of every group, as the plan writes them (null: as shipped).</summary>
+        void Scan(Plan plan, RowVisit visit)
+        {
+            var n = new Dictionary<string, int>();
+            foreach (RowEntry re in RowEntries())
+            {
+                XmlDoc d = Read(plan, re.Archive, re.Entry);
+                if (d == null || d.Root == null) continue;
+                // the flat splits of one archive count their rows together; the nested tables count per table
+                string scope = re.Flat ? re.Archive + "\n" : re.Archive + "\n" + re.Entry + "\n";
+                foreach (XmlElem top in d.Root.Children)
                 {
-                    XmlDoc d = Read(null, a, entry);
-                    if (d == null || d.Root == null) continue;
-                    foreach (XmlElem r in d.Root.Children)
+                    long id = RowId(top, re);
+                    if (id == 0) continue;
+                    string k = scope + Inv(id);
+                    int i;
+                    n.TryGetValue(k, out i);
+                    if (re.Kind == GroupKind.Shop)
                     {
-                        long id;
-                        if (r.Name != DropMap.RowFlat || !long.TryParse(r.Attr("individualDropBoxID") ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out id)) continue;
-                        int i;
-                        n.TryGetValue(id, out i);
-                        n[id] = i + 1;
-                        visit(GroupKind.DropBox, id, i, "group " + (r.Attr("dropGroup") ?? "?"), r);
+                        foreach (XmlElem it in top.Children)
+                            if (it.Name == "item") visit(GroupKind.Shop, id, i++, "sn " + (it.Attr("sn") ?? "?"), it);
                     }
+                    else if (re.Flat) visit(GroupKind.DropBox, id, i++, "group " + (top.Attr("dropGroup") ?? "?"), top);
+                    else
+                        foreach (XmlElem g in top.Children)
+                        {
+                            if (g.Name != DropMap.GroupNested) continue;
+                            string label = "group " + (g.Attr("dropGroupID") ?? g.Attr("id") ?? "?");
+                            foreach (XmlElem r in g.Children) if (r.Name == DropMap.RowNested) visit(GroupKind.DropBox, id, i++, label, r);
+                        }
+                    n[k] = i;
                 }
             }
+        }
+
+        /// <summary>The mod's raw row edits (the Tables view's) of the entries that hold group rows.</summary>
+        List<EditOp> RawEdits(List<RowEntry> entries)
+        {
+            var l = new List<EditOp>();
+            foreach (ModOp op in Mod.Ops)
+            {
+                var ed = op as EditOp;
+                if (ed == null || ed.Rows.Count == 0) continue;
+                foreach (RowEntry re in entries)
+                    if (re.Archive == ed.Archive && string.Equals(re.Entry, ed.Entry.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)) { l.Add(ed); break; }
+            }
+            return l;
+        }
+
+        /// <summary>
+        /// The shops and drop boxes the mod's raw row edits reach: each row op resolved on the shipped entry and taken
+        /// up to the shop, box or flat row under the root (a row added under the root by its own id).
+        /// </summary>
+        internal List<KeyValuePair<GroupKind, long>> RawTouched()
+        {
+            var l = new List<KeyValuePair<GroupKind, long>>();
+            List<RowEntry> entries = RowEntries();
+            foreach (EditOp ed in RawEdits(entries))
+            {
+                RowEntry re = null;
+                foreach (RowEntry x in entries)
+                    if (x.Archive == ed.Archive && string.Equals(x.Entry, ed.Entry.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)) { re = x; break; }
+                XmlDoc d = Read(null, re.Archive, re.Entry);
+                if (d == null || d.Root == null) continue;
+                foreach (RowOp r in ed.Rows)
+                {
+                    long id = 0;
+                    string at = r.At ?? r.In ?? r.After ?? r.Before;
+                    XmlElem e = null;
+                    if (!string.IsNullOrEmpty(at))
+                    {
+                        string err;
+                        try { e = RowPath.Parse(at).TryResolve(d.Root, out err); } catch (ModKitException) { e = null; }
+                        while (e != null && e.Parent != null && e.Parent != d.Root) e = e.Parent;
+                        if (e == d.Root) e = null;     // added under the root: the new row says its id
+                        id = RowId(e, re);
+                    }
+                    if (id == 0 && r.Kind == RowOpKind.Add && r.Xml != null)
+                    {
+                        try { id = RowId(XmlDoc.ParseFragment(r.Xml, "the added row").Root, re); } catch (ModKitException) { }
+                    }
+                    var kv = new KeyValuePair<GroupKind, long>(re.Kind, id);
+                    if (id != 0 && !l.Contains(kv)) l.Add(kv);
+                }
+            }
+            return l;
+        }
+
+        /// <summary>
+        /// The rows of the groups as the mod leaves them: its group ops and its raw row edits of the group entries
+        /// planned together, each entry read back from the plan.
+        /// </summary>
+        internal void ScanMod(RowVisit visit)
+        {
+            List<EditOp> raw = RawEdits(RowEntries());
+            if (Mod.Groups.Count == 0 && raw.Count == 0) { Scan(null, visit); return; }
+            var m = new Mod { Id = Mod.Id, Name = Mod.Name, Version = Mod.Version, Dir = Mod.Dir };
+            foreach (GroupOp g in Mod.Groups) m.Groups.Add(g);
+            foreach (EditOp ed in raw) m.Ops.Add(ed);
+            foreach (IdRange r in Mod.Ids) m.Ids.Add(r);
+            Scan(Planner.Build(Data, new List<Mod> { m }, new PlanOptions { Maps = Maps, NoSync = true }), visit);
         }
     }
 }

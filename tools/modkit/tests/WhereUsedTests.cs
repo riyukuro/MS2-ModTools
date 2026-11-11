@@ -63,6 +63,32 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void RawRowEditsOfTheGroupTablesCountAsTheMods()
+        {
+            using (var f = new FakeGroups())
+            using (EditorSession s = Session(f.Dir))
+            {
+                // the Tables view's edits: a stock cell of shop 9002 and a flat row of box 7100
+                TableDraft shop = s.OpenTable(Planner.ServerTables, Planner.ShopStockEntry, "shop[shopID=9002]");
+                shop.Set(shop.Rows[0], "id", "5005");
+                TableDraft flat = s.OpenTable(Profile.Server.ArchiveIn("x:Xml.m2d"), Planner.DefaultDropSplit, null);
+                foreach (TableRow r in flat.Rows)
+                    if (flat.Get(r, "individualDropBoxID") == "7100") flat.Set(r, "item", "5006");
+                Assert.That(s.Mod.Groups.Count, Is.EqualTo(0), "raw rows only, no group op");
+
+                List<UseHit> h = new WhereUsed(s).Of(IdLookup.Item, 5005);
+                Assert.That(Lines(h), Is.EqualTo(new[] { "shop 9002: sn 1 id (new)" }), "the mod's value shows, marked");
+                Assert.That(h[0].Name, Is.EqualTo("changed"));
+                Assert.That(h[0].Index, Is.EqualTo(0));
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5001)), Is.EqualTo(new[] { "shop 9001: sn 1 id", "drop box 7001: group 1 item" }),
+                    "the edited shop and box no longer name 5001 (the plan mirrors the flat edit to the other side)");
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5006)), Is.EqualTo(new[] { "drop box 7100: group 1 item (new)" }));
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5003)), Does.Contain("shop 9002: sn 2 id"), "an unedited row of the edited shop stays, not new");
+                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Item, 5005, 3), Does.Contain("shop 9002"));
+            }
+        }
+
+        [Test]
         public void QuestsNameNpcsAndItems_AsTheModLeavesThem()
         {
             using (var f = new FakeQuests(true, true, true))
