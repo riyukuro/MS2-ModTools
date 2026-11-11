@@ -200,9 +200,10 @@ modkit status --game <game folder>
   this is found also where a higher mod has both of its lines left out),
   and a file in the game folder that this tool did not write. No priority decides these, so they stop `apply`
   with `--allow-conflicts` as well, until the mods are changed.
-  Looking for a contradiction under a higher mod costs plan time only for a mod whose lines are left out by
-  a delete or a file, or whose shop, drop box or skill lines meet another mod (measured with one large mod: up
-  to about twice the plan time in that case, and none where nothing is left out).
+  A mod's own contradictions and errors are the same in every plan, whatever the other mods do. Looking for
+  them costs plan time only for a mod that has a conflict with another mod in an entry where it has two or more
+  lines, or whose shop, drop box or skill lines meet another mod (measured with one large mod under a delete:
+  up to about twice the plan time, and none where the mods do not meet).
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
 - Point the game at the copies yourself (or copy them over a **copy** of the game folder). For the server see

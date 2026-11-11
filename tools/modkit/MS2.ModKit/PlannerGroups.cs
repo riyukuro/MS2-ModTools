@@ -299,7 +299,7 @@ namespace MS2.ModKit
             if (arch == null) return null;
             if (quietIfMissing && arch.Find(entry) == null) return null;
             EntryState st = run.State(arch, archive, entry);
-            if (st.DeletedBy != null && DeletedEntryStays(run, mod, st, g + ": edits an entry that " + Who(st.DeletedBy, mod) + " deletes")) return null;
+            if ((st.DeletedBy != null || st.DeleteLeftOut.Contains(mod)) && DeletedEntryStays(run, mod, st, g + ": edits an entry that " + Who(st.DeleteLeftOut.Contains(mod) ? mod : st.DeletedBy, mod) + " deletes")) return null;
             if (st.Base == null) { Err(run, mod, archive, entry, g, "the archive has no such entry", g.Line); return null; }
             if (!EnsureDoc(run.Plan, mod, st)) return null;
             return st;

@@ -199,6 +199,13 @@ namespace MS2.ModKit
             // a shop or skill line that meets another mod, as the winner too: the edit lines of every mod are planned
             // before these lines, so a lower mod's line may stand between two lines of this mod
             if (Lines == mod) UnderLines[mod] = true;
+            // either mod of the pair may have a second line in this entry that now never meets its first one
+            if (archive != null && entry != null)
+            {
+                IsUnder(mod, archive, entry);
+                IsUnder(winner, archive, entry);
+                if (other != null) IsUnder(other, archive, entry);
+            }
             int n = Conflicts.Count;
             Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + (why ?? PlanMessage.WinsTail));
             if (Conflicts.Count == n) return;
@@ -209,8 +216,8 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// Per mod, the entries where a line of it is left out under a higher mod's delete (of the row or of the
-        /// entry) or file: lines of the mod that never meet each other in this plan.
+        /// Per mod, the entries where a line of it meets a line of another mod (a conflict with it, lost or won, a
+        /// delete or a file of a higher mod): two lines of the mod may never meet each other in this plan.
         /// </summary>
         internal readonly Dictionary<Mod, Dictionary<string, bool>> Under = new Dictionary<Mod, Dictionary<string, bool>>();
 
@@ -324,6 +331,10 @@ namespace MS2.ModKit
             internal readonly List<AddClaim> Adds = new List<AddClaim>();
             /// <summary>Mods whose whole file for this entry is left out, with the mod that has the entry instead.</summary>
             internal readonly Dictionary<Mod, Mod> FileLeftOut = new Dictionary<Mod, Mod>();
+            /// <summary>Mods with a delete of this entry that is not the delete of the plan: a higher mod has left
+            /// it out, or another mod had deleted the entry before. What such a mod does to the entry besides is
+            /// as wrong as it is for the mod alone.</summary>
+            internal readonly List<Mod> DeleteLeftOut = new List<Mod>();
             /// <summary>Every value a mod asks for, also where a higher mod has the value: a mod that asks for two
             /// values in one place contradicts itself whoever wins.</summary>
             internal readonly List<Asked> Asked = new List<Asked>();
@@ -605,14 +616,19 @@ namespace MS2.ModKit
             EntryState st = run.State(arch, op.Archive, op.Name);
             if (op.Delete)
             {
-                if (st.DeletedBy != null) { plan.Msg(plan.Notes, mod, op.Archive, st.Name, "entry is already deleted by " + Who(st.DeletedBy, mod)); return; }
+                if (st.DeletedBy != null)
+                {
+                    plan.Msg(plan.Notes, mod, op.Archive, st.Name, "entry is already deleted by " + Who(st.DeletedBy, mod));
+                    if (st.DeletedBy != mod) st.DeleteLeftOut.Add(mod);
+                    return;
+                }
                 if (!st.Existed && st.Base == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "cannot delete the entry, the archive has none of that name (mod.xml line " + op.Line + ")"); return; }
                 if (st.BaseMod == mod) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "deletes the entry that the same mod " + (st.Existed ? "replaces" : "adds")); return; }
                 if (st.BaseMod != null)
                 {
                     bool loses = run.Outranks(st.BaseMod, mod);
                     plan.EntryConflict(mod, op.Archive, st.Name, "deletes the entry that " + Who(st.BaseMod, mod) + " " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
-                    if (loses) return;
+                    if (loses) { st.DeleteLeftOut.Add(mod); return; }
                     // the file is left out, and so are its mod's edits of it
                     st.FileLeftOut[st.BaseMod] = mod;
                     DropEntryChange(plan, st);
@@ -641,7 +657,7 @@ namespace MS2.ModKit
                 bytes = arch.Read(src);
                 from = "copy of " + src.Name;
             }
-            if (st.DeletedBy == mod) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "puts an entry where the same mod deletes one"); return; }
+            if (st.DeletedBy == mod || st.DeleteLeftOut.Contains(mod)) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "puts an entry where the same mod deletes one"); return; }
             if (st.BaseMod == mod && !M2dWriter.BytesEqual(bytes, st.Base)) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry twice, with different content"); return; }
             if (st.DeletedBy != null)
             {
@@ -650,6 +666,7 @@ namespace MS2.ModKit
                 if (loses) { st.FileLeftOut[mod] = st.DeletedBy; return; }
                 // what the delete had left out is left out by this file now, and so is the delete
                 Mod del = st.DeletedBy;
+                st.DeleteLeftOut.Add(del);
                 foreach (Mod m in new List<Mod>(st.FileLeftOut.Keys)) if (st.FileLeftOut[m] == del) st.FileLeftOut[m] = mod;
                 DropEntryChange(plan, st);
             }
@@ -680,7 +697,7 @@ namespace MS2.ModKit
             M2dArchive arch = run.Open(mod, op.Archive);
             if (arch == null) return;
             EntryState st = run.State(arch, op.Archive, op.Entry);
-            if (st.DeletedBy != null && DeletedEntryStays(run, mod, st, "edits an entry that " + Who(st.DeletedBy, mod) + " deletes")) return;
+            if ((st.DeletedBy != null || st.DeleteLeftOut.Contains(mod)) && DeletedEntryStays(run, mod, st, "edits an entry that " + Who(st.DeleteLeftOut.Contains(mod) ? mod : st.DeletedBy, mod) + " deletes")) return;
             if (st.Base == null)
             {
                 plan.Msg(plan.Errors, mod, op.Archive, op.Entry, "the archive has no such entry (mod.xml line " + op.Line + ")" + Suggest(arch, op.Entry));
@@ -748,7 +765,8 @@ namespace MS2.ModKit
         {
             Plan plan = run.Plan;
             Mod del = st.DeletedBy;
-            if (del == mod) { plan.Msg(plan.Errors, mod, st.Archive, st.Name, text); return true; }
+            // the mod's own delete, also where a higher mod has brought the entry back: the mod is wrong in any plan
+            if (del == mod || st.DeleteLeftOut.Contains(mod)) { plan.Msg(plan.Errors, mod, st.Archive, st.Name, text); return true; }
             if (!run.Outranks(mod, del))
             {
                 plan.Conflict(mod, st.Archive, st.Name, text, del);
@@ -766,6 +784,7 @@ namespace MS2.ModKit
             DropEntryChange(plan, st);
             // a file that the delete left out stays out: the entry is now the shipped one with this mod's lines
             foreach (Mod m in new List<Mod>(st.FileLeftOut.Keys)) if (st.FileLeftOut[m] == del) st.FileLeftOut[m] = mod;
+            st.DeleteLeftOut.Add(del);
             st.DeletedBy = null; st.Base = st.Original;
             return false;
         }

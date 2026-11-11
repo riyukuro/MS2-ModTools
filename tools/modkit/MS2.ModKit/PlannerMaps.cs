@@ -223,7 +223,7 @@ namespace MS2.ModKit
             if (arch == null) return null;
             string entry = "xblock/" + mop.XBlock + ".xblock";
             EntryState st = run.State(arch, ar, entry);
-            if (st.DeletedBy != null && DeletedEntryStays(run, mod, st, "changes a map that " + Who(st.DeletedBy, mod) + " deletes")) return null;
+            if ((st.DeletedBy != null || st.DeleteLeftOut.Contains(mod)) && DeletedEntryStays(run, mod, st, "changes a map that " + Who(st.DeleteLeftOut.Contains(mod) ? mod : st.DeletedBy, mod) + " deletes")) return null;
             if (st.Base == null) { plan.Msg(plan.Warnings, mod, ar, entry, target.Name + " has no such map; its map lines are skipped there (mod.xml line " + mop.Line + ")"); return null; }
             Mod instead;
             if (st.BaseMod != mod && st.FileLeftOut.TryGetValue(mod, out instead))
