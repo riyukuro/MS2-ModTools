@@ -40,6 +40,14 @@ namespace MS2.ModKit.Cli
             return Mod.Parse("<mod id=\"" + Xml.XmlDoc.EscapeAttr(x.A.Get("--id"), '"') + "\" name=\"\" version=\"1\"/>", "the new mod");
         }
 
+        /// <summary>Saves the mod only when Put or Take changed it: a save runs RemoveOrphans, which must not touch a mod left as it was.</summary>
+        static string SaveIfChanged(Mod mod, string dir, int changed)
+        {
+            if (changed == 0) return "; nothing changed, " + Path.Combine(dir, "mod.xml") + " not written";
+            mod.Save(dir);
+            return "; saved " + Path.Combine(dir, "mod.xml");
+        }
+
         static string Yes(bool? b) { return b == null ? "-" : b.Value ? "yes" : "no"; }
 
         static int FieldRowsCmd(Ctx x)
@@ -89,8 +97,7 @@ namespace MS2.ModKit.Cli
                     changed = fr.Take(mod, rows);
                     done = "took " + N(changed) + " field rows out of mod " + mod.Id;
                 }
-                mod.Save(dir);
-                done += "; saved " + Path.Combine(dir, "mod.xml");
+                done += SaveIfChanged(mod, dir, changed);
             }
 
             if (x.Json)
@@ -165,8 +172,7 @@ namespace MS2.ModKit.Cli
                     changed = ti.Take(mod, rows);
                     done = "took " + N(changed) + " attributes out of mod " + mod.Id + " (the sets that still had the source text)";
                 }
-                mod.Save(dir);
-                done += "; saved " + Path.Combine(dir, "mod.xml");
+                done += SaveIfChanged(mod, dir, changed);
             }
 
             bool list = x.A.Has("--list");

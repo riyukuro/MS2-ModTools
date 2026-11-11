@@ -110,5 +110,56 @@ namespace MS2.ModKit.Tests
                 Assert.That(Mod.Load(mod).IsEmpty, Is.True);
             }
         }
+
+        // a put or take that changes nothing leaves the mod folder alone: no save, so a file the author put in files/ stays
+        [Test]
+        public void NoChange_DoesNotSaveTheMod()
+        {
+            using (var d = new FieldRowsTests.Data())
+            {
+                string so, se, mod = Path.Combine(d.Dir, "mods", "t.fields"), xml = Path.Combine(mod, "mod.xml"), mine = Path.Combine(mod, "files", "x.txt");
+                int rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--put", mod, "--id", "t.fields"));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                Directory.CreateDirectory(Path.GetDirectoryName(mine));
+                File.WriteAllText(mine, "mine");
+                byte[] before = File.ReadAllBytes(xml);
+                DateTime at = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(xml, at);
+
+                rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--put", mod));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("put 0 field rows", so);
+                StringAssert.Contains("; nothing changed, " + xml + " not written", so);
+                rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--take", mod, "--rows", "41"));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("took 0 field rows", so);
+                StringAssert.Contains("not written", so);
+                Assert.That(File.Exists(mine), Is.True, "the author's file stays");
+                Assert.That(File.ReadAllBytes(xml), Is.EqualTo(before));
+                Assert.That(File.GetLastWriteTimeUtc(xml), Is.EqualTo(at), "mod.xml is not rewritten");
+
+                rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--take", mod, "--rows", "19"));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("took 1 field rows", so);
+                StringAssert.Contains("; saved " + xml, so);
+            }
+            using (var d = new TextImportTests.Data())
+            {
+                string so, se, mod = Path.Combine(d.Dir, "mods", "t.text"), xml = Path.Combine(mod, "mod.xml"), mine = Path.Combine(mod, "files", "x.txt");
+                int rc = Run(out so, out se, Roots(d.Dir, "text-import", "gms-client:Xml.m2d", "--files", "itemname.xml", "--put", mod, "--id", "t.text"));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                Directory.CreateDirectory(Path.GetDirectoryName(mine));
+                File.WriteAllText(mine, "mine");
+                DateTime at = new DateTime(2001, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+                File.SetLastWriteTimeUtc(xml, at);
+
+                rc = Run(out so, out se, Roots(d.Dir, "text-import", "gms-client:Xml.m2d", "--files", "itemname.xml", "--put", mod));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("put 0 attributes", so);
+                StringAssert.Contains("not written", so);
+                Assert.That(File.Exists(mine), Is.True, "the author's file stays");
+                Assert.That(File.GetLastWriteTimeUtc(xml), Is.EqualTo(at), "mod.xml is not rewritten");
+            }
+        }
     }
 }
