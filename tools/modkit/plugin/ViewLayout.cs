@@ -146,4 +146,30 @@ namespace MS2.Tables
             fit(container, EventArgs.Empty);
         }
     }
+
+    /// <summary>
+    /// The bold variant of a grid's font, made once and kept for as long as the grid keeps that font. A view holds
+    /// one of these and disposes it with itself, so painting a heading line does not make a Font per cell.
+    /// </summary>
+    internal sealed class BoldFont : IDisposable
+    {
+        System.Drawing.Font from, bold;
+
+        public System.Drawing.Font Of(System.Drawing.Font font)
+        {
+            if (bold == null || !ReferenceEquals(from, font))
+            {
+                if (bold != null) bold.Dispose();
+                from = font;
+                bold = new System.Drawing.Font(font, System.Drawing.FontStyle.Bold);
+            }
+            return bold;
+        }
+
+        public void Dispose()
+        {
+            if (bold != null) bold.Dispose();
+            bold = null; from = null;
+        }
+    }
 }

@@ -346,9 +346,11 @@ namespace MS2.Tables
             finally { filling = was; }
         }
 
+        readonly BoldFont bold = new BoldFont();   // the heading lines of the grids
+
         protected override void Dispose(bool disposing)
         {
-            if (disposing) Hook(null);
+            if (disposing) { Hook(null); bold.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -821,7 +823,7 @@ namespace MS2.Tables
             if (r.Heading != null)
             {
                 e.CellStyle.BackColor = SystemColors.Control;
-                e.CellStyle.Font = new Font(grid.Font, FontStyle.Bold);
+                e.CellStyle.Font = bold.Of(grid.Font);
             }
             else if (e.ColumnIndex == 1 && e.Value is string && ((string)e.Value).Length > 0)
                 e.CellStyle.BackColor = Color.LightYellow;

@@ -204,9 +204,11 @@ namespace MS2.Tables
             Guard(delegate { Find(); });
         }
 
+        readonly BoldFont bold = new BoldFont();   // the heading lines of the grids
+
         protected override void Dispose(bool disposing)
         {
-            if (disposing) Hook(null);
+            if (disposing) { Hook(null); bold.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -528,7 +530,7 @@ namespace MS2.Tables
             {
                 e.CellStyle.BackColor = SystemColors.Control;
                 e.CellStyle.ForeColor = SystemColors.ControlText;
-                e.CellStyle.Font = new Font(grid.Font, FontStyle.Bold);
+                e.CellStyle.Font = bold.Of(grid.Font);
             }
             else if (e.ColumnIndex == 2) e.CellStyle.ForeColor = Color.Gray;
             else if (draft.IsEdited(r.Section, r.Field)) e.CellStyle.BackColor = Color.FromArgb(255, 236, 170);
