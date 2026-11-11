@@ -36,6 +36,17 @@ namespace MS2.ModKit
         /// <summary>The shipped skill or effect, null when no target ships the id (a clone of the mod: open its source).</summary>
         public SkillInfo Open(SkillKind kind, long id) { return Planner.SkillOpen(Data, kind, id, NameLanguage); }
 
+        /// <summary>
+        /// The image entry (in Resource/Image.m2d) of the icon of a skill or effect, null when it names none or no target
+        /// ships it. A clone of the mod shows the icon of its source.
+        /// </summary>
+        public string IconEntry(SkillKind kind, long id)
+        {
+            SkillOp op = Op(kind, id, false);
+            SkillInfo i = Open(kind, op != null && op.IsClone ? op.Clone : id);
+            return i == null ? null : Icons.ImageEntry(i.Icon);
+        }
+
         /// <summary>The field names of a scope, in map order.</summary>
         public string[] Fields(SkillKind kind, SkillScope scope) { return Map.Entity(kind).FieldNames(scope); }
 

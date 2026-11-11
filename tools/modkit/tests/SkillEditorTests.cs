@@ -10,6 +10,19 @@ namespace MS2.ModKit.Tests
         const string K = "client:Xml.m2d", G = "gms-client:Xml.m2d";
 
         [Test]
+        public void TheIconEntryOfASkill_AndOfACloneItsSource()
+        {
+            using (var f = new FakeSkills())
+            {
+                var ed = new SkillEditor(f.Data, FakeSkills.ModOf(""));
+                Assert.That(ed.IconEntry(SkillKind.Skill, 70000001), Is.EqualTo(Icons.ImageEntry(FakeSkills.Icon)));
+                Assert.That(ed.IconEntry(SkillKind.Skill, 70000999), Is.Null, "no target ships it");
+                ed.Clone(SkillKind.Skill, 70000001, 78000001, "1", "My Slash", null);
+                Assert.That(ed.IconEntry(SkillKind.Skill, 78000001), Is.EqualTo(Icons.ImageEntry(FakeSkills.Icon)));
+            }
+        }
+
+        [Test]
         public void FindAndOpenShowEachSideInNeutralUnits()
         {
             using (var f = new FakeSkills())
