@@ -303,6 +303,62 @@ namespace MS2.ModKit.Tests
             Assert.That(x.Message, Does.Contain("no <pet> has id=\"999\""));
         }
 
+        // a long table keyed by another attribute than id (and with variants and twins): each row's selector is
+        // made from the index of the table and leads back to the row
+        [Test]
+        public void Selectors_WithoutId_InALongTable()
+        {
+            var sb = new System.Text.StringBuilder("<?xml version=\"1.0\"?>\n<ms2>\n");
+            for (int i = 1; i <= 300; i++) sb.Append("\t<quest questID=\"").Append(i).Append("\" name=\"q").Append(i).Append("\" />\n");
+            sb.Append("\t<quest questID=\"150\" feature=\"Alpha\" name=\"q150\" />\n\t<quest questID=\"200\" name=\"q200\" />\n\t<note questID=\"7\" />\n</ms2>\n");
+            XmlElem root = XmlDoc.Parse(U8(sb.ToString()), "quests").Root;
+            foreach (XmlElem e in root.Children)
+                Assert.That(RowPath.Parse(RowPath.Canonical(e)).Resolve(root), Is.SameAs(e), RowPath.Canonical(e));
+            Assert.That(RowPath.Canonical(root.Children[6]), Is.EqualTo("quest[feature=][questID=7]"));
+            Assert.That(RowPath.Canonical(root.Children[300]), Is.EqualTo("quest[feature=Alpha]"));
+            Assert.That(RowPath.Canonical(root.Children[199]), Is.EqualTo("quest[feature=][questID=200][#1]"));
+            Assert.That(RowPath.Canonical(root.Children[301]), Is.EqualTo("quest[feature=][questID=200][#2]"));
+            Assert.That(RowPath.Canonical(root.Children[302]), Is.EqualTo("note"));
+            Assert.That(RowPath.Parse("quest[feature=][questID=150]").Resolve(root).Line, Is.EqualTo(152));
+            Assert.That(RowPath.Parse("*[questID=7]").ResolveAll(root).ConvertAll(e => e.Name), Is.EqualTo(new[] { "quest", "note" }));
+            Assert.That(RowPath.Parse("quest[questID=999]").ResolveAll(root), Is.Empty);
+        }
+
+        // a change in each row of a long table without ids: the plan takes no longer than its rows (a walk of all
+        // rows for each change took minutes here)
+        [Test]
+        public void Plan_OfALongTableWithoutIds_IsQuick()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "modkit-long-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Directory.CreateDirectory(dir);
+                const int N = 12000;
+                var t = new StringBuilder("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ms2>\n");
+                var m = new StringBuilder("<mod id=\"long\" name=\"t\" version=\"1\">\n<edit archive=\"client:Xml.m2d\" entry=\"string/kr/quest.xml\">\n");
+                for (int i = 1; i <= N; i++)
+                {
+                    t.Append("\t<quest questID=\"").Append(i).Append("\" name=\"q").Append(i).Append("\" />\n");
+                    m.Append("<change at=\"quest[questID=").Append(i).Append("]\"><set name=\"name\" value=\"Q").Append(i).Append("\"/></change>\n");
+                }
+                t.Append("\t<quest questID=\"1\" feature=\"Alpha\" name=\"q1\" />\n</ms2>\n");
+                m.Append("</edit>\n</mod>\n");
+                M2dWriter.Create(Path.Combine(dir, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib,
+                    new List<KeyValuePair<string, byte[]>> { new KeyValuePair<string, byte[]>("string/kr/quest.xml", Fake.Crlf(t.ToString())) });
+                using (var data = new DataSet())
+                {
+                    data.AddRoot("client", dir);
+                    var w = System.Diagnostics.Stopwatch.StartNew();
+                    Plan p = Planner.Build(data, new[] { Mod.Parse(m.ToString().Replace("quest[questID=1]", "quest[feature=][questID=1]"), "long") }, null);
+                    Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                    Assert.That(p.Changes.Count, Is.EqualTo(N));
+                    Assert.That(p.Changes[N - 1].Row, Is.EqualTo("quest[feature=][questID=" + N + "]"));
+                    Assert.That(w.Elapsed.TotalSeconds, Is.LessThan(10), "planned in " + w.ElapsedMilliseconds + " ms");
+                }
+            }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+        }
+
         [Test]
         public void Selectors()
         {

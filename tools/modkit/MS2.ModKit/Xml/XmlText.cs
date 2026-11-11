@@ -38,35 +38,92 @@ namespace MS2.ModKit.Xml
             return null;
         }
 
-        sealed class IdIndex { internal int Count; internal Dictionary<string, List<XmlElem>> By; }
-        IdIndex ids;
-
         /// <summary>
-        /// The children whose id attribute has the value, in their order; null for an element with few children
-        /// (the caller then looks at all of them). The index is made at the first question, so that many
-        /// selectors into one long table do not each walk all of its rows.
+        /// An index of the children of a long element: by name, and lists of rows split by the value of an
+        /// attribute. A list split once is kept, so that many selectors into one long table (each made or matched
+        /// by narrowing the rows one attribute at a time) do not each walk all of its rows. Made at the first
+        /// question and made again when the number of children has changed; the rows themselves are not edited
+        /// in place (edits are made to the text).
         /// </summary>
-        internal List<XmlElem> ChildrenWithId(string id)
+        internal sealed class ChildIndex
         {
-            if (Children.Count < 64) return null;
-            IdIndex ix = ids;
-            if (ix == null || ix.Count != Children.Count)
+            internal int Count;
+            readonly Dictionary<string, List<XmlElem>> named = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
+            readonly Dictionary<List<XmlElem>, Dictionary<string, Dictionary<string, List<XmlElem>>>> splits =
+                new Dictionary<List<XmlElem>, Dictionary<string, Dictionary<string, List<XmlElem>>>>(ByReference.Instance);
+
+            internal ChildIndex(List<XmlElem> children)
             {
-                var by = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
-                foreach (XmlElem c in Children)
+                Count = children.Count;
+                foreach (XmlElem c in children)
                 {
-                    string v = c.Attr("id") ?? "";
                     List<XmlElem> l;
-                    if (!by.TryGetValue(v, out l)) by[v] = l = new List<XmlElem>(1);
+                    if (!named.TryGetValue(c.Name, out l)) named[c.Name] = l = new List<XmlElem>();
                     l.Add(c);
                 }
-                ids = ix = new IdIndex { Count = Children.Count, By = by };
             }
-            List<XmlElem> hits;
-            return ix.By.TryGetValue(id, out hits) ? hits : NoChildren;
+
+            /// <summary>The children of that name, in their order (a list of the index: give it to <see cref="With"/>).</summary>
+            internal List<XmlElem> Named(string name)
+            {
+                List<XmlElem> l;
+                return named.TryGetValue(name, out l) ? l : NoChildren;
+            }
+
+            /// <summary>
+            /// The rows of the list whose attribute (missing counts as "") has the value, in their order. The list is
+            /// the element's children or a list this index gave; the answer is again such a list.
+            /// </summary>
+            internal List<XmlElem> With(List<XmlElem> rows, string attr, string value)
+            {
+                Dictionary<string, Dictionary<string, List<XmlElem>>> byAttr;
+                if (!splits.TryGetValue(rows, out byAttr)) splits[rows] = byAttr = new Dictionary<string, Dictionary<string, List<XmlElem>>>(StringComparer.Ordinal);
+                Dictionary<string, List<XmlElem>> by;
+                if (!byAttr.TryGetValue(attr, out by))
+                {
+                    byAttr[attr] = by = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
+                    foreach (XmlElem c in rows)
+                    {
+                        string v = c.Attr(attr) ?? "";
+                        List<XmlElem> l;
+                        if (!by.TryGetValue(v, out l)) by[v] = l = new List<XmlElem>(1);
+                        l.Add(c);
+                    }
+                }
+                List<XmlElem> hits;
+                return by.TryGetValue(value, out hits) ? hits : NoChildren;
+            }
         }
 
-        static readonly List<XmlElem> NoChildren = new List<XmlElem>();
+        sealed class ByReference : IEqualityComparer<List<XmlElem>>
+        {
+            internal static readonly ByReference Instance = new ByReference();
+            public bool Equals(List<XmlElem> x, List<XmlElem> y) { return ReferenceEquals(x, y); }
+            public int GetHashCode(List<XmlElem> l) { return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(l); }
+        }
+
+        ChildIndex index;
+
+        /// <summary>The index of the children; null for an element with few children (the caller then looks at all of them).</summary>
+        internal ChildIndex Index()
+        {
+            if (Children.Count < 64) return null;
+            ChildIndex ix = index;
+            if (ix == null || ix.Count != Children.Count) index = ix = new ChildIndex(Children);
+            return ix;
+        }
+
+        /// <summary>The children whose attribute (missing counts as "") has the value, in their order; null for an element with few children.</summary>
+        internal List<XmlElem> ChildrenWith(string attr, string value)
+        {
+            ChildIndex ix = Index();
+            return ix == null ? null : ix.With(Children, attr, value);
+        }
+
+        /// <summary>The children whose id attribute has the value, in their order; null for an element with few children.</summary>
+        internal List<XmlElem> ChildrenWithId(string id) { return ChildrenWith("id", id); }
+
+        internal static readonly List<XmlElem> NoChildren = new List<XmlElem>();
 
         /// <summary>The attribute value, or null if the element does not have it.</summary>
         public string Attr(string name) { XmlAttr a = FindAttr(name); return a == null ? null : a.Value; }

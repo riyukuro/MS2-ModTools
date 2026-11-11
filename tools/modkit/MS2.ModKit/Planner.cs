@@ -344,6 +344,8 @@ namespace MS2.ModKit
             /// <summary>Every value a mod asks for, also where a higher mod has the value: a mod that asks for two
             /// values in one place contradicts itself whoever wins.</summary>
             internal readonly List<Asked> Asked = new List<Asked>();
+            /// <summary>The same by place (element and attribute), so a value is checked without a walk of them all.</summary>
+            internal readonly Dictionary<string, List<Asked>> AskedAt = new Dictionary<string, List<Asked>>(StringComparer.Ordinal);
             /// <summary>The row deletes that a higher mod's change or new row kept from happening.</summary>
             internal readonly List<KeyValuePair<XmlElem, Mod>> KeptDeletes = new List<KeyValuePair<XmlElem, Mod>>();
         }
@@ -1002,9 +1004,11 @@ namespace MS2.ModKit
                 {
                     // a second value of the same mod where a higher mod has the value: no priority decides that
                     Asked first = null; bool known = false;
-                    foreach (Asked q in st.Asked)
-                        if (q.Mod == mod && q.Key == key) { if (q.Value == value) known = true; else if (first == null) first = q; }
-                    if (!known) st.Asked.Add(new Asked { Mod = mod, Elem = el, Key = key, Value = value });
+                    List<Asked> at;
+                    if (!st.AskedAt.TryGetValue(key, out at)) st.AskedAt[key] = at = new List<Asked>();
+                    foreach (Asked q in at)
+                        if (q.Mod == mod) { if (q.Value == value) known = true; else if (first == null) first = q; }
+                    if (!known) { var q = new Asked { Mod = mod, Elem = el, Key = key, Value = value }; st.Asked.Add(q); at.Add(q); }
                     if (first != null && prev != null && prev.Mod != mod)
                     {
                         plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, row + " " + what + ": " + Show(value) + " here, " + Show(first.Value) + " in " + Who(mod, mod));

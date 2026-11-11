@@ -118,10 +118,16 @@ namespace MS2.ModKit.Xml
         static List<XmlElem> MatchStep(RowStep step, XmlElem parent)
         {
             var hits = new List<XmlElem>();
-            // a test of the id: only the rows with that id are looked at (a long table keeps them by id)
+            // a test of the id (else of another key with a value): only the rows with that value are looked at (a
+            // long table keeps its rows by the value of an attribute it is asked about)
             IList<XmlElem> among = parent.Children;
+            string by = null, value = null;
             foreach (KeyValuePair<string, string> t in step.Tests)
-                if (t.Key == "id") { among = parent.ChildrenWithId(t.Value) ?? among; break; }
+            {
+                if (t.Key == "id") { by = t.Key; value = t.Value; break; }
+                if (by == null && t.Value.Length > 0 && t.Key != "feature" && t.Key != "locale") { by = t.Key; value = t.Value; }
+            }
+            if (by != null) among = parent.ChildrenWith(by, value) ?? among;
             foreach (XmlElem c in among) if (step.Matches(c)) hits.Add(c);
             if (step.Nth > 0)
             {
@@ -225,20 +231,25 @@ namespace MS2.ModKit.Xml
         {
             var step = new RowStep { Name = e.Name };
             if (e.Parent == null) return e.Name;
-            var left = new List<XmlElem>();
             string id = e.Attr("id");
-            // a large parent has an id index: the same rows, in document order, without a scan of all children
-            List<XmlElem> same = id != null ? e.Parent.ChildrenWithId(id) : null;
-            if (same != null) { foreach (XmlElem c in same) if (c.Name == e.Name) left.Add(c); }
-            else foreach (XmlElem c in e.Parent.Children) if (c.Name == e.Name) left.Add(c);
-            if (id != null) { step.Tests.Add(new KeyValuePair<string, string>("id", id)); if (same == null) left = Filter(left, "id", id); }
+            // a large parent has an index: the same rows, in document order, without a scan of all children for
+            // each test (the lists of the index are its own and are not changed here)
+            XmlElem.ChildIndex ix = e.Parent.Index();
+            List<XmlElem> left;
+            if (ix != null) left = ix.Named(e.Name);
+            else
+            {
+                left = new List<XmlElem>();
+                foreach (XmlElem c in e.Parent.Children) if (c.Name == e.Name) left.Add(c);
+            }
+            if (id != null) { step.Tests.Add(new KeyValuePair<string, string>("id", id)); left = Filter(ix, left, "id", id); }
             // rows that share an id are variants of one another: tell them apart by what makes them variants
             // ("[feature=]" is the row without one) before any attribute a mod is likely to change
             foreach (string v in new[] { "feature", "locale" })
             {
                 if (left.Count < 2) break;
                 string val = e.Attr(v) ?? "";
-                List<XmlElem> f = Filter(left, v, val);
+                List<XmlElem> f = Filter(ix, left, v, val);
                 if (f.Count == left.Count) continue;
                 step.Tests.Add(new KeyValuePair<string, string>(v, val));
                 left = f;
@@ -248,7 +259,7 @@ namespace MS2.ModKit.Xml
                 foreach (XmlAttr a in e.Attrs)
                 {
                     if (a.Name == "id" || a.Name == "feature" || a.Name == "locale") continue;
-                    List<XmlElem> f = Filter(left, a.Name, a.Value);
+                    List<XmlElem> f = Filter(ix, left, a.Name, a.Value);
                     if (f.Count == left.Count) continue;
                     step.Tests.Add(new KeyValuePair<string, string>(a.Name, a.Value));
                     left = f;
@@ -259,8 +270,9 @@ namespace MS2.ModKit.Xml
             return step.ToString();
         }
 
-        static List<XmlElem> Filter(List<XmlElem> list, string name, string value)
+        static List<XmlElem> Filter(XmlElem.ChildIndex ix, List<XmlElem> list, string name, string value)
         {
+            if (ix != null) return ix.With(list, name, value);
             var f = new List<XmlElem>();
             foreach (XmlElem c in list) if ((c.Attr(name) ?? "") == value) f.Add(c);
             return f;

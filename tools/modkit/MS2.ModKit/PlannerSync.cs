@@ -52,30 +52,20 @@ namespace MS2.ModKit
             Plan plan = run.Plan;
             PlanChange[] snapshot = plan.Changes.ToArray();
             Dictionary<string, PlanChange> twinSet = TwinChanges(run, snapshot);
+            // a change that a step before took out of the plan (an added row that loses to another) is not synced.
+            // The changes still in the plan are kept as a set, made again only after a step that took one out: the
+            // list is only added to at its end or taken from, so a step took one of the changes before it out exactly
+            // when the change that was last before the step is no longer at that place
+            var live = new HashSet<PlanChange>(snapshot);
             foreach (PlanChange ch in snapshot)
             {
                 if (ch.State == null || ch.Mod == null || ch.Mirrored || ch.OwnSides) continue;
-                if (!plan.Changes.Contains(ch)) continue;
-                bool attr = ch.Kind == ChangeKind.SetAttr || ch.Kind == ChangeKind.RemoveAttr;
-                if (!attr && ch.Kind != ChangeKind.AddRow) continue;
-                if (attr && SetOnTwin(run, twinSet, ch)) continue;
-                bool client;
-                EntityMap em = sr.Maps.Find(ch.Archive, ch.Entry, out client);
-                try
-                {
-                    if (em == null)
-                    {
-                        // sync="false" on the edit, the change or the set says the one side is meant
-                        if (attr && (ch.Op == null || ch.Op.Sync) && (ch.AttrOp == null || ch.AttrOp.Sync)) Loose(sr, ch);
-                    }
-                    else
-                        foreach (string target in SyncTargets(run, em, client))
-                        {
-                            if (attr) SyncAttr(sr, em, client, ch, target);
-                            else SyncAdd(sr, em, client, ch, target);
-                        }
-                }
-                catch (ModKitException x) { plan.Msg(plan.Warnings, ch.Mod, ch.Archive, ch.Entry, "two-sided sync: " + x.Message); }
+                if (!live.Contains(ch)) continue;
+                int before = plan.Changes.Count;
+                PlanChange last = before > 0 ? plan.Changes[before - 1] : null;
+                SyncOne(sr, twinSet, ch);
+                if (before > 0 && (plan.Changes.Count < before || !ReferenceEquals(plan.Changes[before - 1], last)))
+                    live = new HashSet<PlanChange>(plan.Changes);
             }
             foreach (string key in sr.LooseOrder)
             {
@@ -85,6 +75,32 @@ namespace MS2.ModKit
                     "@" + first.Name + " is changed in " + n + " row(s) (first: " + first.Row + ") on this side only; " + sr.LooseOther[key]
                     + " holds the same table and there is no field map for it, so that side is not written");
             }
+        }
+
+        static void SyncOne(SyncRun sr, Dictionary<string, PlanChange> twinSet, PlanChange ch)
+        {
+            Run run = sr.Run;
+            Plan plan = run.Plan;
+            bool attr = ch.Kind == ChangeKind.SetAttr || ch.Kind == ChangeKind.RemoveAttr;
+            if (!attr && ch.Kind != ChangeKind.AddRow) return;
+            if (attr && SetOnTwin(run, twinSet, ch)) return;
+            bool client;
+            EntityMap em = sr.Maps.Find(ch.Archive, ch.Entry, out client);
+            try
+            {
+                if (em == null)
+                {
+                    // sync="false" on the edit, the change or the set says the one side is meant
+                    if (attr && (ch.Op == null || ch.Op.Sync) && (ch.AttrOp == null || ch.AttrOp.Sync)) Loose(sr, ch);
+                }
+                else
+                    foreach (string target in SyncTargets(run, em, client))
+                    {
+                        if (attr) SyncAttr(sr, em, client, ch, target);
+                        else SyncAdd(sr, em, client, ch, target);
+                    }
+            }
+            catch (ModKitException x) { plan.Msg(plan.Warnings, ch.Mod, ch.Archive, ch.Entry, "two-sided sync: " + x.Message); }
         }
 
         // ---- the same field set on two profiles that mirror each other (server and gms-client) ----
