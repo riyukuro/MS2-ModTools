@@ -1,7 +1,8 @@
 // The "MS2 Quests" view: one quest at a time, in the style of the MS2 Items and MS2 NPCs views. A search box (id or
 // name), the list of hits, and three grids that share the whole view: the fields and texts (level requirement, start
-// and complete NPC, reward exp and meso, the texts of every language), the conditions with their counts, and the
-// reward item lists. Clone to new id, and its own Plan / Apply / Revert buttons and output box.
+// and complete NPC, reward exp and meso, the texts of every language), the conditions (type, code, count), and the
+// item lists of the complete reward and of the accept reward. Clone to new id (with the talk script and the rows of
+// the tables that list the quest, when the box is ticked), and its own Plan / Apply / Revert buttons and output box.
 //
 // A value set here is written to every place of the quest at once: the kms-client's table row and quest file, the
 // quest files of the server and the gms-client, and the text rows of every target.
@@ -50,7 +51,7 @@ namespace MS2.Tables
             internal string[] Shipped;          // null: nothing to compare with (a new quest)
             internal bool[] Editable;
             internal string Field, Language;    // the fields grid
-            internal string List;               // the rewards grid
+            internal string Reward, List;       // the rewards grid: the reward element and its list
             internal int Index;                 // rewards and conditions
             internal bool Changed
             {
@@ -76,6 +77,7 @@ namespace MS2.Tables
         readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 280, IntegralHeight = false };
         readonly Label questLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly TextBox cloneIdBox = new TextBox { Width = 80 };
+        readonly CheckBox listedBox = new CheckBox { Text = "with talk script and list rows", AutoSize = true, Checked = true, Margin = new Padding(4, 6, 3, 0) };
         readonly CheckBox allLanguagesBox = new CheckBox { Text = "texts to every language", AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
         readonly DataGridView fieldGrid = new DataGridView { Dock = DockStyle.Fill };
         readonly DataGridView conditionGrid = new DataGridView { Dock = DockStyle.Fill };
@@ -119,19 +121,21 @@ namespace MS2.Tables
             questBar.Controls.Add(questLabel);
             questBar.Controls.Add(Btn("Clone to new id", "Adds a new quest that starts as a copy of this one as shipped (edits the mod makes to this quest are not copied), under the id in the box (empty = the next free id after this quest). The copy has the table row, the quest file and the text rows of every language of the source, on every target", delegate { Clone(); }));
             questBar.Controls.Add(cloneIdBox);
+            questBar.Controls.Add(listedBox);
+            tips.SetToolTip(listedBox, "Ticked: the clone also gets a copy of the source quest's talk script (what the NPC says when it offers the quest) and of its rows in the tables that list quests: the fields of the quest, the special type name, the server's script conditions and script functions. The talk texts themselves are shared with the source quest. Unticked: only the table row, the quest file and the text rows");
             questBar.Controls.Add(Btn("Remove clone", "Takes the chosen new quest out of the mod again, with every row and file the clone added", delegate { RemoveClone(); }));
             questBar.Controls.Add(allLanguagesBox);
             tips.SetToolTip(allLanguagesBox, "Ticked: a text typed in the grid is written to the quest's row in every language. Unticked: to the language of the grid line only, on every target that has it");
             questBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             Setup(fieldGrid, fieldLines, new[] { "field", "value", "shipped value", "where" }, new[] { 130, 150, 110, 100 }, SetField);
-            Setup(conditionGrid, conditionLines, new[] { "#", "type", "code", "count", "shipped count", "where" }, new[] { 28, 80, 70, 60, 80, 100 }, SetCondition);
+            Setup(conditionGrid, conditionLines, new[] { "#", "type", "code", "count", "shipped", "code is", "where" }, new[] { 28, 80, 70, 50, 90, 90, 80 }, SetCondition);
             Setup(rewardGrid, rewardLines, new[] { "#", "item id", "rank", "count", "shipped", "where" }, new[] { 28, 90, 40, 60, 110, 100 }, SetReward);
 
             FlowLayoutPanel rewardBar = Bar();
             rewardBar.Controls.Add(Lbl("List"));
             rewardBar.Controls.Add(listBox);
-            tips.SetToolTip(listBox, "The reward list the buttons beside it work on. v: the kms-client's table (what the Korean client shows). essentialItem and globalEssentialItem: the quest files (the server gives globalEssentialItem when it is not empty, else essentialItem). The two job lists: per job");
+            tips.SetToolTip(listBox, "The reward list the buttons beside it work on; \"accept:\" lists are what the quest gives when it is accepted, the others when it is completed. v: the kms-client's table (what the Korean client shows). essentialItem and globalEssentialItem: the quest files (the server gives globalEssentialItem when it is not empty, else essentialItem). The two job lists: per job");
             rewardBar.Controls.Add(Lbl("item"));
             rewardBar.Controls.Add(itemBox);
             rewardBar.Controls.Add(Lbl("rank"));
@@ -140,10 +144,10 @@ namespace MS2.Tables
             rewardBar.Controls.Add(countBox);
             rewardBar.Controls.Add(Btn("Add row", "Adds the item in the boxes to the chosen list, on every target that has that list", delegate { AddReward(); }));
             rewardBar.Controls.Add(Btn("Remove row", "Removes the selected row of the grid from its list, on every target that has that row", delegate { RemoveReward(); }));
-            rewardBar.Controls.Add(Btn("Same on every target", "Writes the rows of the chosen list to v, essentialItem and globalEssentialItem on every target, so the client shows what the server gives. The two job lists stay as they are", delegate { SameEverywhere(); }));
+            rewardBar.Controls.Add(Btn("Same on every target", "Writes the rows of the chosen list to v, essentialItem and globalEssentialItem on every target, so the client shows what the server gives. The two job lists and the accept reward stay as they are", delegate { SameEverywhere(); }));
 
             // the three grids share the whole area: fields and texts at the left, conditions over rewards at the right
-            var conditionPane = Pane("Conditions (count = how many times; empty or 0 = once)", null, conditionGrid);
+            var conditionPane = Pane("Conditions (count: empty or 0 = once; a code that is another table's id is read-only)", null, conditionGrid);
             var rewardPane = Pane("Reward items", rewardBar, rewardGrid);
             var fieldPane = Pane("Fields and texts", null, fieldGrid);
             var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = new Padding(0) };
@@ -192,9 +196,11 @@ namespace MS2.Tables
             Guard(delegate { Find(); });
         }
 
+        readonly BoldFont bold = new BoldFont();   // the heading lines of the grids
+
         protected override void Dispose(bool disposing)
         {
-            if (disposing) Hook(null);
+            if (disposing) { Hook(null); bold.Dispose(); }
             base.Dispose(disposing);
         }
 
@@ -264,7 +270,10 @@ namespace MS2.Tables
             grid.CellToolTipTextNeeded += delegate(object sender, DataGridViewCellToolTipTextNeededEventArgs e)
             {
                 Line l = At(lines, e.RowIndex);
-                if (l != null && e.ColumnIndex >= 0) e.ToolTipText = l.Heading ?? l.Cells[e.ColumnIndex] ?? "";
+                if (l == null || e.ColumnIndex < 0) return;
+                e.ToolTipText = l.Heading ?? l.Cells[e.ColumnIndex] ?? "";
+                if (grid == conditionGrid && l.Heading == null && e.ColumnIndex == 1 && editor != null)
+                    e.ToolTipText = "The types the shipped quests use: " + string.Join(", ", editor.ConditionTypes().ToArray()) + ". A new type must take the same kind of code as the old one";
             };
             grid.RowPostPaint += delegate(object sender, DataGridViewRowPostPaintEventArgs e)
             {
@@ -272,8 +281,7 @@ namespace MS2.Tables
                 if (l == null || l.Heading == null) return;
                 var r = new Rectangle(e.RowBounds.Left, e.RowBounds.Top, Math.Min(e.RowBounds.Width, grid.Columns.GetColumnsWidth(DataGridViewElementStates.Visible)) - 1, e.RowBounds.Height - 1);
                 e.Graphics.FillRectangle(SystemBrushes.Control, r);
-                using (var bold = new Font(grid.Font, FontStyle.Bold))
-                    TextRenderer.DrawText(e.Graphics, l.Heading, bold, r, SystemColors.ControlText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+                TextRenderer.DrawText(e.Graphics, l.Heading, bold.Of(grid.Font), r, SystemColors.ControlText, TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             };
             grid.CellBeginEdit += delegate(object sender, DataGridViewCellCancelEventArgs e)
             {
@@ -297,7 +305,7 @@ namespace MS2.Tables
                 {
                     e.CellStyle.BackColor = SystemColors.Control;
                     e.CellStyle.ForeColor = SystemColors.ControlText;
-                    e.CellStyle.Font = new Font(grid.Font, FontStyle.Bold);
+                    e.CellStyle.Font = bold.Of(grid.Font);
                 }
                 else if (!l.Editable[e.ColumnIndex]) e.CellStyle.ForeColor = e.ColumnIndex == 0 ? SystemColors.WindowText : Color.Gray;
                 else if (l.Changed) e.CellStyle.BackColor = Color.FromArgb(255, 236, 170);
@@ -489,7 +497,9 @@ namespace MS2.Tables
             {
                 sb.Append("\r\n\r\nA new quest id is written to:");
                 foreach (string l in editor.Registration(d.Id)) sb.Append("\r\n  ").Append(l);
-                sb.Append("\r\nThe talk scripts and the tables that list quests are not copied; add them in the MS2 Tables view.");
+                sb.Append(editor.ListedRows(d.Id).Count > 0
+                    ? "\r\nThe talk script rows are copies; the talk texts they name are shared with the source quest."
+                    : "\r\nThe talk script and the tables that list quests have no row for this quest (none copied, or the source had none); add them in the MS2 Tables view.");
             }
             return sb.ToString();
         }
@@ -531,6 +541,9 @@ namespace MS2.Tables
             }
             return first;
         }
+
+        const string AcceptPrefix = "accept: ";
+        static string ListName(string reward, string list) { return (reward == QuestDraft.AcceptReward ? AcceptPrefix : "") + list; }
 
         static string ItemText(QuestReward w) { return w.Code + " x" + w.Count + " (rank " + w.Rank + ")"; }
 
@@ -584,34 +597,45 @@ namespace MS2.Tables
             List<QuestCondition> conditions = d.Conditions(), wasConditions = shipped != null ? shipped.Conditions() : null;
             foreach (QuestCondition c in conditions)
             {
-                string was = wasConditions != null && c.Index < wasConditions.Count ? wasConditions[c.Index].Value : null;
+                QuestCondition was = wasConditions != null && c.Index < wasConditions.Count ? wasConditions[c.Index] : null;
+                string table = QuestDraft.CodeTable(c.Type, c.Code);
                 conditionLines.Add(new Line
                 {
                     Index = c.Index,
-                    Cells = new[] { (c.Index + 1).ToString(CultureInfo.InvariantCulture), c.Type, c.Code, c.Value, was ?? "", c.Places + " place(s)" + (c.Differs ? ", they differ" : "") },
-                    Shipped = shipped != null ? new[] { null, null, null, was ?? "", null, null } : null,
-                    Editable = new[] { false, false, false, true, false, false },
+                    Cells = new[]
+                    {
+                        (c.Index + 1).ToString(CultureInfo.InvariantCulture), c.Type, c.Code, c.Value,
+                        was != null ? was.Type + " " + was.Code + " x" + (was.Value.Length > 0 ? was.Value : "1") : shipped != null ? "(new row)" : "",
+                        table == null ? "free text" : table == "id" ? "an id, read-only" : table + " id, read-only",
+                        c.Places + " place(s)" + (c.Differs ? ", they differ" : ""),
+                    },
+                    Shipped = shipped != null ? new[] { null, was != null ? was.Type : "", was != null ? was.Code : "", was != null ? was.Value : "", null, null, null } : null,
+                    Editable = new[] { false, true, table == null, true, false, false, false },
                 });
             }
 
-            foreach (string list in QuestDraft.RewardLists)
-            {
-                if (!d.HasList(list)) continue;
-                listBox.Items.Add(list);
-                rewardLines.Add(new Line { Heading = list + (list == "v" ? "  (kms-client table)" : "  (quest files)"), List = list, Index = -1 });
-                List<QuestReward> rows = d.Rewards(list), wasRows = shipped != null ? shipped.Rewards(list) : null;
-                foreach (QuestReward w in rows)
+            foreach (string reward in new[] { QuestDraft.CompleteReward, QuestDraft.AcceptReward })
+                foreach (string list in QuestDraft.RewardLists)
                 {
-                    QuestReward was = wasRows != null && w.Index < wasRows.Count ? wasRows[w.Index] : null;
-                    rewardLines.Add(new Line
+                    if (!d.HasList(list)) continue;
+                    bool accept = reward == QuestDraft.AcceptReward;
+                    List<QuestReward> rows = d.Rewards(reward, list), wasRows = shipped != null ? shipped.Rewards(reward, list) : null;
+                    // the accept reward has the table's v list and the files' essentialItem list; another list shows when it has rows
+                    if (accept && list != "v" && list != "essentialItem" && rows.Count == 0) continue;
+                    listBox.Items.Add(ListName(reward, list));
+                    rewardLines.Add(new Line { Heading = (accept ? "On accept: " : "On complete: ") + list + (list == "v" ? "  (kms-client table)" : "  (quest files)"), Reward = reward, List = list, Index = -1 });
+                    foreach (QuestReward w in rows)
                     {
-                        List = list, Index = w.Index,
-                        Cells = new[] { (w.Index + 1).ToString(CultureInfo.InvariantCulture), w.Code, w.Rank, w.Count, was != null ? ItemText(was) : shipped != null ? "(new row)" : "", w.Places + " place(s)" + (w.Differs ? ", they differ" : "") },
-                        Shipped = shipped != null ? new[] { null, was != null ? was.Code : "", was != null ? was.Rank : "", was != null ? was.Count : "", null, null } : null,
-                        Editable = new[] { false, true, true, true, false, false },
-                    });
+                        QuestReward was = wasRows != null && w.Index < wasRows.Count ? wasRows[w.Index] : null;
+                        rewardLines.Add(new Line
+                        {
+                            Reward = reward, List = list, Index = w.Index,
+                            Cells = new[] { (w.Index + 1).ToString(CultureInfo.InvariantCulture), w.Code, w.Rank, w.Count, was != null ? ItemText(was) : shipped != null ? "(new row)" : "", w.Places + " place(s)" + (w.Differs ? ", they differ" : "") },
+                            Shipped = shipped != null ? new[] { null, was != null ? was.Code : "", was != null ? was.Rank : "", was != null ? was.Count : "", null, null } : null,
+                            Editable = new[] { false, true, true, true, false, false },
+                        });
+                    }
                 }
-            }
             if (keepList != null && listBox.Items.Contains(keepList)) listBox.SelectedItem = keepList;
             else if (listBox.Items.Count > 0) listBox.SelectedIndex = 0;
 
@@ -656,8 +680,21 @@ namespace MS2.Tables
 
         void SetCondition(Line l, int column, string value)
         {
+            QuestDraft d = Draft();
+            if (column == 1)
+            {
+                int places = d.SetConditionType(l.Index, value);
+                Edited("condition " + (l.Index + 1) + " type = " + value.Trim() + " in " + places + " place(s)");
+                return;
+            }
+            if (column == 2)
+            {
+                int places = d.SetConditionCode(l.Index, value);
+                Edited("condition " + (l.Index + 1) + " code = " + value.Trim() + " in " + places + " place(s)");
+                return;
+            }
             long v = Number(value, "count");
-            int n = Draft().SetConditionCount(l.Index, v);
+            int n = d.SetConditionCount(l.Index, v);
             Edited("condition " + (l.Index + 1) + " count = " + v + " in " + n + " place(s)");
         }
 
@@ -667,26 +704,28 @@ namespace MS2.Tables
             Number(value, column == 1 ? "item id" : column == 2 ? "rank" : "count");
             value = value.Trim();
             if (column == 1) it.Code = value; else if (column == 2) it.Rank = value; else it.Count = value;
-            int n = Draft().SetReward(l.List, l.Index, it);
-            Edited(l.List + " row " + (l.Index + 1) + " = item " + it.Code + " rank " + it.Rank + " count " + it.Count + " in " + n + " place(s)");
+            int n = Draft().SetReward(l.Reward, l.List, l.Index, it);
+            Edited(ListName(l.Reward, l.List) + " row " + (l.Index + 1) + " = item " + it.Code + " rank " + it.Rank + " count " + it.Count + " in " + n + " place(s)");
         }
 
-        string ChosenList()
+        string ChosenList(out string reward)
         {
             string list = listBox.SelectedItem as string;
             if (list == null) throw new ModKitException("choose a reward list in the box first");
-            return list;
+            bool accept = list.StartsWith(AcceptPrefix, StringComparison.Ordinal);
+            reward = accept ? QuestDraft.AcceptReward : QuestDraft.CompleteReward;
+            return accept ? list.Substring(AcceptPrefix.Length) : list;
         }
 
         void AddReward()
         {
             QuestDraft d = Draft();
             EndEdits();
-            string list = ChosenList();
+            string reward, list = ChosenList(out reward);
             Number(itemBox.Text, "item id"); Number(rankBox.Text, "rank"); Number(countBox.Text, "count");
             var it = new QuestItem { Code = itemBox.Text.Trim(), Rank = rankBox.Text.Trim(), Count = countBox.Text.Trim() };
-            int n = d.AddReward(list, it);
-            Edited("item " + it.Code + " x" + it.Count + " added to " + list + " in " + n + " place(s)");
+            int n = d.AddReward(reward, list, it);
+            Edited("item " + it.Code + " x" + it.Count + " added to " + ListName(reward, list) + " in " + n + " place(s)");
         }
 
         void RemoveReward()
@@ -695,15 +734,16 @@ namespace MS2.Tables
             rewardGrid.CancelEdit();
             Line l = rewardGrid.CurrentCell == null ? null : At(rewardLines, rewardGrid.CurrentCell.RowIndex);
             if (l == null || l.Heading != null) throw new ModKitException("select a row of a reward list in the grid first");
-            int n = d.RemoveReward(l.List, l.Index);
-            Edited(l.List + " row " + (l.Index + 1) + " (item " + l.Cells[1] + ") removed in " + n + " place(s)");
+            int n = d.RemoveReward(l.Reward, l.List, l.Index);
+            Edited(ListName(l.Reward, l.List) + " row " + (l.Index + 1) + " (item " + l.Cells[1] + ") removed in " + n + " place(s)");
         }
 
         void SameEverywhere()
         {
             QuestDraft d = Draft();
             EndEdits();
-            string list = ChosenList();
+            string reward, list = ChosenList(out reward);
+            if (reward != QuestDraft.CompleteReward) throw new ModKitException("\"Same on every target\" works on the complete reward; choose one of its lists");
             var items = new List<QuestItem>();
             foreach (QuestReward w in d.Rewards(list)) items.Add(new QuestItem { Code = w.Code, Rank = w.Rank, Count = w.Count });
             int n = d.SetRewardItems(items);
@@ -720,7 +760,7 @@ namespace MS2.Tables
             string text = cloneIdBox.Text.Trim();
             long id = text.Length == 0 ? ed.NextFreeId(d.Id + 1) : Number(text, "id");
             long source = d.Id;
-            QuestDraft made = ed.Clone(source, id);
+            QuestDraft made = ed.Clone(source, id, listedBox.Checked);
             host.EditedOutside();
             FillHits(id);
             ShowQuest(made);
