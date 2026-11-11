@@ -1,9 +1,10 @@
 // A talk script names its texts as $script:N$, N being a row of the target's talk text files
 // (string/<language>/scriptquest*.xml, <key id name>). After the merge of all mods, a name a mod has brought into a
 // talk script (a new row, a changed or added text attribute, a whole file) whose N has no row in any language of
-// that target is a warning: the game would show nothing, or the key. Names the shipped data has already are not
-// looked at, so the unmodded data gives no warning; nor is a text the shipped file names already without a row, so
-// the clone of a quest that speaks such a text is as quiet as its source.
+// that target is a warning: the game would show nothing, or the key. A name the same quest and script have as
+// shipped is not looked at, so the unmodded data gives no warning; nor is a name a clone (an added row that copies
+// quest X under a new id) has in the script where X has it as shipped, so the clone of a quest that speaks a text
+// without a row is as quiet as its source. The same text moved to another quest or script by hand is a warning.
 using System;
 using System.Collections.Generic;
 using MS2.ModKit.M2d;
@@ -68,9 +69,41 @@ namespace MS2.ModKit
             return null;
         }
 
+        // the clones in the talk scripts of all mods: new quest id -> the quest id its row copies. Not per target:
+        // a quest has one id everywhere, and the rows the plan mirrors to the other client have no line of their own
+        static Dictionary<string, string> TalkClones(Run run)
+        {
+            var d = new Dictionary<string, string>();
+            foreach (Mod m in run.Plan.Mods)
+                foreach (ModOp op in m.Ops)
+                {
+                    var ed = op as EditOp;
+                    if (ed == null || !QuestEditor.IsTalkScript(ed.Entry)) continue;
+                    foreach (RowOp r in ed.Rows)
+                    {
+                        const string head = "quest[id=";
+                        if (r.Kind != RowOpKind.Add || r.Copy == null || !r.Copy.StartsWith(head, StringComparison.Ordinal) || !r.Copy.EndsWith("]", StringComparison.Ordinal)) continue;
+                        AttrOp id = r.Attrs.Find(delegate(AttrOp a) { return a.Name == "id" && string.IsNullOrEmpty(a.At) && a.Value != null; });
+                        if (id != null) d[id.Value] = r.Copy.Substring(head.Length, r.Copy.Length - head.Length - 1);
+                    }
+                }
+            return d;
+        }
+
+        // the name as its quest's source has it: the quest id replaced by the id of the quest it was copied from;
+        // null when the quest is not a clone
+        static string TalkSourceKey(Dictionary<string, string> clones, string key)
+        {
+            int cut = key.IndexOf('\n');
+            string quest = key.Substring(0, cut), from;
+            if (!clones.TryGetValue(quest, out from)) return null;
+            return from + key.Substring(cut);
+        }
+
         static void TalkNameCheck(Run run)
         {
             var texts = new Dictionary<string, HashSet<long>>();
+            Dictionary<string, string> clones = null;
             foreach (EntryState st in run.Order)
             {
                 if (st.DeletedBy != null || st.Final == null || !QuestEditor.IsTalkScript(st.Name)) continue;
@@ -90,10 +123,15 @@ namespace MS2.ModKit
                 var shippedSet = new HashSet<string>();
                 TalkNames(now.Root, null, null, names, ids, new HashSet<string>());
                 if (was != null && was.Root != null) TalkNames(was.Root, null, null, shipped, shippedIds, shippedSet);
-                var shippedIdSet = new HashSet<long>(shippedIds);
                 for (int i = 0; i < names.Count; i++)
                 {
-                    if (shippedSet.Contains(names[i]) || shippedIdSet.Contains(ids[i])) continue;       // as shipped: not a mod's doing
+                    if (shippedSet.Contains(names[i])) continue;       // as shipped: not a mod's doing
+                    if (shippedSet.Count > 0)
+                    {
+                        if (clones == null) clones = TalkClones(run);
+                        string src = TalkSourceKey(clones, names[i]);
+                        if (src != null && shippedSet.Contains(src)) continue;      // a clone that says what its source says
+                    }
                     HashSet<long> have;
                     if (!texts.TryGetValue(st.Archive, out have))
                     {

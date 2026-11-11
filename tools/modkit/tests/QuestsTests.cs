@@ -708,6 +708,45 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void Plan_AShippedTalkNameWithoutARow_MovedToAnotherQuestByHand_Warns()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                // 702200 has no row and quest 702 names it as shipped; the clone of quest 701 is made to say it
+                f.Editor().Clone(701, 705);
+                SayByHand(f, "705", "$script:702200$");
+                Plan p = Planner.Build(f.Data, new[] { Mod.Parse(f.Mod.ToXml(), "round trip") }, new PlanOptions());
+                Assert.That(p.Errors, Is.Empty);
+                Assert.That(p.Warnings.Count, Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(p.Warnings.ConvertAll(m => m.Text), Has.All.StartsWith("quest 705, script 100 names talk text 702200, and the "));
+            }
+        }
+
+        [Test]
+        public void Plan_ACloneOfAQuestWithAShippedTalkNameWithoutARow_NoWarning_UntilTheNameMoves()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(702, 706);
+                f.Plan();       // the clone says 702200 where its source says it
+                // the same text in another script of the clone is not what the source says
+                long other = ed.TalkLines(706).Find(t => t.TextId != 702200).TextId;
+                foreach (ModOp op in f.Mod.Ops)
+                {
+                    var e = op as EditOp;
+                    if (e == null || !e.Entry.StartsWith("script/quest/", StringComparison.Ordinal)) continue;
+                    foreach (RowOp r in e.Rows)
+                        if (r.Attrs.Exists(x => x.Name == "id" && x.Value == "706"))
+                            r.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "text", Value = "$script:702200$", At = "script[id=100]/content" });
+                }
+                Plan p = Planner.Build(f.Data, new[] { Mod.Parse(f.Mod.ToXml(), "round trip") }, new PlanOptions());
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Warnings.ConvertAll(m => m.Text), Is.Not.Empty.And.All.StartsWith("quest 706, script 100 names talk text 702200, and the "), "was " + other);
+            }
+        }
+
+        [Test]
         public void OwnTalkTexts_ATextNamedTwice_SeveralContents_AScriptWithoutTexts()
         {
             using (var f = new FakeQuests(true, true, true, busy: true))
