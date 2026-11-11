@@ -32,6 +32,9 @@ The conversions also exist in C#, in [tools/modkit](../modkit/README.md#maps), w
 | `xblock2block.py` | `modkit map-to-block` |
 | `block2xblock.py` | `modkit map-from-block` |
 | `normalize_xblock.py` | `modkit map-normalize` |
+| `flat2model.py` | `modkit map-models` |
+| `mklayout.py` | `modkit map-project` (also runs the two steps around it) |
+| `tools/toolbench/mkgsl.py` | `modkit map-solution` |
 
 To open a shipped map in World Builder: `flat2model.py`, `mklayout.py`, then `tools/toolbench/mkgsl.py`
 (see [tools/toolbench](../toolbench/README.md)).

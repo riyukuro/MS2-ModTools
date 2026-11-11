@@ -865,6 +865,29 @@ modkit map-from-block blocks/<map>.block -o exported --index index.json    # edi
 modkit map-normalize exported/<map>.xblock -o final --original <shipped map>   # put it in the shipped file's order
 ```
 
+### A map editor project for chosen maps
+
+The map editor opens a project folder: the game's library of models, one preset per model the game ships, the maps
+as editor files, and a solution file. One command builds that folder from the game's archives for the maps you name:
+
+```sh
+modkit map-project <map.xblock>... -o project --flats <Exported.m2d or folder> --library <Library.m2d or folder> \
+    [--known-ids known_guids.json] [--assets <asset-web-metadata.m2d or folder>] [--all-presets]
+```
+
+It copies the library, writes the model and preset files the game's flat files describe, and keeps only the presets
+your maps use (and the ones those are made from) unless you pass `--all-presets`. `MISSING.txt` lists project
+entries whose file does not exist, `ASSETS.txt` lists the asset ids found in the values of the maps' entities with
+the file each one names (with `--assets`), so you know which model files the editor will ask for. The folder holds
+copied game files: keep it local and out of any repository.
+
+The two steps also exist alone: `modkit map-models <project folder> --flats SRC [--known-ids FILE]` writes the
+model, preset and project files into a folder that already holds the library, and
+`modkit map-solution <project folder> [NAME.gsl]` writes the solution file for what the folder holds. They give
+the same bytes as `flat2model.py` and `tools/toolbench/mkgsl.py`. The file of known model ids is made by
+`tools/mapedit/knownguids.py`, which needs the SDK and has no C# counterpart; without it a model the library does
+not ship gets an id derived from its name.
+
 ### From an edited map to a mod
 
 A mod never carries a whole map file; it carries the edits. When you have the shipped map file and an edited copy
