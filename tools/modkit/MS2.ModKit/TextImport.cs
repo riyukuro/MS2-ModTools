@@ -4,9 +4,12 @@
 // A file of ours (string/<lang>/<name>.xml) is matched to the source file of the same name, or to a family of
 // split files (Families: the global client splits quest scripts, quest descriptions, npc scripts, skill names and
 // the skill and additional descriptions over several files). Rows are keyed by id (questID when there is no id),
-// leading zeros dropped. Our row takes the source row with the same feature and locale, else the source rows of
-// the key when they all give the attribute the same text; else the attribute is "ambiguous" and left alone. A level
-// of ours (the additional descriptions have one row per level) must be the source row's level too.
+// leading zeros dropped, and only source rows of our element name count. Our row takes the source rows with the
+// same feature and locale (of several, those whose id is written as ours), else the source rows of the key; either
+// way they must all give the attribute the same text, else the attribute is "ambiguous" and left alone. A variant
+// of ours (feature or locale) that takes the key's text is ambiguous too when another variant of ours has a third
+// text. A level of ours (the additional descriptions have one row per level) must be the source row's level too.
+// The mod's row selectors are resolved against our file, so a hand-written selector names the same row.
 //
 // Per text attribute (every attribute but the keys and NotText):
 //   - ours has Hangul, the source has none, is not empty and is not a placeholder (SCRIPTQUEST_..._NAME): Fill,
