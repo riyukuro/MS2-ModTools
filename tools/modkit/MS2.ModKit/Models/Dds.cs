@@ -21,7 +21,8 @@ namespace MS2.ModKit.Models
 
     public static class Dds
     {
-        const int MaxSide = 8192;
+        /// <summary>The largest side decoded: a larger texture is not shown (the mesh is drawn plain).</summary>
+        public const int MaxSide = 4096;
 
         static uint U32(byte[] b, int at) { return (uint)(b[at] | b[at + 1] << 8 | b[at + 2] << 16 | b[at + 3] << 24); }
 
@@ -35,6 +36,7 @@ namespace MS2.ModKit.Models
             catch (IndexOutOfRangeException) { why = "the texture is cut short"; }
             catch (ArgumentException) { why = "the texture is cut short"; }
             catch (OverflowException) { why = "the texture is too large"; }
+            catch (OutOfMemoryException) { why = "the texture is too large"; }
             return null;
         }
 
@@ -47,7 +49,7 @@ namespace MS2.ModKit.Models
             uint pfFlags = U32(b, 80), fourCc = U32(b, 84), bits = U32(b, 88);
             uint rm = U32(b, 92), gm = U32(b, 96), bm = U32(b, 100), am = U32(b, 104);
             int at = 128;
-            var t = new Texture(w, h);
+            Texture t = null;   // made only after the file was seen to hold the picture's data
             int block = 0;
             if ((pfFlags & 4) != 0)
             {
@@ -77,6 +79,7 @@ namespace MS2.ModKit.Models
             {
                 int bw = (w + 3) / 4, bh = (h + 3) / 4, size = block == 1 ? 8 : 16;
                 if ((long)bw * bh * size > b.Length - at) { why = "the texture is cut short"; return null; }
+                t = new Texture(w, h);
                 Blocks(b, at, t, block);
             }
             else
@@ -88,6 +91,7 @@ namespace MS2.ModKit.Models
                 bool alphaOnly = rm == 0 && gm == 0 && bm == 0 && am != 0;
                 if (rm == 0 && gm == 0 && bm == 0 && am == 0) { why = "the texture names no colour layout"; return null; }
                 bool hasA = am != 0 && ((pfFlags & 1) != 0 || (pfFlags & 2) != 0 || alphaOnly);
+                t = new Texture(w, h);
                 for (int i = 0; i < w * h; i++)
                 {
                     uint v = 0;

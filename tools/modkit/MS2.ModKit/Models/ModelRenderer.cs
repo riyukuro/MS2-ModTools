@@ -161,7 +161,7 @@ namespace MS2.ModKit.Models
             return m;
         }
 
-        static Texture Half(Texture s)
+        internal static Texture Half(Texture s)
         {
             int w = Math.Max(1, s.Width / 2), h = Math.Max(1, s.Height / 2);
             var d = new Texture(w, h) { HasAlpha = s.HasAlpha };

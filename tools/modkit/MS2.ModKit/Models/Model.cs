@@ -41,6 +41,7 @@ namespace MS2.ModKit.Models
         public float[] Min = { 0, 0, 0 }, Max = { 0, 0, 0 };
 
         public int TriangleCount { get { int n = 0; foreach (ModelPart p in Parts) n += p.TriangleCount; return n; } }
+        public int VertexCount { get { int n = 0; foreach (ModelPart p in Parts) n += p.VertexCount; return n; } }
         public bool Empty { get { return TriangleCount == 0; } }
 
         /// <summary>Adds the parts of another model (an NPC made of several files).</summary>
@@ -97,6 +98,15 @@ namespace MS2.ModKit.Models
     {
         const int MaxDepth = 256;
 
+        // The most one model may hold. Past any of these the rest of the file is left out with a note, so a damaged
+        // or hostile file costs a bounded amount of work and memory (the largest shipped model is far below them).
+        public const int MaxVertices = 1000000;
+        public const int MaxTriangles = 2000000;
+        public const int MaxSubmeshes = 256;        // of one mesh
+        public const int MaxElements = 256;         // named stream elements of one mesh
+        public const int MaxFileBytes = 64 << 20;   // of one model file
+        public const string TooLarge = "the model is too large; the rest is left out";
+
         sealed class State
         {
             public NifTexturing Tex;
@@ -110,10 +120,16 @@ namespace MS2.ModKit.Models
             public Model Model = new Model();
             public Dictionary<int, float[]> World = new Dictionary<int, float[]>();
             public List<KeyValuePair<int, State>> Meshes = new List<KeyValuePair<int, State>>();
+            public int Vertices, Triangles;     // taken so far
+            public bool Full;                   // a limit was passed: nothing more is added
         }
 
         /// <summary>Reads a model file's bytes into triangles. Throws NifException only for a file that is not readable at all.</summary>
-        public static Model Build(byte[] nif) { return Build(NifFile.Read(nif)); }
+        public static Model Build(byte[] nif)
+        {
+            if (nif != null && nif.Length > MaxFileBytes) throw new NifException("the model file is too large");
+            return Build(NifFile.Read(nif));
+        }
 
         public static Model Build(NifFile file)
         {
@@ -121,7 +137,11 @@ namespace MS2.ModKit.Models
             foreach (KeyValuePair<int, State> m in w.Meshes)
             {
                 try { AddMesh(w, m.Key, m.Value); }
-                catch (NifException e) { w.Model.Notes.Add("mesh " + ((NifMesh)file.Parsed(m.Key)).Av.Name + " left out: " + e.Message); }
+                catch (NifException e)
+                {
+                    if (!w.Full) w.Model.Notes.Add("mesh " + ((NifMesh)file.Parsed(m.Key)).Av.Name + " left out: " + e.Message);
+                }
+                if (w.Full) { w.Model.Notes.Add(TooLarge); break; }
             }
             w.Model.Notes.AddRange(file.Notes);
             w.Model.Measure();
@@ -216,7 +236,11 @@ namespace MS2.ModKit.Models
                     if (r.SemanticIndex[c] != semanticIndex || !string.Equals(r.Semantic[c], semantic, StringComparison.Ordinal)) continue;
                     var st = w.File.Parsed(r.Stream) as NifStream;
                     if (st == null || c >= st.Formats.Length || st.Stride <= 0) return null;
-                    int region = submesh < r.SubmeshToRegion.Length ? r.SubmeshToRegion[submesh] : 0;
+                    // a stream without a submesh map has one region, for the mesh's only submesh
+                    int region;
+                    if (submesh < r.SubmeshToRegion.Length) region = r.SubmeshToRegion[submesh];
+                    else if (submesh == 0 && r.SubmeshToRegion.Length == 0) region = 0;
+                    else return null;
                     if (region >= st.RegionStart.Length) return null;
                     uint f = st.Formats[c];
                     var e = new Element
@@ -224,11 +248,15 @@ namespace MS2.ModKit.Models
                         Data = w.File.Data, Stride = st.Stride, Count = st.RegionCount[region],
                         Components = StreamFormat.Components(f), ComponentBytes = StreamFormat.ComponentBytes(f), Family = StreamFormat.Family(f),
                     };
-                    if (e.Family < 0) return null;
+                    // the reads step by the component bytes the format states: they must be the width of its type,
+                    // and the element must lie inside one stride, or a read would leave the region
+                    if (e.Family < 0 || e.Components <= 0 || e.ComponentBytes != StreamFormat.Width(e.Family)) return null;
                     int offset = 0;
                     for (int k = 0; k < c; k++) offset += StreamFormat.Bytes(st.Formats[k]);
+                    if (offset < 0 || (long)offset + (long)e.Components * e.ComponentBytes > st.Stride) return null;
                     long start = (long)st.RegionStart[region] * st.Stride;
-                    if (st.RegionStart[region] < 0 || e.Count < 0 || start + (long)e.Count * st.Stride > st.DataSize)
+                    if (st.RegionStart[region] < 0 || e.Count < 0 || start + (long)e.Count * st.Stride > st.DataSize
+                        || st.DataOffset < 0 || (long)st.DataOffset + st.DataSize > e.Data.Length)
                         throw new NifException("a stream region runs past its data");
                     e.At = st.DataOffset + (int)start + offset;
                     return e;
@@ -244,6 +272,11 @@ namespace MS2.ModKit.Models
             NifSkin skin = null;
             foreach (int mod in m.Modifiers) if (skin == null) skin = w.File.Parsed(mod) as NifSkin;
 
+            if (m.Submeshes > MaxSubmeshes) throw new NifException("it has " + m.Submeshes + " submeshes");
+            int elements = 0;
+            foreach (NifStreamRef r in m.Streams) elements += r.Semantic.Length;
+            if (elements > MaxElements) throw new NifException("it has " + elements + " stream elements");
+
             for (int sub = 0; sub < Math.Max(1, m.Submeshes); sub++)
             {
                 bool skinned = skin != null && Find(w, m, sub, "BLENDINDICES", 0) != null;
@@ -257,6 +290,13 @@ namespace MS2.ModKit.Models
                 if (uv != null && (uv.Components < 2 || uv.Count < pos.Count)) uv = null;
                 Element idx = Find(w, m, sub, "INDEX", 0);
                 int nv = pos.Count;
+                int ni = idx != null ? idx.Count : nv;
+                if (nv > MaxVertices - w.Vertices || (m.Primitive == 1 ? ni : ni / 3) > MaxTriangles - w.Triangles)
+                {
+                    w.Full = true;
+                    throw new NifException(TooLarge);
+                }
+                w.Vertices += nv;
 
                 var part = new ModelPart { Name = m.Av.Name, Positions = new float[nv * 3] };
                 if (nrm != null) part.Normals = new float[nv * 3];
@@ -291,7 +331,7 @@ namespace MS2.ModKit.Models
                         for (int k = 0; k < nw; k++)
                         {
                             int b = bi.I(v, k);
-                            if (wt[k] < 1e-6f || float.IsNaN(wt[k]) || b >= bone.Length || bone[b] == null) continue;
+                            if (wt[k] < 1e-6f || float.IsNaN(wt[k]) || (uint)b >= (uint)bone.Length || bone[b] == null) continue;
                             float tx, ty, tz;
                             Affine.Point(bone[b], x, y, z, out tx, out ty, out tz);
                             ox += tx * wt[k]; oy += ty * wt[k]; oz += tz * wt[k];
@@ -318,6 +358,7 @@ namespace MS2.ModKit.Models
                 }
 
                 part.Triangles = Triangles(idx, nv, m.Primitive == 1);
+                w.Triangles += part.TriangleCount;
                 if (part.Triangles.Length == 0) continue;
                 if (state.Tex != null)
                 {
@@ -352,7 +393,7 @@ namespace MS2.ModKit.Models
             for (int i = 0; i < r.Length; i++)
             {
                 int b = pal.I(i, 0);
-                r[i] = b < perBone.Length ? perBone[b] : null;
+                r[i] = (uint)b < (uint)perBone.Length ? perBone[b] : null;
             }
             return r;
         }

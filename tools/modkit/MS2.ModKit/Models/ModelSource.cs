@@ -34,8 +34,19 @@ namespace MS2.ModKit.Models
             p = p.Substring(ModelFolder.Length);
             int slash = p.IndexOf('/');
             if (slash <= 0 || slash == p.Length - 1 || p.IndexOf("..", StringComparison.Ordinal) >= 0) return false;
-            archive = p.Substring(0, slash);
+            string name = p.Substring(0, slash);
+            if (!PlainName(name)) return false;
+            archive = name;
             entry = p.Substring(slash + 1);
+            return true;
+        }
+
+        /// <summary>True for a plain file name: no drive, folder or character a file name cannot hold (an archive name comes from a mod's field).</summary>
+        public static bool PlainName(string name)
+        {
+            if (string.IsNullOrEmpty(name) || name == "." || name == "..") return false;
+            foreach (char c in name)
+                if (c < ' ' || c == ':' || c == '/' || c == '\\' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') return false;
             return true;
         }
 
@@ -78,13 +89,16 @@ namespace MS2.ModKit.Models
         }
 
         /// <summary>
-        /// Every model file an item names, with the draft's edits: the assets of each slot of the item's own file, else
-        /// of the client's item model list; without slots, the model the item is placed or dropped as.
+        /// What an item draft itself says of its model, with the draft's edits: the assets of its own slots and the
+        /// model it is placed or dropped as. Cheap (no file is read); ModelSource.Assets adds the client's item
+        /// model list, which is read from an archive.
         /// </summary>
-        public static List<ItemAsset> AllItemAssets(EntityDraft d)
+        public static ItemQuery Query(EntityDraft d)
         {
-            var list = new List<ItemAsset>();
-            if (d == null) return list;
+            var q = new ItemQuery();
+            if (d == null) return q;
+            q.Id = d.Id;
+            List<ItemAsset> list = q.Own;
             var slots = new List<XmlElem>();
             foreach (EntitySection s in d.Sections)
             {
@@ -96,29 +110,25 @@ namespace MS2.ModKit.Models
                 if (slot < 0) { slot = slots.Count; slots.Add(e.Parent); }
                 list.Add(new ItemAsset { Path = v, Slot = slot, Gender = GenderOf(d.Get(s, "gender")), SelfNode = d.Get(s, "selfnode"), TargetNode = d.Get(s, "targetnode") });
             }
-            int slotNo = -1;
             if (list.Count == 0)
             {
                 // a slot's assets that are not sections of their own: read the shipped elements
+                int slotNo = -1;
                 foreach (EntityPart p in d.Parts)
                     if (p.Root != null) FindSlots(p.Root, list, 0, ref slotNo);
             }
-            if (list.Count == 0) ClientItemModel(d, list);
-            if (list.Count == 0)
+            // the bundle row or the item's own file, whichever names one
+            foreach (string[] field in new[] { new[] { "install", "asset" }, new[] { "drop", "dropNif" } })
             {
-                // the bundle row or the item's own file, whichever names one
-                foreach (string[] field in new[] { new[] { "install", "asset" }, new[] { "drop", "dropNif" } })
+                foreach (EntitySection s in d.Sections)
                 {
-                    foreach (EntitySection s in d.Sections)
-                    {
-                        if (s.Elem == null || s.Elem.Name != field[0]) continue;
-                        string v = d.Get(s, field[1]);
-                        if (IsModelPath(v)) { list.Add(new ItemAsset { Path = v }); break; }
-                    }
-                    if (list.Count > 0) break;
+                    if (s.Elem == null || s.Elem.Name != field[0]) continue;
+                    string v = d.Get(s, field[1]);
+                    if (IsModelPath(v)) { q.Fallback = new ItemAsset { Path = v }; break; }
                 }
+                if (q.Fallback != null) break;
             }
-            return list;
+            return q;
         }
 
         /// <summary>
@@ -158,15 +168,7 @@ namespace MS2.ModKit.Models
             return false;
         }
 
-        /// <summary>The model files of an item as game paths, with the draft's edits: one per slot, the male one where a slot has two.</summary>
-        public static List<string> ItemAssets(EntityDraft d)
-        {
-            var list = new List<string>();
-            foreach (ItemAsset a in Pick(AllItemAssets(d), 0)) list.Add(a.Path);
-            return list;
-        }
-
-        static void FindSlots(XmlElem e, List<ItemAsset> into, int depth, ref int slotNo)
+        internal static void FindSlots(XmlElem e, List<ItemAsset> into, int depth, ref int slotNo)
         {
             if (depth > 6) return;
             foreach (XmlElem c in e.Children)
@@ -176,49 +178,7 @@ namespace MS2.ModKit.Models
             }
         }
 
-        static void ClientItemModel(EntityDraft d, List<ItemAsset> into)
-        {
-            DataSet data = d.Editor.Data;
-            string entry = ItemModelEntry(d.Id);
-            foreach (Profile p in data.Profiles)
-            {
-                if (p.IsServer) continue;
-                string archive = p.Root + ":Xml.m2d";
-                string key = "itemmodel\n" + archive + "\n" + entry;
-                object o;
-                if (!data.Cache.TryGetValue(key, out o))
-                {
-                    var rows = new Dictionary<string, XmlElem>(StringComparer.Ordinal);
-                    try
-                    {
-                        if (data.Exists(archive))
-                        {
-                            M2dArchive a = data.Open(archive);
-                            M2dEntry e = a.Find(entry);
-                            XmlDoc doc = e == null ? null : XmlDoc.Parse(a.Read(e), archive + " " + e.Name);
-                            if (doc != null && doc.Root != null)
-                                foreach (XmlElem row in doc.Root.Children)
-                                {
-                                    string id = row.Attr("id");
-                                    if (row.Name == "ItemModel" && id != null && !rows.ContainsKey(id)) rows[id] = row;
-                                }
-                        }
-                    }
-                    catch (ModKitException) { }
-                    catch (IOException) { }
-                    data.Cache[key] = o = rows;
-                }
-                XmlElem found;
-                if (((Dictionary<string, XmlElem>)o).TryGetValue(d.Id.ToString(CultureInfo.InvariantCulture), out found))
-                {
-                    int slotNo = -1;
-                    FindSlots(found, into, 0, ref slotNo);
-                }
-                if (into.Count > 0) return;
-            }
-        }
-
-        /// <summary>The file name of an NPC's .kfm ("02010001_stan.kfm") from its model field, or null when it names none.</summary>
+        /// <summary>The file name of an NPC's .kfm ("02900001_digger.kfm") from its model field, or null when it names none.</summary>
         public static string NpcKfmFile(string model)
         {
             if (model == null) return null;
@@ -251,12 +211,22 @@ namespace MS2.ModKit.Models
         public string SelfNode, TargetNode;
     }
 
+    /// <summary>What an item draft says of its model (ModelNames.Query).</summary>
+    public sealed class ItemQuery
+    {
+        public long Id;
+        /// <summary>The assets of the item's own slots; empty when its file has none.</summary>
+        public readonly List<ItemAsset> Own = new List<ItemAsset>();
+        /// <summary>The model the item is placed or dropped as, or null.</summary>
+        public ItemAsset Fallback;
+    }
+
     /// <summary>The .kfm file of an animated model: only the name of its .nif is read.</summary>
     public static class Kfm
     {
         public const string Magic = ";Gamebryo KFM File Version ";
 
-        /// <summary>The .nif path a binary .kfm names (as written, e.g. ".\02010001_Stan.nif"), or null when the bytes are not one.</summary>
+        /// <summary>The .nif path a binary .kfm names (as written, e.g. ".\02900001_Digger.nif"), or null when the bytes are not one.</summary>
         public static string NifPath(byte[] b)
         {
             if (b == null || b.Length < Magic.Length + 6) return null;
@@ -283,6 +253,8 @@ namespace MS2.ModKit.Models
         /// <summary>What was left out of a shown picture (a missing texture, a mesh that did not read).</summary>
         public readonly List<string> Notes = new List<string>();
         public int Triangles;
+        /// <summary>True for an item whose two genders have different model files.</summary>
+        public bool Genders;
     }
 
     /// <summary>
@@ -292,6 +264,11 @@ namespace MS2.ModKit.Models
     public sealed class ModelSource : IDisposable
     {
         const int KeptTextures = 24;
+        /// <summary>The largest side a texture is kept at: a larger one is halved until it fits (the picture is 640 px at most).</summary>
+        public const int TextureSide = 1024;
+        /// <summary>The most bytes of decoded textures kept between pictures.</summary>
+        public const long TextureBudget = 32L << 20;
+        long textureBytes;
 
         readonly object gate = new object();
         readonly List<string> folders = new List<string>();        // .../Resource/Model of each root that has one
@@ -299,6 +276,8 @@ namespace MS2.ModKit.Models
         readonly Dictionary<M2dArchive, Dictionary<string, M2dEntry>> byName = new Dictionary<M2dArchive, Dictionary<string, M2dEntry>>();
         readonly Dictionary<string, Texture> textures = new Dictionary<string, Texture>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<int, Dictionary<string, float[]>> skeletons = new Dictionary<int, Dictionary<string, float[]>>();
+        readonly List<string> xmlArchives = new List<string>();     // the Xml.m2d of each client root
+        readonly Dictionary<string, Dictionary<string, XmlElem>> itemModels = new Dictionary<string, Dictionary<string, XmlElem>>(StringComparer.Ordinal);
         bool disposed;
 
         public ModelSource(DataSet data)
@@ -307,6 +286,11 @@ namespace MS2.ModKit.Models
             foreach (Profile p in Profile.All)
             {
                 if (!data.Has(p)) continue;
+                if (!p.IsServer && data.Exists(p.Root + ":Xml.m2d"))
+                {
+                    string xml = data.Resolve(p.Root + ":Xml.m2d");
+                    if (!xmlArchives.Contains(xml)) xmlArchives.Add(xml);
+                }
                 // the folder is found through an archive every client has
                 foreach (string name in new[] { ModelNames.TextureArchive, "Item", ModelNames.NpcArchive })
                 {
@@ -326,6 +310,7 @@ namespace MS2.ModKit.Models
         List<M2dArchive> Archives(string name)
         {
             var list = new List<M2dArchive>();
+            if (!ModelNames.PlainName(name)) return list;
             foreach (string folder in folders)
             {
                 string key = folder + "\n" + name;
@@ -379,6 +364,66 @@ namespace MS2.ModKit.Models
             return index.TryGetValue(fileName, out found) ? found : null;
         }
 
+        // The slot assets the client's item model list gives an item id. The archive is opened here, on the caller's
+        // (background) thread, and the rows of a list file are kept.
+        List<ItemAsset> ClientItemAssets(long id)
+        {
+            var list = new List<ItemAsset>();
+            string entry = ModelNames.ItemModelEntry(id);
+            lock (gate)
+            {
+                if (disposed) return list;
+                foreach (string file in xmlArchives)
+                {
+                    string key = file + "\n" + entry;
+                    Dictionary<string, XmlElem> rows;
+                    if (!itemModels.TryGetValue(key, out rows))
+                    {
+                        rows = new Dictionary<string, XmlElem>(StringComparer.Ordinal);
+                        try
+                        {
+                            M2dArchive a;
+                            if (!open.TryGetValue(file, out a)) open[file] = a = File.Exists(file) ? M2dArchive.Open(file) : null;
+                            M2dEntry e = a == null ? null : a.Find(entry);
+                            XmlDoc doc = e == null ? null : XmlDoc.Parse(a.Read(e), "Xml.m2d " + e.Name);
+                            if (doc != null && doc.Root != null)
+                                foreach (XmlElem row in doc.Root.Children)
+                                {
+                                    string rowId = row.Attr("id");
+                                    if (row.Name == "ItemModel" && rowId != null && !rows.ContainsKey(rowId)) rows[rowId] = row;
+                                }
+                        }
+                        catch (ModKitException) { }
+                        catch (IOException) { }
+                        catch (UnauthorizedAccessException) { }
+                        if (itemModels.Count >= 16) itemModels.Clear();
+                        itemModels[key] = rows;
+                    }
+                    XmlElem found;
+                    if (rows.TryGetValue(id.ToString(CultureInfo.InvariantCulture), out found))
+                    {
+                        int slotNo = -1;
+                        ModelNames.FindSlots(found, list, 0, ref slotNo);
+                    }
+                    if (list.Count > 0) break;
+                }
+            }
+            return list;
+        }
+
+        /// <summary>
+        /// Every model file of an item: the assets of its own slots, else of the client's item model list (read from
+        /// its archive here: call this off the UI thread), else the model it is placed or dropped as.
+        /// </summary>
+        public List<ItemAsset> Assets(ItemQuery q)
+        {
+            if (q == null) return new List<ItemAsset>();
+            if (q.Own.Count > 0) return new List<ItemAsset>(q.Own);
+            List<ItemAsset> list = ClientItemAssets(q.Id);
+            if (list.Count == 0 && q.Fallback != null) list.Add(q.Fallback);
+            return list;
+        }
+
         /// <summary>The bytes of a model file named by its game path, or null.</summary>
         public byte[] ReadGamePath(string gamePath)
         {
@@ -390,7 +435,9 @@ namespace MS2.ModKit.Models
                 foreach (M2dArchive a in Archives(archive))
                 {
                     M2dEntry e = a.Find(entry);
-                    if (e != null) return a.Read(e);
+                    if (e == null) continue;
+                    if (e.Size > (ulong)ModelBuilder.MaxFileBytes) throw new NifException("the model file is too large");
+                    return a.Read(e);
                 }
             }
             return null;
@@ -413,11 +460,16 @@ namespace MS2.ModKit.Models
                     M2dEntry e = ByName(a, file);
                     if (e == null) continue;
                     string why;
+                    if (e.Size > (ulong)ModelBuilder.MaxFileBytes) continue;
                     t = Dds.Decode(a.Read(e), out why);
                     if (t != null) break;
                 }
-                if (textures.Count >= KeptTextures) textures.Clear();
+                try { while (t != null && (t.Width > TextureSide || t.Height > TextureSide)) t = ModelRenderer.Half(t); }
+                catch (OutOfMemoryException) { t = null; }
+                long bytes = t == null ? 0 : 4L * t.Argb.Length;
+                if (textures.Count >= KeptTextures || textureBytes + bytes > TextureBudget) { textures.Clear(); textureBytes = 0; }
                 textures[file] = t;
+                textureBytes += bytes;
                 return t;
             }
         }
@@ -512,9 +564,13 @@ namespace MS2.ModKit.Models
                     if (bytes == null) reason = "no file " + FileName(path);
                     else
                     {
-                        Model one = ModelBuilder.Build(bytes);
-                        one.Place(TargetOf(asset, gender));
-                        model.Add(one);
+                        if (model.VertexCount >= ModelBuilder.MaxVertices || model.TriangleCount >= ModelBuilder.MaxTriangles) reason = ModelBuilder.TooLarge;
+                        else
+                        {
+                            Model one = ModelBuilder.Build(bytes);
+                            one.Place(TargetOf(asset, gender));
+                            model.Add(one);
+                        }
                     }
                 }
                 catch (ModKitException e) { reason = FileName(path) + ": " + e.Message; }
@@ -565,6 +621,21 @@ namespace MS2.ModKit.Models
             return pic;
         }
 
+        /// <summary>
+        /// The still picture of an item as a gender wears it (0 male, 1 female): one asset per slot. The picture says
+        /// whether the other gender has another model. Never throws for bad data.
+        /// </summary>
+        public ModelPicture ItemPicture(ItemQuery q, int gender, int width, int height, RenderOptions options)
+        {
+            List<ItemAsset> all;
+            try { all = Assets(q); }
+            catch (ModKitException e) { return new ModelPicture { Width = width, Height = height, Message = "cannot show: " + e.Message }; }
+            catch (IOException e) { return new ModelPicture { Width = width, Height = height, Message = "cannot show: " + e.Message }; }
+            ModelPicture pic = Picture(ModelNames.Pick(all, gender), gender, width, height, options);
+            pic.Genders = ModelNames.HasGenders(all);
+            return pic;
+        }
+
         /// <summary>The still picture of an NPC's model from the file name of its .kfm.</summary>
         public ModelPicture NpcPicture(string kfmFile, int width, int height, RenderOptions options)
         {
@@ -584,7 +655,9 @@ namespace MS2.ModKit.Models
                 foreach (M2dArchive a in open.Values) if (a != null) a.Dispose();
                 open.Clear();
                 byName.Clear();
+                itemModels.Clear();
                 textures.Clear();
+                textureBytes = 0;
                 skeletons.Clear();
             }
         }

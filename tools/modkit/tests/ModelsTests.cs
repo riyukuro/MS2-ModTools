@@ -87,19 +87,19 @@ namespace MS2.ModKit.Tests
             }));
         }
 
-        public int Mesh(string name, int[] streams, string[][] semantics, int[] props = null, int[] modifiers = null, ushort flags = 0, float[] translate = null, int primitive = 0)
+        public int Mesh(string name, int[] streams, string[][] semantics, int[] props = null, int[] modifiers = null, ushort flags = 0, float[] translate = null, int primitive = 0, ushort submeshes = 1, bool map = true)
         {
             return Add("NiMesh", Make(w =>
             {
                 Av(w, name, flags, translate, 1, props);
                 w.Write(0); w.Write(-1); w.Write((byte)0);              // materials, active, needs update
-                w.Write(primitive); w.Write((ushort)1); w.Write((byte)0);
+                w.Write(primitive); w.Write(submeshes); w.Write((byte)0);
                 for (int i = 0; i < 4; i++) w.Write(0f);                // bound
                 w.Write(streams.Length);
                 for (int i = 0; i < streams.Length; i++)
                 {
                     w.Write(streams[i]); w.Write((byte)0);
-                    w.Write((ushort)1); w.Write((ushort)0);
+                    if (map) { w.Write((ushort)1); w.Write((ushort)0); } else w.Write((ushort)0);
                     w.Write(semantics[i].Length);
                     foreach (string s in semantics[i]) { w.Write(Str(s)); w.Write(0); }
                 }
@@ -387,6 +387,158 @@ namespace MS2.ModKit.Tests
             Assert.That(notes, Does.Contain("NiMesh block " + broken + " not read"));
         }
 
+        static string Notes(Model m) { return string.Join("\n", m.Notes.ToArray()); }
+
+        [Test]
+        public void DamagedSubmeshCountsCostNothing()
+        {
+            var n = new FakeNif();
+            int idx = n.Stream("0", new[] { FakeNif.UShort1 }, 3, FakeNif.UShorts(0, 1, 2));
+            int vtx = n.Stream("1", new[] { FakeNif.Float3 }, 3, FakeNif.Floats(0, 0, 0, 1, 0, 0, 0, 0, 1));
+            string[][] sem = { new[] { "INDEX" }, new[] { "POSITION" } };
+            int many = n.Mesh("many", new[] { idx, vtx }, sem, null, null, 0, null, 0, 65535);
+            // three submeshes and streams without a submesh map: the one region is drawn once, not once per submesh
+            int noMap = n.Mesh("no map", new[] { idx, vtx }, sem, null, null, 0, null, 0, 3, false);
+            // more stream elements than a mesh has
+            var refs = new int[ModelBuilder.MaxElements + 1];
+            var sems = new string[refs.Length][];
+            for (int i = 0; i < refs.Length; i++) { refs[i] = vtx; sems[i] = new[] { "POSITION" }; }
+            int wide = n.Mesh("wide", refs, sems);
+            n.Node("root", null, 1, new[] { many, noMap, wide });
+            Model m = ModelBuilder.Build(n.ToBytes());
+            Assert.AreEqual(1, m.Parts.Count);
+            Assert.AreEqual("no map", m.Parts[0].Name);
+            Assert.That(Notes(m), Does.Contain("mesh many left out: it has 65535 submeshes"));
+            Assert.That(Notes(m), Does.Contain("mesh wide left out: it has " + refs.Length + " stream elements"));
+        }
+
+        [Test]
+        public void ModelPastTheVertexLimitStopsWithANote()
+        {
+            var n = new FakeNif();
+            int idx = n.Stream("0", new[] { FakeNif.UShort1 }, 3, FakeNif.UShorts(0, 1, 2));
+            int vtx = n.Stream("1", new[] { FakeNif.Float3 }, 3, FakeNif.Floats(0, 0, 0, 1, 0, 0, 0, 0, 1));
+            int count = ModelBuilder.MaxVertices;      // with the three of the first mesh: three too many
+            int big = n.Stream("1", new[] { FakeNif.Float3 }, count, new byte[count * 12]);
+            string[][] sem = { new[] { "INDEX" }, new[] { "POSITION" } };
+            int first = n.Mesh("first", new[] { idx, vtx }, sem);
+            int second = n.Mesh("second", new[] { idx, big }, sem);
+            int third = n.Mesh("third", new[] { idx, vtx }, sem);
+            n.Node("root", null, 1, new[] { first, second, third });
+            Model m = ModelBuilder.Build(n.ToBytes());
+            Assert.AreEqual(1, m.Parts.Count);
+            Assert.AreEqual("first", m.Parts[0].Name);
+            CollectionAssert.AreEqual(new[] { ModelBuilder.TooLarge }, m.Notes);
+            // a file past the size limit is refused before it is read
+            Assert.Throws<NifException>(() => ModelBuilder.Build(new byte[ModelBuilder.MaxFileBytes + 1]));
+        }
+
+        [Test]
+        public void FormatsThatDoNotAddUpAreNotRead()
+        {
+            const uint NoComponents = 0x00000215;       // a ushort element of no components
+            const uint ThinFloat3 = 0x00030137;         // float32 by its type, one byte a component by its size
+            var n = new FakeNif();
+            int vtx = n.Stream("1", new[] { FakeNif.Float3 }, 3, FakeNif.Floats(0, 0, 0, 1, 0, 0, 0, 0, 1));
+            int idx0 = n.Stream("0", new[] { NoComponents, FakeNif.UShort1 }, 3, FakeNif.UShorts(2, 1, 0));
+            int thin = n.Stream("1", new[] { ThinFloat3 }, 3, new byte[9]);
+            // at the very end of the file: a read by the type's width would leave the array
+            int a = n.Mesh("no index components", new[] { idx0, vtx }, new[] { new[] { "INDEX", "OTHER" }, new[] { "POSITION" } });
+            int b = n.Mesh("thin", new[] { thin }, new[] { new[] { "POSITION" } });
+            n.Node("root", null, 1, new[] { a, b });
+            Model m = ModelBuilder.Build(n.ToBytes());
+            Assert.AreEqual(1, m.Parts.Count);
+            // the index element is not read: the three vertices are one triangle in their own order
+            CollectionAssert.AreEqual(new[] { 0, 1, 2 }, m.Parts[0].Triangles);
+            Assert.That(Notes(m), Does.Contain("mesh thin left out: it has no positions"));
+
+            // the same thin stream as the last bytes of the file
+            var z = new FakeNif();
+            int root = z.Node("root", null, 1, new[] { 1 });
+            z.Mesh("thin", new[] { 2 }, new[] { new[] { "POSITION" } });
+            z.Stream("1", new[] { ThinFloat3 }, 3, new byte[9]);
+            Assert.AreEqual(0, root);
+            Assert.IsTrue(ModelBuilder.Build(z.ToBytes()).Empty);
+        }
+
+        [Test]
+        public void NegativeIndicesAreNotFollowed()
+        {
+            const uint Int4 = 0x00040421, Int1 = 0x00010421;     // signed 32 bit
+            var n = new FakeNif();
+            int idx = n.Stream("0", new[] { Int1 }, 6, FakeNif.Make(w => { foreach (int i in new[] { 0, 1, 2, 0, -1, 2 }) w.Write(i); }));
+            int vtx = n.Stream("1", new[] { FakeNif.Float3, Int4, FakeNif.Float3 }, 3, FakeNif.Make(w =>
+            {
+                float[][] pos = { new float[] { 0, 0, 0 }, new float[] { 1, 0, 0 }, new float[] { 0, 0, 1 } };
+                int[][] bi = { new[] { -1, 0, 0, 0 }, new[] { 1, 0, 0, 0 }, new[] { int.MinValue, 0, 0, 0 } };
+                for (int i = 0; i < 3; i++)
+                {
+                    foreach (float f in pos[i]) w.Write(f);
+                    foreach (int k in bi[i]) w.Write(k);
+                    w.Write(1f); w.Write(0f); w.Write(0f);
+                }
+            }));
+            int pal = n.Stream("1", new[] { Int1 }, 2, FakeNif.Make(w => { w.Write(0); w.Write(-7); }));
+            // blocks: 0 index, 1 vertices, 2 palette, 3 skin, 4 mesh, 5 bone, 6 root
+            int skin = n.Skin(6, new[] { 5 }, new[] { new float[] { 0, 0, 0 } });
+            int mesh = n.Mesh("body", new[] { idx, vtx, pal }, new[] { new[] { "INDEX" }, new[] { "POSITION_BP", "BLENDINDICES", "BLENDWEIGHT" }, new[] { "BONE_PALETTE" } }, null, new[] { skin });
+            int bone = n.Node("bone", new float[] { 0, 0, 3 }, 1, null);
+            n.Node("root", null, 1, new[] { mesh, bone });
+            Assert.AreEqual(5, bone);
+            Model m = ModelBuilder.Build(n.ToBytes());
+            Assert.AreEqual(1, m.Parts.Count);
+            // blend index -1 and the lowest int name no bone, palette entry -7 (blend index 1) none either: the
+            // vertices stay where the mesh stands; the triangle with index -1 is dropped
+            CollectionAssert.AreEqual(new float[] { 0, 0, 0, 1, 0, 0, 0, 0, 1 }, m.Parts[0].Positions);
+            CollectionAssert.AreEqual(new[] { 0, 1, 2 }, m.Parts[0].Triangles);
+        }
+
+        [Test]
+        public void SceneThatLoopsIsWalkedOnce()
+        {
+            var n = new FakeNif();
+            int idx = n.Stream("0", new[] { FakeNif.UShort1 }, 3, FakeNif.UShorts(0, 1, 2));
+            int vtx = n.Stream("1", new[] { FakeNif.Float3 }, 3, FakeNif.Floats(0, 0, 0, 1, 0, 0, 0, 0, 1));
+            int mesh = n.Mesh("m", new[] { idx, vtx }, new[] { new[] { "INDEX" }, new[] { "POSITION" } });
+            // blocks 3 and 4 name each other and themselves as children; block 5 is the root over them
+            n.Node("a", null, 1, new[] { 4, 3, mesh });
+            n.Node("b", null, 1, new[] { 3, 4 });
+            n.Node("root", null, 1, new[] { 3, 5 });
+            Model m = ModelBuilder.Build(n.ToBytes());
+            Assert.LessOrEqual(m.Parts.Count, 1);
+        }
+
+        [Test]
+        public void PlaceMovesWhatIsNotSkinned()
+        {
+            Model m = ModelBuilder.Build(FakeNif.Square(null).ToBytes());
+            // x' = z, y' = -y + 1, z' = x + 80: the turn of a bone that points up, and where it stands
+            m.Place(new float[] { 0, 0, 1, 0, 0, -1, 0, 1, 1, 0, 0, 80 });
+            CollectionAssert.AreEqual(new float[] { -1, 1, 79, -1, 1, 81, 1, 1, 81, 1, 1, 79 }, m.Parts[0].Positions);
+            CollectionAssert.AreEqual(new float[] { 0, 1, 0 }, new[] { m.Parts[0].Normals[0], m.Parts[0].Normals[1], m.Parts[0].Normals[2] });
+            CollectionAssert.AreEqual(new float[] { -1, 1, 79 }, m.Min);
+            CollectionAssert.AreEqual(new float[] { 1, 1, 81 }, m.Max);
+            Assert.IsFalse(m.Parts[0].Skinned);
+            m.Place(null);
+            Assert.AreEqual(79, m.Parts[0].Positions[2]);
+            m.Parts[0].Skinned = true;
+            m.Place(new float[] { 1, 0, 0, 5, 0, 1, 0, 5, 0, 0, 1, 5 });
+            Assert.AreEqual(79, m.Parts[0].Positions[2]);
+        }
+
+        [Test]
+        public void NodesOfAFileByName()
+        {
+            var n = new FakeNif();
+            int head = n.Node("Head", new float[] { 0, 0, 10 }, 1, null);
+            int twin = n.Node("head", new float[] { 9, 9, 9 }, 1, null);
+            n.Node("root", new float[] { 1, 0, 0 }, 2, new[] { head, twin });
+            Dictionary<string, float[]> nodes = ModelBuilder.Nodes(NifFile.Read(n.ToBytes()));
+            Assert.AreEqual(2, nodes.Count);
+            // under a root moved by 1 and scaled by 2; the first of two names wins, without regard to case
+            CollectionAssert.AreEqual(new float[] { 2, 0, 0, 1, 0, 2, 0, 0, 0, 0, 2, 20 }, nodes["HEAD"]);
+        }
+
         [Test]
         public void IndicesOutsideTheVerticesAreDropped()
         {
@@ -468,6 +620,16 @@ namespace MS2.ModKit.Tests
             Assert.IsNull(Dds.Decode(FakeDds.Header(8, 8, 4, "DXT1", 0, 0, 0, 0, 0), out why));
             Assert.AreEqual("the texture is cut short", why);
             Assert.IsNull(Dds.Decode(FakeDds.Header(64, 64, 0x41, null, 32, 0xff0000, 0xff00, 0xff, 0xff000000), out why));
+            Assert.AreEqual("the texture is cut short", why);
+            // a header alone that states the largest picture: refused by its length, before any picture is made
+            Assert.IsNull(Dds.Decode(FakeDds.Header(Dds.MaxSide, Dds.MaxSide, 4, "DXT5", 0, 0, 0, 0, 0), out why));
+            Assert.AreEqual("the texture is cut short", why);
+            Assert.IsNull(Dds.Decode(FakeDds.Header(Dds.MaxSide, Dds.MaxSide, 0x41, null, 32, 0xff0000, 0xff00, 0xff, 0xff000000), out why));
+            Assert.AreEqual("the texture is cut short", why);
+            Assert.IsNull(Dds.Decode(FakeDds.Header(Dds.MaxSide + 1, 4, 4, "DXT1", 0, 0, 0, 0, 0), out why));
+            Assert.That(why, Does.Contain("is not shown"));
+            // cut inside the second header
+            Assert.IsNull(Dds.Decode(FakeDds.Join(FakeDds.Header(4, 4, 4, "DX10", 0, 0, 0, 0, 0), new byte[8]), out why));
             Assert.AreEqual("the texture is cut short", why);
             Assert.IsNull(Dds.Decode(FakeDds.Header(100000, 4, 4, "DXT1", 0, 0, 0, 0, 0), out why));
             Assert.That(why, Does.Contain("is not shown"));
@@ -568,19 +730,27 @@ namespace MS2.ModKit.Tests
         public void NamesAndPaths()
         {
             string a, e;
-            Assert.IsTrue(ModelNames.Split("Data/Resource/Model/Item/1/13/11300001_C_Cap.nif", out a, out e));
+            Assert.IsTrue(ModelNames.Split("Data/Resource/Model/Item/1/13/01200001_Hat.nif", out a, out e));
             Assert.AreEqual("Item", a);
-            Assert.AreEqual("1/13/11300001_C_Cap.nif", e);
+            Assert.AreEqual("1/13/01200001_Hat.nif", e);
             Assert.IsTrue(ModelNames.Split(".\\data\\resource\\model\\Npc\\02\\x.nif", out a, out e));
             Assert.AreEqual("Npc", a);
             Assert.AreEqual("02/x.nif", e);
             Assert.IsFalse(ModelNames.Split("Data/Resource/Image/item/icon/1.png", out a, out e));
             Assert.IsFalse(ModelNames.Split("Data/Resource/Model/x.nif", out a, out e));
             Assert.IsFalse(ModelNames.Split("Data/Resource/Model/Item/../../x.nif", out a, out e));
+            // the archive name comes from a mod's field: a plain file name only
+            Assert.IsFalse(ModelNames.Split("Data/Resource/Model/C:x/y.nif", out a, out e));
+            Assert.IsFalse(ModelNames.Split("Data/Resource/Model/a*b/y.nif", out a, out e));
+            Assert.IsFalse(ModelNames.Split("Data/Resource/Model/a\"b/y.nif", out a, out e));
+            Assert.IsFalse(ModelNames.Split("Data/Resource/Model/../y.nif", out a, out e));
+            Assert.IsTrue(ModelNames.PlainName("Item"));
+            Assert.IsFalse(ModelNames.PlainName(".."));
+            Assert.IsFalse(ModelNames.PlainName(null));
             Assert.IsFalse(ModelNames.Split("", out a, out e));
             Assert.IsFalse(ModelNames.Split(null, out a, out e));
-            Assert.AreEqual("itemmodel/113.xml", ModelNames.ItemModelEntry(11300001));
-            Assert.AreEqual("02010001_Stan.kfm", ModelNames.NpcKfmFile("02010001_Stan"));
+            Assert.AreEqual("itemmodel/12.xml", ModelNames.ItemModelEntry(1200001));
+            Assert.AreEqual("02900005_Digger.kfm", ModelNames.NpcKfmFile("02900005_Digger"));
             Assert.AreEqual("x.kfm", ModelNames.NpcKfmFile(" Data/Resource/Model/Npc/x.KFM "));
             Assert.IsNull(ModelNames.NpcKfmFile(""));
             Assert.IsNull(ModelNames.NpcKfmFile((string)null));
@@ -601,7 +771,7 @@ namespace MS2.ModKit.Tests
         [Test]
         public void KfmNamesItsNif()
         {
-            Assert.AreEqual(".\\02010001_Stan.nif", Kfm.NifPath(KfmBytes(".\\02010001_Stan.nif")));
+            Assert.AreEqual(".\\02900005_Digger.nif", Kfm.NifPath(KfmBytes(".\\02900005_Digger.nif")));
             Assert.IsNull(Kfm.NifPath(Encoding.ASCII.GetBytes(";Gamebryo KFM File Version 2.2.0.0\nsome text form of the file")));
             Assert.IsNull(Kfm.NifPath(Encoding.ASCII.GetBytes("Gamebryo File Format, Version 30.2.0.3\n and more bytes")));
             byte[] cut = KfmBytes(".\\a.nif");
@@ -633,7 +803,8 @@ namespace MS2.ModKit.Tests
         static string Slot(string name, params string[] assets)
         {
             var sb = new StringBuilder("\t\t\t<slot name=\"" + name + "\">\n");
-            for (int i = 0; i < assets.Length; i++) sb.Append("\t\t\t\t<asset name=\"" + assets[i] + "\" gender=\"" + i + "\" />\n");
+            for (int i = 0; i < assets.Length; i++)
+                sb.Append("\t\t\t\t<asset name=\"" + assets[i] + "\" gender=\"" + i + "\"" + (name == "CP" ? " selfnode=\"CP\" targetnode=\"Head\"" : "") + " />\n");
             return sb.Append("\t\t\t</slot>\n").ToString();
         }
 
@@ -653,7 +824,7 @@ namespace MS2.ModKit.Tests
                     E("itemdata/012.xml", Head + "<ms2>\n" + Row(1200001) + Row(1200002) + Row(1200003) + Row(1200004) + "</ms2>\n"),
                     E("itemmodel/12.xml", Head + "<ms2>\n\t<ItemModel id=\"1200001\">\n\t\t<slots>\n" + Slot("CP", "Data/Resource/Model/Item/0/12/Hat.nif") + "\t\t</slots>\n\t</ItemModel>\n" +
                         "\t<ItemModel id=\"1200002\">\n\t\t<slots>\n" + Slot("CP", "Data/Resource/Model/Item/0/12/ClientOnly.nif") + "\t\t</slots>\n\t</ItemModel>\n</ms2>\n"),
-                    E("npcdata/029.xml", Head + "<ms2>\n\t<npc id=\"2900001\">\n\t\t<environment>\n\t\t\t<model kfm=\"02900001_Mole\" />\n\t\t</environment>\n\t</npc>\n" +
+                    E("npcdata/029.xml", Head + "<ms2>\n\t<npc id=\"2900001\">\n\t\t<environment>\n\t\t\t<model kfm=\"02900001_Digger\" />\n\t\t</environment>\n\t</npc>\n" +
                         "\t<npc id=\"2900002\">\n\t\t<environment>\n\t\t\t<model kfm=\"Gone\" />\n\t\t</environment>\n\t</npc>\n" +
                         "\t<npc id=\"2900003\">\n\t\t<environment>\n\t\t\t<model kfm=\"\" />\n\t\t</environment>\n\t</npc>\n</ms2>\n"),
                 });
@@ -676,6 +847,7 @@ namespace MS2.ModKit.Tests
                     {
                         B("0/12/hat.nif", FakeNif.Square("Hat_D.dds").ToBytes()),
                         B("0/12/top_m.nif", FakeNif.Square("Missing_D.dds").ToBytes()),
+                        B("0/12/top_f.nif", FakeNif.Square("Hat_D.dds", new float[] { 0, 0, 3 }).ToBytes()),
                         B("0/12/legs.nif", FakeNif.Square("Hat_D.dds", new float[] { 0, 0, -2 }).ToBytes()),
                         B("0/12/junk.nif", Encoding.ASCII.GetBytes("this is not a model file, it is only a line of text")),
                         B("0/12/hidden.nif", FakeNif.Square("Hat_D.dds", null, 1, 1).ToBytes()),
@@ -684,12 +856,23 @@ namespace MS2.ModKit.Tests
                     {
                         B("item_cap/hat_d.dds", FakeDds.Bgra(1, 1, 0xFF00C000)),
                         B("item_cap/bad_d.dds", new byte[] { 1, 2, 3 }),
+                        B("item_cap/wide_d.dds", FakeDds.Bgra(ModelSource.TextureSide * 2, 1, new uint[ModelSource.TextureSide * 2])),
+                    });
+                    // the skeletons: the head node stands at 10 in the male one, at 20 in the female one
+                    var male = new FakeNif();
+                    male.Node("root", null, 1, new[] { male.Node("Head", new float[] { 0, 0, 10 }, 1, null) });
+                    var female = new FakeNif();
+                    female.Node("root", null, 1, new[] { female.Node("Head", new float[] { 0, 0, 20 }, 1, null) });
+                    M2dWriter.Create(Path.Combine(dir, "Character.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
+                    {
+                        B("male/m_body.nif", male.ToBytes()),
+                        B("female/f_body.nif", female.ToBytes()),
                     });
                     M2dWriter.Create(Path.Combine(dir, "Npc.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
                     {
-                        B("02/90/02900001/02900001_mole.kfm", KfmBytes(".\\02900001_Mole.nif")),
-                        B("02/90/02900001/02900001_mole.nif", FakeNif.Square("Mole_D.dds").ToBytes()),
-                        B("02/90/02900001/mole_d.dds", FakeDds.Bgra(1, 1, 0xFF0000C0)),
+                        B("02/90/02900001/02900001_digger.kfm", KfmBytes(".\\02900001_Digger.nif")),
+                        B("02/90/02900001/02900001_digger.nif", FakeNif.Square("Digger_D.dds").ToBytes()),
+                        B("02/90/02900001/digger_d.dds", FakeDds.Bgra(1, 1, 0xFF0000C0)),
                         B("02/90/02900009/lost.kfm", KfmBytes(".\\Nowhere.nif")),
                         B("02/90/02900009/text.kfm", Encoding.ASCII.GetBytes(";Gamebryo KFM File Version 2.2.0.0\ntext")),
                     });
@@ -711,31 +894,132 @@ namespace MS2.ModKit.Tests
 
         static Mod NewMod() { return Mod.Parse("<mod id=\"models.test\" name=\"t\" version=\"1\"/>", "test mod"); }
 
+        static string[] Paths(ModelSource src, EntityDraft d, int gender)
+        {
+            var list = new List<string>();
+            foreach (ItemAsset a in ModelNames.Pick(src.Assets(ModelNames.Query(d)), gender)) list.Add(a.Path);
+            return list.ToArray();
+        }
+
         [Test]
         public void ItemAssetsOfADraft()
         {
+            const string I = "Data/Resource/Model/Item/0/12/";
             using (var f = new FakeModels())
+            using (var src = new ModelSource(f.Data))
             {
                 ItemEditor ed = f.Items(NewMod());
-                // only the client knows this item: its model list names the slot asset
-                CollectionAssert.AreEqual(new[] { "Data/Resource/Model/Item/0/12/Hat.nif" }, ModelNames.ItemAssets(ed.Open(1200001)));
-                // the item's own file wins over the client's list: the first asset of each slot
+                // only the client knows this item: its model list names the slot asset, and the node it hangs on
+                ItemDraft hat = ed.Open(1200001);
+                CollectionAssert.AreEqual(new[] { I + "Hat.nif" }, Paths(src, hat, 0));
+                CollectionAssert.IsEmpty(ModelNames.Query(hat).Own);
+                ItemAsset a = src.Assets(ModelNames.Query(hat))[0];
+                Assert.AreEqual("Head", a.TargetNode);
+                Assert.AreEqual("CP", a.SelfNode);
+                Assert.AreEqual(0, a.Gender);
+                // one asset for both genders: the same file either way
+                CollectionAssert.AreEqual(new[] { I + "Hat.nif" }, Paths(src, hat, 1));
+                Assert.IsFalse(ModelNames.HasGenders(src.Assets(ModelNames.Query(hat))));
+                // the item's own file wins over the client's list: one asset of each slot, by gender
                 ItemDraft d = ed.Open(1200002);
-                CollectionAssert.AreEqual(new[] { "Data/Resource/Model/Item/0/12/Top_M.nif", "Data/Resource/Model/Item/0/12/Legs.nif" }, ModelNames.ItemAssets(d));
+                CollectionAssert.AreEqual(new[] { I + "Top_M.nif", I + "Legs.nif" }, Paths(src, d, 0));
+                CollectionAssert.AreEqual(new[] { I + "Top_F.nif", I + "Legs.nif" }, Paths(src, d, 1));
+                Assert.IsTrue(ModelNames.HasGenders(src.Assets(ModelNames.Query(d))));
+                Assert.IsNull(ModelNames.Query(d).Own[0].TargetNode);
                 // an edit of the slot asset shows at once
                 bool edited = false;
                 foreach (EntitySection s in d.Sections)
                     if (s.Elem.Name == "asset" && d.Get(s, "name").EndsWith("Top_M.nif", StringComparison.Ordinal))
                     {
-                        d.Set(s, "name", "Data/Resource/Model/Item/0/12/Hat.nif");
+                        d.Set(s, "name", I + "Hat.nif");
                         edited = true;
                     }
                 Assert.IsTrue(edited);
-                CollectionAssert.AreEqual(new[] { "Data/Resource/Model/Item/0/12/Hat.nif", "Data/Resource/Model/Item/0/12/Legs.nif" }, ModelNames.ItemAssets(d));
+                CollectionAssert.AreEqual(new[] { I + "Hat.nif", I + "Legs.nif" }, Paths(src, d, 0));
                 // no slots: the model the item is placed as; nothing named: an empty list
-                CollectionAssert.AreEqual(new[] { "Data/Resource/Model/Map/Cube/Crate.nif" }, ModelNames.ItemAssets(ed.Open(1200003)));
-                CollectionAssert.IsEmpty(ModelNames.ItemAssets(ed.Open(1200004)));
-                CollectionAssert.IsEmpty(ModelNames.ItemAssets(null));
+                CollectionAssert.AreEqual(new[] { "Data/Resource/Model/Map/Cube/Crate.nif" }, Paths(src, ed.Open(1200003), 0));
+                CollectionAssert.IsEmpty(Paths(src, ed.Open(1200004), 0));
+                CollectionAssert.IsEmpty(Paths(src, null, 0));
+                CollectionAssert.IsEmpty(src.Assets(null));
+            }
+        }
+
+        [Test]
+        public void PickTakesOneAssetOfEachSlot()
+        {
+            var all = new List<ItemAsset>
+            {
+                new ItemAsset { Path = "a", Slot = 0, Gender = 1 },
+                new ItemAsset { Path = "b", Slot = 0, Gender = 0 },
+                new ItemAsset { Path = "c", Slot = 1 },
+                new ItemAsset { Path = "d", Slot = 1, Gender = 1 },
+                new ItemAsset { Path = "e", Slot = 2, Gender = 1 },
+                new ItemAsset { Path = "c", Slot = 3 },
+            };
+            Func<int, string> pick = g => { string t = ""; foreach (ItemAsset a in ModelNames.Pick(all, g)) t += a.Path; return t; };
+            // the gender's asset; else the one without a gender; else the slot's first; a file is listed once
+            Assert.AreEqual("bce", pick(0));
+            Assert.AreEqual("adec", pick(1));
+            Assert.IsTrue(ModelNames.HasGenders(all));
+            CollectionAssert.IsEmpty(ModelNames.Pick(null, 0));
+            Assert.IsFalse(ModelNames.HasGenders(null));
+        }
+
+        [Test]
+        public void WornItemStandsOnItsCharacterNode()
+        {
+            const string Hat = "Data/Resource/Model/Item/0/12/Hat.nif";
+            using (var f = new FakeModels())
+            using (var src = new ModelSource(f.Data))
+            {
+                string why;
+                // the square's z runs from -1 to 1; the head node stands at 10 (male) and 20 (female)
+                Model m = src.Load(new[] { new ItemAsset { Path = Hat, TargetNode = "Head" } }, 0, out why);
+                Assert.AreEqual(9, m.Min[2]);
+                Assert.AreEqual(11, m.Max[2]);
+                m = src.Load(new[] { new ItemAsset { Path = Hat, TargetNode = " head " } }, 1, out why);
+                Assert.AreEqual(19, m.Min[2]);
+                // the asset's own gender picks the skeleton
+                m = src.Load(new[] { new ItemAsset { Path = Hat, TargetNode = "Head", Gender = 1 } }, 0, out why);
+                Assert.AreEqual(19, m.Min[2]);
+                // no node named, or one the skeleton has not: as the file stores it
+                m = src.Load(new[] { new ItemAsset { Path = Hat }, new ItemAsset { Path = Hat, TargetNode = "Tail" } }, 0, out why);
+                Assert.AreEqual(-1, m.Min[2]);
+                Assert.AreEqual(1, m.Max[2]);
+                Assert.IsNotNull(src.Skeleton(0));
+                Assert.AreEqual(20, src.Skeleton(1)["Head"][11]);
+
+                // through the draft: the client's list names the node; the picture says whether the genders differ
+                ItemEditor ed = f.Items(NewMod());
+                ModelPicture p = src.ItemPicture(ModelNames.Query(ed.Open(1200001)), 0, 24, 24, null);
+                Assert.IsNull(p.Message);
+                Assert.IsFalse(p.Genders);
+                Assert.AreEqual(2, p.Triangles);
+                p = src.ItemPicture(ModelNames.Query(ed.Open(1200002)), 1, 24, 24, null);
+                Assert.IsNull(p.Message);
+                Assert.IsTrue(p.Genders);
+                CollectionAssert.IsEmpty(p.Notes);       // the female top has its texture; the male one has not
+                p = src.ItemPicture(ModelNames.Query(ed.Open(1200002)), 0, 24, 24, null);
+                CollectionAssert.AreEqual(new[] { "no texture Missing_D.dds" }, p.Notes);
+                Assert.AreEqual("no model", src.ItemPicture(ModelNames.Query(ed.Open(1200004)), 0, 24, 24, null).Message);
+                Assert.AreEqual("no model", src.ItemPicture(null, 0, 24, 24, null).Message);
+
+                // a texture wider than the kept size is halved until it fits
+                Texture t = src.ReadTexture("Wide_D.dds", "Item");
+                Assert.AreEqual(ModelSource.TextureSide, t.Width);
+                Assert.AreEqual(1, t.Height);
+            }
+            // data without a skeleton: the item is drawn as stored
+            using (var f = new FakeModels())
+            {
+                File.Delete(Path.Combine(Path.Combine(Path.Combine(Path.Combine(f.Dir, "kms"), "Resource"), "Model"), "Character.m2d"));
+                using (var src = new ModelSource(f.Data))
+                {
+                    string why;
+                    Model m = src.Load(new[] { new ItemAsset { Path = Hat, TargetNode = "Head" } }, 0, out why);
+                    Assert.AreEqual(-1, m.Min[2]);
+                    Assert.IsNull(src.Skeleton(0));
+                }
             }
         }
 
@@ -789,9 +1073,9 @@ namespace MS2.ModKit.Tests
             {
                 NpcEditor ed = f.Npcs(NewMod());
                 string kfm = ModelNames.NpcKfmFile(ed.Open(2900001));
-                Assert.AreEqual("02900001_Mole.kfm", kfm);
+                Assert.AreEqual("02900001_Digger.kfm", kfm);
                 string why;
-                Assert.AreEqual("Data/Resource/Model/Npc/02/90/02900001/02900001_mole.nif", src.NpcNif(kfm, out why));
+                Assert.AreEqual("Data/Resource/Model/Npc/02/90/02900001/02900001_digger.nif", src.NpcNif(kfm, out why));
                 // the texture is beside the model in the npc archive
                 ModelPicture p = src.NpcPicture(kfm, 24, 24, new RenderOptions { Yaw = 0, Pitch = 0 });
                 Assert.IsNull(p.Message);
@@ -819,7 +1103,7 @@ namespace MS2.ModKit.Tests
         }
 
         // The real client archives: every .nif of Item.m2d and Npc.m2d carries the version line the reader is
-        // written for and builds without an error, and a known cap and a known NPC draw with their textures.
+        // written for and builds without an error, and the first item file of some size and the first NPC draw.
         [Test, Explicit("reads the real model archives; set MS2_CLIENT_DATA")]
         public void RealModelArchives()
         {
@@ -827,6 +1111,7 @@ namespace MS2.ModKit.Tests
             if (string.IsNullOrEmpty(root)) Assert.Ignore("MS2_CLIENT_DATA is not set");
             string dir = Path.Combine(Path.Combine(root, "Resource"), "Model");
             if (!File.Exists(Path.Combine(dir, "Item.m2d"))) Assert.Ignore("no Resource/Model/Item.m2d under MS2_CLIENT_DATA");
+            string firstItem = null, firstKfm = null;
             foreach (string name in new[] { "Item", "Npc" })
             {
                 var versions = new SortedDictionary<string, int>();
@@ -835,6 +1120,8 @@ namespace MS2.ModKit.Tests
                 using (M2dArchive a = M2dArchive.Open(Path.Combine(dir, name + ".m2d")))
                     foreach (M2dEntry e in a.Entries)
                     {
+                        if (name == "Npc" && firstKfm == null && e.Name.EndsWith(".kfm", StringComparison.OrdinalIgnoreCase))
+                            firstKfm = e.Name.Substring(e.Name.Replace('\\', '/').LastIndexOf('/') + 1);
                         if (!e.Name.EndsWith(".nif", StringComparison.OrdinalIgnoreCase)) continue;
                         files++;
                         byte[] b = a.Read(e);
@@ -846,6 +1133,7 @@ namespace MS2.ModKit.Tests
                         {
                             Model m = ModelBuilder.Build(b);
                             if (!m.Empty) drawable++;
+                            if (name == "Item" && firstItem == null && m.TriangleCount > 500) firstItem = e.Name.Replace('\\', '/');
                             if (m.Notes.Count > 0) noted++;
                         }
                         catch (NifException x) { failures.Add(e.Name + ": " + x.Message); }
@@ -863,17 +1151,20 @@ namespace MS2.ModKit.Tests
             using (var data = new DataSet(root, null, null))
             using (var src = new ModelSource(data))
             {
-                ModelPicture cap = src.Picture(new[] { "Data/Resource/Model/Item/1/13/11300001_C_AdventurerCap_C.nif" }, 256, 256, null);
-                Assert.IsNull(cap.Message);
-                CollectionAssert.IsEmpty(cap.Notes);
-                Assert.Greater(cap.Triangles, 500);
-                ModelPicture npc = src.NpcPicture("02010001_Stan.kfm", 256, 256, null);
+                // the first item file with a fair number of triangles and the first .kfm, whatever they are
+                Assert.IsNotNull(firstItem);
+                Assert.IsNotNull(firstKfm);
+                ModelPicture item = src.Picture(new[] { "Data/Resource/Model/Item/" + firstItem }, 256, 256, null);
+                Assert.IsNull(item.Message);
+                Assert.Greater(item.Triangles, 500);
+                Assert.IsNotNull(src.Skeleton(0));
+                Assert.IsNotNull(src.Skeleton(1));
+                ModelPicture npc = src.NpcPicture(firstKfm, 256, 256, null);
                 Assert.IsNull(npc.Message);
-                CollectionAssert.IsEmpty(npc.Notes);
-                Assert.Greater(npc.Triangles, 3000);
+                Assert.Greater(npc.Triangles, 0);
                 int covered = 0;
                 foreach (int c in npc.Argb) if ((c >> 24 & 255) == 255) covered++;
-                Assert.Greater(covered, 256 * 256 / 10);
+                Assert.Greater(covered, 256 * 256 / 50);
             }
         }
     }

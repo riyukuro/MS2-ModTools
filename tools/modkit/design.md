@@ -21,15 +21,20 @@ used, so the same code runs in the net35 plugin and in the net8 tests.
 - The header lists the type and the byte size of every block. The reader uses the size to step over every
   block type it does not know, so particle systems, controllers and extra data never stop a read.
 - The base texture is named by `NiTexturingProperty` -> `NiSourceTexture` as a bare file name
-  (`11300001_C_AdventurerCap_D.dds`). The file is in `Resource/Model/Textures.m2d` under a folder
+  (`01200001_Hat_D.dds`). The file is in `Resource/Model/Textures.m2d` under a folder
   (`item_cap/...`), so textures are found by file name without the folder and without case. A few NPC
   textures are in `Npc.m2d` beside the model; the model's own archive is the second place looked in.
-- An NPC row names its model as `model@kfm` (`02010001_Stan`). The `.kfm` file is in `Npc.m2d`
-  (`02/01/02010001/02010001_stan.kfm`); it is a small binary file whose first string is the `.nif` path.
+- An NPC row names its model as `model@kfm` (`02900001_Digger`). The `.kfm` file is in `Npc.m2d`
+  (`02/90/02900001/02900001_digger.kfm`); it is a small binary file whose first string is the `.nif` path.
 - An item's models are slot assets (`Data/Resource/Model/Item/1/13/....nif`). The client keeps them in
   `itemmodel/<id / 100000>.xml` of `Xml.m2d` (`ItemModel/slots/slot/asset@name`), the server in the item's
   own file (`environment/slots/slot/asset@name`). `Data/Resource/Model/<Name>/<entry>` is entry `<entry>` of
-  `Resource/Model/<Name>.m2d`.
+  `Resource/Model/<Name>.m2d`. `<Name>` comes from a mod's field, so only a plain file name is taken: a name
+  with a drive, a separator, a wildcard or `..` names no archive.
+- A slot can hold one asset for each gender (`asset@gender`, 0 male, 1 female) and names the character node
+  the item hangs on (`asset@targetnode`). The vertices of a worn item that is not skinned are stored in the
+  space of that node. The character skeletons are `male/m_body.nif` and `female/f_body.nif` in
+  `Resource/Model/Character.m2d`.
 
 ### Parts
 
@@ -54,14 +59,20 @@ Library (`MS2.ModKit/Models`, no drawing library, so it also builds for net8 on 
   alpha blending follow the model's `NiAlphaProperty`. It draws at twice the size and averages down. The
   result is `int[]` 0xAARRGGBB on a clear background.
 - `ModelSource`: opens the model archives of a data set, finds the files an item or an NPC draft names, and
-  gives the built `Model` and a texture lookup. All failures come back as a short text.
+  gives the built `Model` and a texture lookup. All failures come back as a short text. For an item it takes
+  one asset of each slot (the wanted gender's, else the one without a gender, else the first), and moves each
+  part that is not skinned by the world transform of its target node in that gender's skeleton, so a cap
+  stands upright where the head is. Skinned parts (clothes) are already in the skeleton's space and stay.
+  With no skeleton or no such node the item is drawn as stored. The client's `itemmodel` list is read here,
+  on the worker, not in the view.
 
 Plugin: `ModelBox`, a control like `IconBox`. A `ModelCache` per data set renders on a worker thread and
-keeps the last pictures; the box shows the picture when it is ready, and a newer request replaces an older
-one that has not started. The box stands at the right of the form over its whole height, takes about 28% of
+keeps the last pictures. Each box has at most one waiting job; a newer request of the same box replaces it,
+and boxes that ask for the same picture share one job, so every box is told when its picture is ready. One
+size is kept for each request, and a picture that leaves the cache is disposed once no box shows it. The box stands at the right of the form over its whole height, takes about 28% of
 the form's width (200 to 460 pixels), and is hidden when the form is under 560 pixels wide. The Items view
 asks again when the selected item or one of its slot asset fields changes; the NPCs view does the same for
-`model@kfm`.
+`model@kfm`. When the male and the female pick of an item differ, the item's box shows a Male/Female button.
 
 ### When something cannot be shown
 
@@ -72,12 +83,29 @@ Nothing in this path may throw into the view.
 - No model named, a file that is not in the archives, an unreadable file, or no triangles: the box shows one
   short line (`no model`, `cannot show: <reason>`).
 
+### Files that lie about their size
+
+A model file comes from a mod or a download, so its counts are not trusted.
+
+- A file over 64 MB is not read. A model stops at 1,000,000 vertices or 2,000,000 triangles with the note
+  `the model is too large; the rest is left out`; the check is made before the memory is taken. A mesh with
+  more than 256 submeshes or 256 stream elements is left out.
+- A submesh draws the region its stream maps it to. A stream without a map has one region, and only submesh
+  0 draws it.
+- A stream element is read only when its type and its component size agree, it has at least one component,
+  and it fits inside the stream's stride; a region must lie inside the file. Blend and palette indices that
+  are negative or past the end name no bone.
+- A `.dds` must hold its top level before the picture is made, and a side over 4096 is refused. Textures
+  wider than 1024 are halved, and the decoded textures kept for a data set are held to 32 MB; past that the kept
+  ones are let go and read again when needed.
+- The archives stay open for reading while the data set is shown, so another program cannot write them
+  during that time. The preview never writes.
+
 ### Limits
 
 - A still picture in bind pose: no animation, no morphs, no particles, no effects, no second texture layers
   (normal, specular, the game's colour masks), so dyed parts show the plain base texture.
-- Item models are drawn as they are stored. Worn items are stored in the space of the bone they hang on, so a
-  cap can lie on its side.
+- An item is shown alone, on no body. The asset's `selfnode` and its rotation fields are not used.
 - Only the `NiMesh` generation (the client's 30.1.0.3 and 30.2.0.3) is read; `NiTriShape` files of older
   Gamebryo versions give `cannot show`.
 

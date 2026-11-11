@@ -395,7 +395,7 @@ namespace MS2.ModKit.Models
             m.Submeshes = s.U16();
             if (s.U8() != 0) throw new NifException("instanced meshes are not read");
             s.Skip(16);                     // bound
-            int n = s.Count(15);
+            int n = s.Count(11);
             m.Streams = new NifStreamRef[n];
             for (int i = 0; i < n; i++)
             {
@@ -504,6 +504,13 @@ namespace MS2.ModKit.Models
         {
             int c = Code(f);
             return c >= 1 && c <= 0x38 ? (c - 1) / 4 : -1;
+        }
+
+        /// <summary>The bytes of one component of a family; 0 for an unknown one.</summary>
+        public static int Width(int family)
+        {
+            if (family < 0 || family > 13) return 0;
+            return family < 4 ? 1 : family < 8 || family == 12 ? 2 : 4;
         }
 
         /// <summary>One component as a float (normalized kinds scaled to -1..1 or 0..1).</summary>
