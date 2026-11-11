@@ -310,8 +310,67 @@ namespace MS2.ModKit.Tests
                     if (order[2] == "edit") Assert.That(text, Does.Contain("name=\"Mossy\" kind=\"4\"").And.Not.Contain("<own"), dump);
                     else if (order[2] == "file") Assert.That(text, Does.Contain("name=\"Other\" kind=\"3\"").And.Not.Contain("<own"), dump);
                     else Assert.That(text, Does.Contain("<own id=\"1\" v=\"2\"/>").And.Contain("name=\"Filed\" kind=\"3\""), dump);
+                    // the line about own's edit names the mod whose version is written
+                    if (order[2] != "own")
+                        Assert.That(p.Conflicts.Single(x => x.ModId == "own" && x.Text.Contains("edits its own entry")).WinnerId, Is.EqualTo(order[2]), dump);
                     // own's edit is in the list of changes only where its file is written
                     Assert.That(p.Changes.Any(x => x.ModId == "own"), Is.EqualTo(order[2] == "own"), dump);
+                }
+        }
+
+        [Test]
+        public void TheLineAboutAnEditOfALeftOutFileNamesTheModThatIsWritten()
+        {
+            // own: a file and an edit of it; f2 and f3: other files for the entry. f3 is written in both orders
+            foreach (string[] order in new[] { new[] { "own", "f2", "f3" }, new[] { "own", "f3", "f2" } })
+                using (var f = new Fake())
+                {
+                    string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
+                    string d = Path.Combine(f.ModDir("own", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" file=\"data/p.xml\"/>" + Set(S, "pet/100.xml", "environment/own[id=1]", "v", "2")), "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(filed));
+                    Mod own = Mod.Load(Path.GetDirectoryName(d));
+                    Mod f2 = FileMod(f, "f2", "pet/100.xml", Fake.PetFile(100, "Second"));
+                    Mod f3 = FileMod(f, "f3", "pet/100.xml", Fake.PetFile(100, "Third"));
+                    Plan p = f.Plan(order.Select(n => n == "own" ? own : n == "f2" ? f2 : f3).ToArray());
+                    string top = order[2], dump = string.Join(" < ", order) + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain(top == "f3" ? "name=\"Third\"" : "name=\"Second\""), dump);
+                    Assert.That(p.Conflicts.Single(x => x.ModId == "own" && x.Text.Contains("edits its own entry")).WinnerId, Is.EqualTo(top), dump);
+                    Assert.That(p.LeftOut(), Is.EquivalentTo(new[] { top + " wins 1 part of " + order[1], top + " wins 2 parts of own" }), dump);
+                }
+        }
+
+        [Test]
+        public void AnEditOfAModsOwnFileUnderADeleteAndAnEdit()
+        {
+            // "own": a file for the entry and an edit of a row only that file has; "del": deletes the entry;
+            // "edit": an edit of the entry. No order of priority gives an error
+            string[][] orders =
+            {
+                new[] { "own", "del", "edit" }, new[] { "del", "own", "edit" }, new[] { "own", "edit", "del" },
+                new[] { "edit", "own", "del" }, new[] { "del", "edit", "own" }, new[] { "edit", "del", "own" },
+            };
+            foreach (string[] order in orders)
+                using (var f = new Fake())
+                {
+                    string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
+                    string d = Path.Combine(f.ModDir("own", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" file=\"data/p.xml\"/>" + Set(S, "pet/100.xml", "environment/own[id=1]", "v", "2")), "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(filed));
+                    Mod own = Mod.Load(Path.GetDirectoryName(d));
+                    Mod del = f.Mod("del", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" delete=\"true\"/>");
+                    Mod edit = f.Mod("edit", Set(S, "pet/100.xml", "environment/basic", "kind", "4"));
+                    Plan p = f.Plan(order.Select(n => n == "own" ? own : n == "del" ? del : edit).ToArray());
+                    string top = order[2], dump = string.Join(" < ", order) + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Conflicts.All(x => x.WinnerId != null), dump);
+                    if (top == "del") Assert.That(p.Changes.Any(x => x.Kind == ChangeKind.DeleteEntry), dump);
+                    else if (top == "edit") Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("name=\"Mossy\" kind=\"4\"").And.Not.Contain("<own"), dump);
+                    else Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("<own id=\"1\" v=\"2\"/>").And.Contain("name=\"Filed\""), dump);
+                    if (top != "own")
+                        Assert.That(p.LeftOut().Where(x => x.EndsWith(" of own")), Is.EqualTo(new[] { top + " wins 2 parts of own" }), dump);
+                    Assert.That(p.Changes.Any(x => x.ModId == "own"), Is.EqualTo(top == "own"), dump);
                 }
         }
 

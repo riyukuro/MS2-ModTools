@@ -79,6 +79,8 @@ namespace MS2.ModKit
         public string LoserId;
         /// <summary>The line of the losing mod that the conflict is about, where the message is that mod's own.</summary>
         internal object Ask;
+        /// <summary>The loser's whole version of the entry (its file, or its delete) is left out.</summary>
+        internal bool Entire;
 
         internal const string WinsTail = " wins (it has the higher priority)";
 
@@ -173,6 +175,14 @@ namespace MS2.ModKit
         /// <summary>A conflict between two mods; the text says which one is in the plan (the one with the higher priority).</summary>
         /// <param name="other">the other mod of the pair; needed where <paramref name="mod"/> may be the winner</param>
         /// <param name="why">the reason where it is not the priority: " wins (...)"</param>
+        /// <summary>A conflict about whole entries: what the loser has for the entry is left out as a whole.</summary>
+        internal void EntryConflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other)
+        {
+            int n = Conflicts.Count;
+            Conflict(mod, archive, entry, text, winner, other);
+            if (Conflicts.Count > n) Conflicts[n].Entire = true;
+        }
+
         internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other = null, string why = null)
         {
             int n = Conflicts.Count;
@@ -203,6 +213,19 @@ namespace MS2.ModKit
                 {
                     if (m.LoserId != Mods[i].Id || m.WinnerId == null) continue;
                     int w = Mods.FindIndex(x => x.Id == m.WinnerId);
+                    // a whole entry that lost to a mod whose own version of the entry lost in turn: the part is
+                    // of the mod whose version is written
+                    if (m.Entire)
+                        for (bool more = true; more; )
+                        {
+                            more = false;
+                            foreach (PlanMessage c in Conflicts)
+                            {
+                                if (!c.Entire || c.Archive != m.Archive || c.Entry != m.Entry || c.LoserId != Mods[w].Id || c.WinnerId == null) continue;
+                                int up = Mods.FindIndex(x => x.Id == c.WinnerId);
+                                if (up > w) { w = up; more = true; }
+                            }
+                        }
                     int at = m.Ask == null ? -1 : asks.IndexOf(m.Ask);
                     if (at < 0) { asks.Add(m.Ask ?? m); best.Add(w); } else if (w > best[at]) best[at] = w;
                 }
@@ -461,8 +484,10 @@ namespace MS2.ModKit
                 if (st.BaseMod != null)
                 {
                     bool loses = run.Outranks(st.BaseMod, mod);
-                    plan.Conflict(mod, op.Archive, st.Name, "deletes the entry that " + Who(st.BaseMod, mod) + " " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
+                    plan.EntryConflict(mod, op.Archive, st.Name, "deletes the entry that " + Who(st.BaseMod, mod) + " " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
                     if (loses) return;
+                    // the file is left out, and so are its mod's edits of it
+                    st.FileLeftOut[st.BaseMod] = mod;
                     DropEntryChange(plan, st);
                 }
                 st.DeletedBy = mod; st.BaseMod = null; st.Base = null;
@@ -494,15 +519,15 @@ namespace MS2.ModKit
             if (st.DeletedBy != null)
             {
                 bool loses = run.Outranks(st.DeletedBy, mod);
-                plan.Conflict(mod, op.Archive, st.Name, "puts an entry where " + Who(st.DeletedBy, mod) + " deletes one", loses ? st.DeletedBy : mod, st.DeletedBy);
-                if (loses) return;
+                plan.EntryConflict(mod, op.Archive, st.Name, "puts an entry where " + Who(st.DeletedBy, mod) + " deletes one", loses ? st.DeletedBy : mod, st.DeletedBy);
+                if (loses) { st.FileLeftOut[mod] = st.DeletedBy; return; }
                 DropEntryChange(plan, st);
             }
             else if (st.BaseMod != null)
             {
                 if (M2dWriter.BytesEqual(bytes, st.Base)) { plan.Msg(plan.Notes, mod, op.Archive, st.Name, "same entry content as " + Who(st.BaseMod, mod)); return; }
                 bool loses = run.Outranks(st.BaseMod, mod);
-                plan.Conflict(mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry that " + Who(st.BaseMod, mod) + " also " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
+                plan.EntryConflict(mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry that " + Who(st.BaseMod, mod) + " also " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
                 // the file that loses is left out, and so are its mod's edits of it (DoEditOp, OpenMap)
                 if (loses) { st.FileLeftOut[mod] = st.BaseMod; return; }
                 st.FileLeftOut[st.BaseMod] = mod;
@@ -535,7 +560,7 @@ namespace MS2.ModKit
             if (st.BaseMod != mod && st.FileLeftOut.TryGetValue(mod, out instead))
             {
                 // the mod's own file is left out, and so are its edits of that file
-                plan.Conflict(mod, op.Archive, st.Name, "edits its own entry, which is left out", instead);
+                plan.Conflict(mod, op.Archive, st.Name, "edits its own entry, which is left out", Written(st, instead));
                 return;
             }
             if (st.BaseMod != null && st.BaseMod != mod)
@@ -546,7 +571,7 @@ namespace MS2.ModKit
                 if (st.Existed && st.Original != null && st.Doc == null)
                 {
                     // the edit is of the higher mod: it is made in the shipped entry, the other mod's file is left out
-                    plan.Conflict(mod, op.Archive, st.Name, text, mod, st.BaseMod);
+                    plan.EntryConflict(mod, op.Archive, st.Name, text, mod, st.BaseMod);
                     DropEntryChange(plan, st);
                     st.FileLeftOut[st.BaseMod] = mod;
                     st.Base = st.Original; st.BaseMod = null;
@@ -604,10 +629,23 @@ namespace MS2.ModKit
                 plan.Conflict(mod, st.Archive, st.Name, text, del, null, " wins (the data ships no such entry)");
                 return true;
             }
-            plan.Conflict(mod, st.Archive, st.Name, text, mod, del);
+            plan.EntryConflict(mod, st.Archive, st.Name, text, mod, del);
             DropEntryChange(plan, st);
+            // a file that the delete left out stays out: the entry is now the shipped one with this mod's lines
+            foreach (Mod m in new List<Mod>(st.FileLeftOut.Keys)) if (st.FileLeftOut[m] == del) st.FileLeftOut[m] = mod;
             st.DeletedBy = null; st.Base = st.Original;
             return false;
+        }
+
+        /// <summary>
+        /// The mod whose version of the entry is written, for a mod whose file <paramref name="beat"/> left out:
+        /// the one that beat it may have lost to a third mod in turn.
+        /// </summary>
+        static Mod Written(EntryState st, Mod beat)
+        {
+            Mod next;
+            for (int i = 0; i < st.FileLeftOut.Count && st.FileLeftOut.TryGetValue(beat, out next); i++) beat = next;
+            return beat;
         }
 
         /// <summary>
