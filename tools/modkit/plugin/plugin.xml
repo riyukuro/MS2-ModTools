@@ -95,7 +95,7 @@
       <menu label="MS2 &amp;Mods" id="MS2.Tables.Menu" priority="70"/>
       <menuitem id="MS2.Tables.Menu.Show" action="MS2.Tables.ShowAction" path="MS2 Mods" priority="10"/>
       <menuitem id="MS2.Tables.Menu.ShowItems" action="MS2.Tables.ShowItemsAction" path="MS2 Mods" priority="15"/>
-      <menuitem id="MS2.Tables.Menu.ShowNpcs" action="MS2.Tables.ShowNpcsAction" path="MS2 Mods" priority="17"/>
+      <menuitem id="MS2.Tables.Menu.ShowNpcs" action="MS2.Tables.ShowNpcsAction" path="MS2 Mods" priority="16"/>
       <menuitem id="MS2.Tables.Menu.ShowSkills" action="MS2.Tables.ShowSkillsAction" path="MS2 Mods" priority="17"/>
       <menuitem id="MS2.Tables.Menu.ShowGroups" action="MS2.Tables.ShowGroupsAction" path="MS2 Mods" priority="18"/>
       <menufactory id="MS2.Tables.Menu.WholeWindow" label="Use the whole window" class="MS2.Tables.WholeWindowMenu" path="MS2 Mods" priority="19"/>

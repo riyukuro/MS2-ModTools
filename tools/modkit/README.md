@@ -522,17 +522,26 @@ The game reads one of them; the view shows that one, and Plan warns that the oth
 ### Using it
 
 1. Pick **Skills** or **Effects** at the top left. Type an id, or part of a name, and press Enter or **Find**. The
-   skills and effects the mod adds come first; a `*` marks the ones the mod changes.
+   skills and effects the mod adds come first; a `*` marks the ones the mod changes. **Names in** picks the language
+   of the names: **own language** (the default) shows Korean names from the Korean client and English names from the
+   global client and the server. A target that has no names in the chosen language shows its own, and the line on the
+   right always says which language each target gave.
 2. Pick one. The icon, the name and a **Level** list appear above the grid. The grid shows the level's fields, then
    each motion (`Motion 1`, `Motion 2`, ...) with its fields, then each attack (`Motion 1 attack 1`, ...).
 3. Each target has its own column of shipped values. They are shown in the same units everywhere: seconds for times,
    `x` for multipliers (a damage of `1.5` is 150 %). `-` means the target does not have that field there.
+   `1 (default)` means the target leaves the field out and the game uses its default (a motion's speed is 1 when it
+   is not written). Setting such a field in the mod writes it.
 4. Type into **mod value** to change a field for that level. A number sets it; `*1.2` multiplies each target's
    shipped value by 1.2. An empty cell takes the change out of the mod. Changed rows turn yellow.
-5. **Tooltip of the level** sets the tooltip text of the chosen level: **kms param** is the value list the Korean
-   client fills into its tooltip, **gms text** the whole text the global client and the server show. When you
+5. Under the grid, **All levels** shows every level of the skill at once, one row per level, for the target picked
+   in **values of**. A cell the mod changes is yellow and shows the result (a `*0.5` on a cooldown of 8 shows 4);
+   its tip gives the shipped and the mod value. `(d)` marks a default. A click on a row shows that level above.
+6. **Tooltip of the level** sets the tooltip text of the chosen level: **kms param** is the value list the Korean
+   client fills into its tooltip, **gms text** the whole text the global client and the server show, in the
+   language picked in **lang** (`en` when empty; the other languages keep their text). When you
    change a number the tooltip shows (damage, cooldown, cost, duration), Plan warns until the tooltip is set too.
-6. **Plan**, **Apply** and **Revert** work as in the other views, one line per target in the box at the bottom.
+7. **Plan**, **Apply** and **Revert** work as in the other views, one line per target in the box at the bottom.
 
 The fields the view offers:
 
@@ -557,6 +566,9 @@ Select a shipped skill, fill the boxes beside **Clone to new id** and press it:
 - **own effects**: `source=new` pairs, comma separated (for example `71000001=77100001`). Each named effect of the
   source is copied to the new id too, and the clone points to its own copy, so changing the copy leaves the
   original skill alone. Effects not named here stay shared with the source.
+- **own cooldown group** (skills only): skills of one cooldown group share their cooldown, so using one starts the
+  other's. A clone keeps the source's group unless this is ticked; then it gets a group of its own (its new id).
+  Plan warns when a clone shares a group with its source.
 
 **Remove clone** takes a clone out of the mod.
 
@@ -583,9 +595,9 @@ The view writes these elements; they can be written by hand too:
   <level value="1-4" cooldown="6" sp="*0.5"/>
   <motion level="1" index="1" speed="1.2"/>
   <attack level="*" motion="1" index="1" damage="*1.2" distance="900"/>
-  <tooltip level="1" kms-param="..." gms-text="..."/>
+  <tooltip level="1" kms-param="..." gms-text="..." lang="en"/>
 </skill>
-<skill id="78000001" clone="70000001" levels="1-4" name="My Slash">
+<skill id="78000001" clone="70000001" levels="1-4" name="My Slash" cooldown-group="own">
   <own effect="71000001" as="77100001"/>
 </skill>
 <effect id="71000001">
@@ -594,6 +606,9 @@ The view writes these elements; they can be written by hand too:
 <jobskill job="10" skill="78000001" replace="70000001"/>
 <jobskill job="10" skill="78000002" tier="1" position="5,6"/>
 ```
+
+`cooldown-group` takes `own` (the clone's id) or a group number. `lang` on `<tooltip>` names the one language the
+gms text is written to (`en` when left out).
 
 `level` takes one level, a list (`1,3`), a range (`2-4`) or `*` for all. A level, motion or attack a target does
 not have is skipped there with a warning.

@@ -2,8 +2,9 @@
 // or name), the list of hits, the icon, a level picker, and one grid with the mapped fields of the chosen level: the
 // level's own fields, then each motion and each attack of the level. The "mod value" column is what the mod sets (a
 // number in neutral units, or *k for the shipped value times k); the other columns show the shipped value of each
-// target. Below: clone to a new id, a job skill tree row, the level's tooltip, and Plan / Apply / Revert with a
-// two-line output box.
+// target. Under it a read-only table of all levels at once (one target's values, the cells the mod changes marked;
+// a click picks that level). Above: clone to a new id, a job skill tree row, the level's tooltip; Plan / Apply /
+// Revert with a two-line output box. Names are shown in one language ("Names in"; default: each target's own).
 //
 // The view holds no data logic and no mod of its own. MS2.ModKit.SkillEditor turns what is done here into <skill>,
 // <effect> and <jobskill> operations of the mod the MS2 Tables view is editing; the session, the worker thread, the
@@ -37,7 +38,8 @@ namespace MS2.Tables
         sealed class Hit
         {
             internal long Id;
-            internal string Text;
+            internal string Text, Base;     // Base: the text without the "*" mark
+            internal bool New, Marked;
             public override string ToString() { return Text; }
         }
 
@@ -47,26 +49,34 @@ namespace MS2.Tables
         long shownId;           // the id the grid edits
         int level = 1;
         readonly List<GridRow> rows = new List<GridRow>();
+        readonly List<GridRow> allCols = new List<GridRow>();     // the columns of the all-levels table
+        readonly List<int> allLevels = new List<int>();           // its rows
+        string nameLanguage;    // null = each target's own
         bool filling;
 
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 80 };
         readonly TextBox searchBox = new TextBox { Width = 200 };
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
-        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 280, IntegralHeight = false };
+        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 250, IntegralHeight = false };
+        readonly ComboBox namesBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
         readonly Label skillLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly ComboBox levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 60 };
         readonly TextBox cloneIdBox = new TextBox { Width = 80 };
         readonly TextBox cloneLevelsBox = new TextBox { Width = 50 };
-        readonly TextBox cloneNameBox = new TextBox { Width = 150 };
-        readonly TextBox cloneOwnBox = new TextBox { Width = 150 };
+        readonly TextBox cloneNameBox = new TextBox { Width = 110 };
+        readonly TextBox cloneOwnBox = new TextBox { Width = 110 };
+        readonly CheckBox cloneGroupBox = new CheckBox { Text = "own cooldown group", AutoSize = true, Margin = new Padding(6, 6, 0, 0) };
         readonly TextBox jobBox = new TextBox { Width = 40 };
         readonly TextBox replaceBox = new TextBox { Width = 80 };
         readonly TextBox positionBox = new TextBox { Width = 50 };
         readonly TextBox tierBox = new TextBox { Width = 30, Text = "1" };
         readonly TextBox kmsParamBox = new TextBox { Width = 110 };
-        readonly TextBox gmsTextBox = new TextBox { Width = 320 };
-        readonly FlowLayoutPanel jobBar;
-        readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
+        readonly TextBox gmsTextBox = new TextBox { Width = 280 };
+        readonly ComboBox langBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDown, Width = 50, Text = "en" };
+        readonly FlowLayoutPanel jobBar = new FlowLayoutPanel { AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = false, Margin = new Padding(0), Padding = new Padding(0) };
+        readonly DataGridView grid = new DataGridView { Dock = DockStyle.Top, Height = 200 };
+        readonly DataGridView allGrid = new DataGridView { Dock = DockStyle.Fill };
+        readonly ComboBox allSideBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
@@ -89,6 +99,11 @@ namespace MS2.Tables
             top.Controls.Add(Lbl("id or name"));
             top.Controls.Add(searchBox);
             top.Controls.Add(Btn("Find", "Lists the ids that contain the text or whose name contains it; the skills and effects the mod adds come first", delegate { Find(); }));
+            top.Controls.Add(Lbl("Names in"));
+            top.Controls.Add(namesBox);
+            namesBox.Items.Add("own language");
+            namesBox.SelectedIndex = 0;
+            tips.SetToolTip(namesBox, "The language of the names in the list and above the grid. own language: Korean (kr) on the kms-client, English (en) on the gms-client and the server. A target without names in the chosen language uses its own; the line on the right says which language each target gave");
             top.Controls.Add(hitsLabel);
 
             FlowLayoutPanel applyBar = Bar();
@@ -106,18 +121,22 @@ namespace MS2.Tables
             skillBar.Controls.Add(skillLabel);
             skillBar.Controls.Add(Lbl("Level"));
             skillBar.Controls.Add(levelBox);
-            tips.SetToolTip(levelBox, "The level the grid shows and edits");
-            skillBar.Controls.Add(Btn("Clone to new id", "Adds a new skill or effect that starts as a copy of this one on each target that has it, under the id in the box (the mod's reserved range: skills 78000000-78099999, effects 77100000-77199999). levels: the levels kept (empty = all, \"1-3\"); name: empty = the source's; own effects: \"source=new, ...\" effects cloned with it and pointed at", delegate { Clone(); }));
-            skillBar.Controls.Add(cloneIdBox);
-            skillBar.Controls.Add(Lbl("levels"));
-            skillBar.Controls.Add(cloneLevelsBox);
-            skillBar.Controls.Add(Lbl("name"));
-            skillBar.Controls.Add(cloneNameBox);
-            skillBar.Controls.Add(Lbl("own effects"));
-            skillBar.Controls.Add(cloneOwnBox);
-            skillBar.Controls.Add(Btn("Remove clone", "Takes the chosen new skill or effect out of the mod again", delegate { RemoveClone(); }));
+            tips.SetToolTip(levelBox, "The level the grid shows and edits (a click on a row of the all-levels table picks it too)");
+            skillBar.Controls.Add(jobBar);
 
-            jobBar = Bar();
+            FlowLayoutPanel cloneBar = Bar();
+            cloneBar.Controls.Add(Btn("Clone to new id", "Adds a new skill or effect that starts as a copy of this one on each target that has it, under the id in the box (the mod's reserved range: skills 78000000-78099999, effects 77100000-77199999). levels: the levels kept (empty = all, \"1-3\"); name: empty = the source's; own effects: \"source=new, ...\" effects cloned with it and pointed at", delegate { Clone(); }));
+            cloneBar.Controls.Add(cloneIdBox);
+            cloneBar.Controls.Add(Lbl("levels"));
+            cloneBar.Controls.Add(cloneLevelsBox);
+            cloneBar.Controls.Add(Lbl("name"));
+            cloneBar.Controls.Add(cloneNameBox);
+            cloneBar.Controls.Add(Lbl("own effects"));
+            cloneBar.Controls.Add(cloneOwnBox);
+            cloneBar.Controls.Add(cloneGroupBox);
+            tips.SetToolTip(cloneGroupBox, "Skills only. Ticked: the clone gets its own cooldown group (cooldownGroupID = the new id). Not ticked: it keeps the source's group, so using one starts the other's cooldown too; Plan warns when that group is not 0");
+            cloneBar.Controls.Add(Btn("Remove clone", "Takes the chosen new skill or effect out of the mod again", delegate { RemoveClone(); }));
+
             jobBar.Controls.Add(Lbl("Job"));
             jobBar.Controls.Add(jobBox);
             tips.SetToolTip(jobBox, "The job number of the job skill tree (as the job table writes it, e.g. 10)");
@@ -135,7 +154,11 @@ namespace MS2.Tables
             tips.SetToolTip(kmsParamBox, "The kms-client's stringParam of the level: the numbers its description fills in, comma separated");
             textBar.Controls.Add(Lbl("gms text"));
             textBar.Controls.Add(gmsTextBox);
-            tips.SetToolTip(gmsTextBox, "The description text of the level on the gms-client and the server (written to every language they have)");
+            tips.SetToolTip(gmsTextBox, "The description text of the level on the gms-client and the server, written to the one language in \"lang\"");
+            textBar.Controls.Add(Lbl("lang"));
+            textBar.Controls.Add(langBox);
+            foreach (string l in Profile.GmsClient.Languages) langBox.Items.Add(l);
+            tips.SetToolTip(langBox, "The language the gms text goes to (en if empty); the other languages keep their text");
             textBar.Controls.Add(Btn("Set tooltip", "Writes the level's tooltip into the mod; both boxes empty = the mod leaves it", delegate { SetTooltip(); }));
 
             grid.VirtualMode = true;
@@ -147,7 +170,6 @@ namespace MS2.Tables
             grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-            grid.BackgroundColor = SystemColors.AppWorkspace;
             grid.DefaultCellStyle.BackColor = SystemColors.Window;
             grid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
             grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "field", ReadOnly = true, Width = 220, SortMode = DataGridViewColumnSortMode.NotSortable }));
@@ -163,9 +185,40 @@ namespace MS2.Tables
                 if (r == null || r.Heading != null || shownId == 0) e.Cancel = true;
             };
 
+            allGrid.ReadOnly = true;
+            allGrid.AllowUserToAddRows = false;
+            allGrid.AllowUserToDeleteRows = false;
+            allGrid.AllowUserToOrderColumns = false;
+            allGrid.AllowUserToResizeRows = false;
+            allGrid.RowHeadersVisible = false;
+            allGrid.MultiSelect = false;
+            allGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
+            allGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
+            allGrid.DefaultCellStyle.BackColor = SystemColors.Window;
+            allGrid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
+            allGrid.DefaultCellStyle.SelectionBackColor = Color.FromArgb(204, 228, 247);   // the level shown above, light so the marks stay visible
+            allGrid.DefaultCellStyle.SelectionForeColor = SystemColors.WindowText;
+            allGrid.CellClick += delegate(object sender, DataGridViewCellEventArgs e)
+            {
+                if (filling || e.RowIndex < 0 || e.RowIndex >= allLevels.Count || !levelBox.Items.Contains(allLevels[e.RowIndex])) return;
+                levelBox.SelectedItem = allLevels[e.RowIndex];
+            };
+            foreach (string sn in SideNames) allSideBox.Items.Add(sn);
+            allSideBox.SelectedIndex = 0;
+            allSideBox.SelectedIndexChanged += delegate { if (!filling) FillAll(); };
+            tips.SetToolTip(allSideBox, "The target whose values the all-levels table shows");
+            FlowLayoutPanel allBar = Bar();
+            allBar.Controls.Add(Lbl("All levels: values of"));
+            allBar.Controls.Add(allSideBox);
+            allBar.Controls.Add(Lbl("marked = changed by the mod; (d) = default, left out; a click picks the level"));
+            tips.SetToolTip(allBar, "A marked cell shows the result of the mod's value, its tip gives the shipped and the mod value. (d): the target leaves the attribute out and the client's default applies");
+            var allPanel = new Panel { Dock = DockStyle.Fill };
+            allPanel.Controls.Add(allGrid);
+            allPanel.Controls.Add(allBar);
+
             var bars = new Panel { Dock = DockStyle.Fill };
             bars.Controls.Add(textBar);
-            bars.Controls.Add(jobBar);
+            bars.Controls.Add(cloneBar);
             bars.Controls.Add(skillBar);
             var iconPad = new Panel { Dock = DockStyle.Left, Width = 72, Padding = new Padding(4, 4, 4, 4) };
             iconPad.Controls.Add(iconBox);
@@ -175,6 +228,8 @@ namespace MS2.Tables
             tips.SetToolTip(iconBox, "The skill's icon (ui@icon), read from Resource/Image.m2d of your data; a box with a cross: no data folder has that image");
 
             var right = new Panel { Dock = DockStyle.Fill };
+            right.Controls.Add(allPanel);
+            right.Controls.Add(new Splitter { Dock = DockStyle.Top, Height = 4 });
             right.Controls.Add(grid);
             right.Controls.Add(head);
             bool fitting = false;
@@ -184,15 +239,17 @@ namespace MS2.Tables
                 fitting = true;
                 try
                 {
-                    int want = Math.Max(72, skillBar.Height + (jobBar.Visible ? jobBar.Height : 0) + textBar.Height);
-                    int room = right.ClientSize.Height - (grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 4);
+                    int want = Math.Max(72, skillBar.Height + cloneBar.Height + textBar.Height);
+                    int room = right.ClientSize.Height - 2 * (grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 4) - allBar.Height;
                     if (room > 0) want = Math.Min(want, Math.Max(72, room));
                     if (head.Height != want) head.Height = want;
+                    FitGrid(right.ClientSize.Height - head.Height - allBar.Height);
                 }
                 finally { fitting = false; }
             };
             right.Resize += fitHead;
             bars.Layout += delegate { fitHead(bars, EventArgs.Empty); };
+            fitGridNow = delegate { fitHead(right, EventArgs.Empty); };
 
             Controls.Add(right);
             Controls.Add(new Splitter { Dock = DockStyle.Left, Width = 4 });
@@ -217,8 +274,19 @@ namespace MS2.Tables
             {
                 if (filling) return;
                 jobBar.Visible = Kind == SkillKind.Skill;
-                Guard(delegate { ShowSkill(0, null); Find(); });
+                cloneIdBox.Text = cloneLevelsBox.Text = cloneNameBox.Text = cloneOwnBox.Text = "";
+                cloneGroupBox.Checked = false;
+                cloneGroupBox.Enabled = Kind == SkillKind.Skill;
+                Guard(delegate { ShowSkill(0, null); FillLanguages(); Find(); });
             };
+            namesBox.SelectedIndexChanged += delegate
+            {
+                if (filling) return;
+                nameLanguage = namesBox.SelectedIndex <= 0 ? null : (string)namesBox.SelectedItem;
+                Guard(delegate { Find(); if (shownId != 0) Open(shownId); });
+            };
+            BackColorChanged += delegate { Darken(); };
+            HandleCreated += delegate { Darken(); };
             levelBox.SelectedIndexChanged += delegate
             {
                 if (filling || levelBox.SelectedItem == null) return;
@@ -230,10 +298,52 @@ namespace MS2.Tables
 
         SkillKind Kind { get { return kindBox.SelectedIndex == 1 ? SkillKind.Effect : SkillKind.Skill; } }
 
+        MethodInvoker fitGridNow;
+
         public override void Initialize()
         {
             base.Initialize();
-            Guard(delegate { Find(); });
+            Darken();
+            Guard(delegate { FillLanguages(); Find(); });
+        }
+
+        /// <summary>The grids' empty area in the view's own (dark) colour instead of a light grey block.</summary>
+        void Darken()
+        {
+            Color c = BackColor;
+            for (Control p = this; p != null && c.A == 0; p = p.Parent) c = p.BackColor;
+            grid.BackgroundColor = allGrid.BackgroundColor = c;
+        }
+
+        /// <summary>The per-level grid as high as its rows, at most 3/5 of the room (the all-levels table gets the rest).</summary>
+        void FitGrid(int room)
+        {
+            int want = grid.ColumnHeadersHeight + Math.Max(rows.Count, 4) * grid.RowTemplate.Height + 3;
+            int max = Math.Max(grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 3, room * 3 / 5);
+            want = Math.Min(want, max);
+            if (grid.Height != want) grid.Height = want;
+        }
+
+        /// <summary>The "Names in" choices: own language, then every language a target has names in.</summary>
+        void FillLanguages()
+        {
+            SkillEditor ed = Editor();
+            bool was = filling;
+            filling = true;
+            try
+            {
+                string keep = nameLanguage;
+                namesBox.Items.Clear();
+                namesBox.Items.Add("own language");
+                namesBox.SelectedIndex = 0;
+                foreach (string l in ed.NameLanguages(Kind))
+                {
+                    namesBox.Items.Add(l);
+                    if (l == keep) namesBox.SelectedIndex = namesBox.Items.Count - 1;
+                }
+                nameLanguage = namesBox.SelectedIndex <= 0 ? null : keep;
+            }
+            finally { filling = was; }
         }
 
         protected override void Dispose(bool disposing)
@@ -337,6 +447,7 @@ namespace MS2.Tables
         {
             EditorSession s = host.SharedSession();
             if (editor == null || editor.Mod != s.Mod || editor.Data != s.Data) editor = s.Skills();
+            editor.NameLanguage = nameLanguage;
             return editor;
         }
 
@@ -366,7 +477,32 @@ namespace MS2.Tables
         void Edited()
         {
             grid.Invalidate();
+            FillAll();
+            RefreshMarks();
             host.EditedOutside();
+        }
+
+        /// <summary>The "*" marks of the listed shipped ids, as the mod is now.</summary>
+        void RefreshMarks()
+        {
+            bool was = filling;
+            filling = true;
+            try
+            {
+                int sel = hitList.SelectedIndex;
+                for (int i = 0; i < hitList.Items.Count; i++)
+                {
+                    var h = hitList.Items[i] as Hit;
+                    if (h == null || h.New) continue;
+                    bool m = editor.Op(Kind, h.Id, false) != null;
+                    if (m == h.Marked) continue;
+                    h.Marked = m;
+                    h.Text = h.Base + (m ? "  *" : "");
+                    hitList.Items[i] = h;
+                }
+                if (hitList.SelectedIndex != sel) hitList.SelectedIndex = sel;
+            }
+            finally { filling = was; }
         }
 
         // ---- search ----
@@ -388,10 +524,14 @@ namespace MS2.Tables
                 if (op.Kind != Kind || !op.IsClone) continue;
                 string t = op.Id.ToString(CultureInfo.InvariantCulture);
                 if (text.Length > 0 && t.IndexOf(text, StringComparison.Ordinal) < 0 && (op.Name ?? "").IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0) continue;
-                hits.Add(new Hit { Id = op.Id, Text = t + "  " + (op.Name ?? "") + "  (new, clone of " + op.Clone + ")" });
+                hits.Add(new Hit { Id = op.Id, New = true, Text = t + "  " + (op.Name ?? "") + "  (new, clone of " + op.Clone + ")" });
             }
             foreach (KeyValuePair<long, string> kv in ed.Find(Kind, text, MaxHits))
-                hits.Add(new Hit { Id = kv.Key, Text = kv.Key.ToString(CultureInfo.InvariantCulture) + "  " + kv.Value + (ed.Op(Kind, kv.Key, false) != null ? "  *" : "") });
+            {
+                var h = new Hit { Id = kv.Key, Base = kv.Key.ToString(CultureInfo.InvariantCulture) + "  " + kv.Value, Marked = ed.Op(Kind, kv.Key, false) != null };
+                h.Text = h.Base + (h.Marked ? "  *" : "");
+                hits.Add(h);
+            }
             filling = true;
             try
             {
@@ -405,7 +545,8 @@ namespace MS2.Tables
                 hitList.EndUpdate();
             }
             finally { filling = false; }
-            hitsLabel.Text = hits.Count + (hits.Count >= MaxHits ? "+" : "") + (Kind == SkillKind.Skill ? " skill(s)" : " effect(s)") + "; * = the mod changes it";
+            hitsLabel.Text = hits.Count + (hits.Count >= MaxHits ? "+" : "") + (Kind == SkillKind.Skill ? " skill(s)" : " effect(s)") + "; * = the mod changes it" +
+                (string.IsNullOrEmpty(ed.NamesUsed) ? "" : "; names: " + ed.NamesUsed);
         }
 
         void OpenSelected()
@@ -476,10 +617,12 @@ namespace MS2.Tables
             FillRows();
         }
 
-        SkillValues Values(SkillSideInfo s, GridRow r)
+        SkillValues Values(SkillSideInfo s, GridRow r) { return Values(s, r, level); }
+
+        static SkillValues Values(SkillSideInfo s, GridRow r, int lv)
         {
             SkillValues v;
-            if (!s.Levels.TryGetValue(level, out v)) return null;
+            if (s == null || !s.Levels.TryGetValue(lv, out v)) return null;
             if (r.Scope == SkillScope.Level) return v;
             if (r.Motion > v.Children.Count) return null;
             v = v.Children[r.Motion - 1];
@@ -492,12 +635,14 @@ namespace MS2.Tables
             grid.CancelEdit();
             grid.RowCount = 0;
             rows.Clear();
-            if (shownId == 0 || editor == null) return;
+            FillAll();
+            if (shownId == 0 || editor == null) { if (fitGridNow != null) fitGridNow(); return; }
             kmsParamBox.Text = gmsTextBox.Text = "";
+            langBox.Text = "en";
             SkillOp mine = editor.Op(Kind, shownId, false);
             if (mine != null)
                 foreach (SkillText t in mine.Texts)
-                    if (SkillLevels.Has(t.Levels, level)) { kmsParamBox.Text = t.KmsParam ?? ""; gmsTextBox.Text = t.GmsText ?? ""; }
+                    if (SkillLevels.Has(t.Levels, level)) { kmsParamBox.Text = t.KmsParam ?? ""; gmsTextBox.Text = t.GmsText ?? ""; langBox.Text = t.Lang; }
             int motions = 0;
             var attacks = new Dictionary<int, int>();
             if (info != null)
@@ -531,6 +676,104 @@ namespace MS2.Tables
             }
             grid.RowCount = rows.Count;
             grid.Invalidate();
+            if (fitGridNow != null) fitGridNow();
+        }
+
+        // ---- all levels ----
+
+        static string ColumnName(GridRow c)
+        {
+            if (c.Scope == SkillScope.Level) return c.Field;
+            if (c.Scope == SkillScope.Motion) return "m" + c.Motion + " " + c.Field;
+            return "m" + c.Motion + " a" + c.Attack + " " + c.Field;
+        }
+
+        /// <summary>The mod's value applied to a shipped one: "*k" times the shipped number, else the value itself.</summary>
+        static string Result(string shipped, string mod)
+        {
+            if (!mod.StartsWith("*", StringComparison.Ordinal)) return mod;
+            double k, v;
+            if (shipped == null || !double.TryParse(mod.Substring(1), NumberStyles.Float, CultureInfo.InvariantCulture, out k)
+                || !double.TryParse(shipped, NumberStyles.Float, CultureInfo.InvariantCulture, out v)) return mod;
+            return (v * k).ToString("0.####", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>The read-only table of every level: rows = levels, columns = the mapped fields of each motion and attack.</summary>
+        void FillAll()
+        {
+            bool was = filling;
+            filling = true;
+            try
+            {
+                allGrid.Rows.Clear();
+                allGrid.Columns.Clear();
+                allCols.Clear();
+                allLevels.Clear();
+                if (shownId == 0 || editor == null || info == null) return;
+                SkillSideInfo side = info.Sides.Find(x => x.Side == SideNames[Math.Max(0, allSideBox.SelectedIndex)]);
+                int motions = 0;
+                var attacks = new Dictionary<int, int>();
+                var levels = new SortedDictionary<int, bool>();
+                foreach (SkillSideInfo s in info.Sides)
+                    foreach (KeyValuePair<int, SkillValues> kv in s.Levels)
+                    {
+                        levels[kv.Key] = true;
+                        motions = Math.Max(motions, kv.Value.Children.Count);
+                        for (int m = 0; m < kv.Value.Children.Count; m++)
+                        {
+                            int a;
+                            attacks.TryGetValue(m + 1, out a);
+                            attacks[m + 1] = Math.Max(a, kv.Value.Children[m].Children.Count);
+                        }
+                    }
+                foreach (string f in editor.Fields(Kind, SkillScope.Level)) allCols.Add(new GridRow { Scope = SkillScope.Level, Field = f });
+                for (int m = 1; m <= motions; m++)
+                {
+                    foreach (string f in editor.Fields(Kind, SkillScope.Motion)) allCols.Add(new GridRow { Scope = SkillScope.Motion, Motion = m, Field = f });
+                    int an;
+                    attacks.TryGetValue(m, out an);
+                    for (int a = 1; a <= an; a++)
+                        foreach (string f in editor.Fields(Kind, SkillScope.Attack)) allCols.Add(new GridRow { Scope = SkillScope.Attack, Motion = m, Attack = a, Field = f });
+                }
+                allGrid.Columns.Add(new DataGridViewTextBoxColumn { HeaderText = "level", MinimumWidth = 44, FillWeight = 60, SortMode = DataGridViewColumnSortMode.NotSortable });
+                foreach (GridRow c in allCols)
+                {
+                    SkillField f = editor.Field(Kind, c.Field);
+                    allGrid.Columns.Add(new DataGridViewTextBoxColumn
+                    {
+                        HeaderText = ColumnName(c) + (f != null && f.Unit.Length > 0 ? " (" + f.Unit + ")" : ""),
+                        MinimumWidth = 64, SortMode = DataGridViewColumnSortMode.NotSortable,
+                    });
+                }
+                Color mark = Color.FromArgb(255, 236, 170);
+                int current = -1;
+                foreach (int lv in levels.Keys)
+                {
+                    int ri = allGrid.Rows.Add();
+                    DataGridViewRow row = allGrid.Rows[ri];
+                    allLevels.Add(lv);
+                    if (lv == level) current = ri;
+                    row.Cells[0].Value = lv.ToString(CultureInfo.InvariantCulture);
+                    for (int i = 0; i < allCols.Count; i++)
+                    {
+                        GridRow c = allCols[i];
+                        DataGridViewCell cell = row.Cells[i + 1];
+                        SkillValues v = Values(side, c, lv);
+                        string mod = editor.Get(Kind, shownId, lv, c.Motion, c.Attack, c.Field);
+                        if (v == null) { cell.Value = ""; continue; }
+                        string t;
+                        string shipped = v.Values.TryGetValue(c.Field, out t) ? t : null;
+                        bool def = v.Defaulted.Contains(c.Field);
+                        if (mod == null) { cell.Value = shipped == null ? "-" : shipped + (def ? " (d)" : ""); continue; }
+                        cell.Value = Result(shipped, mod);
+                        cell.Style.BackColor = mark;
+                        cell.Style.SelectionBackColor = Color.FromArgb(240, 205, 110);
+                        cell.ToolTipText = "shipped " + (shipped ?? "-") + (def ? " (default)" : "") + ", mod " + mod;
+                    }
+                }
+                if (current >= 0) { allGrid.ClearSelection(); allGrid.Rows[current].Selected = true; }
+            }
+            finally { filling = was; }
         }
 
         GridRow RowAt(int i) { return i >= 0 && i < rows.Count ? rows[i] : null; }
@@ -555,7 +798,7 @@ namespace MS2.Tables
                 if (s.Side != side) continue;
                 SkillValues v = Values(s, r);
                 string t;
-                e.Value = v == null ? "(no such level/motion/attack)" : v.Values.TryGetValue(r.Field, out t) ? t : "-";
+                e.Value = v == null ? "(no such level/motion/attack)" : !v.Values.TryGetValue(r.Field, out t) ? "-" : v.Defaulted.Contains(r.Field) ? t + " (default)" : t;
             }
         }
 
@@ -604,7 +847,7 @@ namespace MS2.Tables
                 if (kv.Length != 2) throw new ModKitException("own effects: \"" + part.Trim() + "\" is not source=new");
                 own.Add(new KeyValuePair<long, long>(ParseId(kv[0], "own effect"), ParseId(kv[1], "own effect")));
             }
-            editor.Clone(Kind, info.Id, newId, cloneLevelsBox.Text.Trim(), cloneNameBox.Text.Trim(), own);
+            editor.Clone(Kind, info.Id, newId, cloneLevelsBox.Text.Trim(), cloneNameBox.Text.Trim(), own, Kind == SkillKind.Skill && cloneGroupBox.Checked ? "own" : null);
             Edited();
             FillHits(newId);
             Open(newId);
@@ -636,7 +879,8 @@ namespace MS2.Tables
         void SetTooltip()
         {
             if (shownId == 0) throw new ModKitException("choose a skill or effect first");
-            editor.SetTooltip(Kind, shownId, level, kmsParamBox.Text.Trim(), gmsTextBox.Text.Trim());
+            string lang = langBox.Text.Trim();
+            editor.SetTooltip(Kind, shownId, level, kmsParamBox.Text.Trim(), gmsTextBox.Text.Trim(), lang.Length == 0 ? null : lang);
             Edited();
             host.SayOutside((Kind == SkillKind.Skill ? "skill " : "effect ") + shownId + " level " + level + ": tooltip set in the mod");
         }
