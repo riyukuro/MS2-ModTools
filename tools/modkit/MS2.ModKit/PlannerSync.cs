@@ -63,7 +63,11 @@ namespace MS2.ModKit
                 EntityMap em = sr.Maps.Find(ch.Archive, ch.Entry, out client);
                 try
                 {
-                    if (em == null) { if (attr) Loose(sr, ch); }
+                    if (em == null)
+                    {
+                        // sync="false" on the edit, the change or the set says the one side is meant
+                        if (attr && (ch.Op == null || ch.Op.Sync) && (ch.AttrOp == null || ch.AttrOp.Sync)) Loose(sr, ch);
+                    }
                     else
                         foreach (string target in SyncTargets(run, em, client))
                         {

@@ -646,6 +646,10 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Warnings.Count, Is.EqualTo(10), dump);
                 Assert.That(dump, Does.Contain("@speed is changed in 1 row(s) (first: pet[id=100]) on this side only; server:Xml.m2d holds the same table and there is no field map for it"));
                 Assert.That(dump, Does.Not.Contain("@hp is changed in"), "hp is set on both sides");
+                // sync="false" on the set (or its change, or the edit) says one side is meant: no warning
+                Mod one = f.Mod("o", "<edit archive=\"" + C + "\" entry=\"" + T + "\"><change at=\"pet[id=100]\"><set name=\"speed\" value=\"3\" sync=\"false\"/></change>" +
+                    "<change at=\"pet[id=101]\" sync=\"false\"><set name=\"speed\" value=\"3\"/></change></edit>");
+                Assert.That(Fake.Dump(Planner.Build(f.Data, new[] { one }, new PlanOptions())), Does.Not.Contain("on this side only"));
                 Assert.That(dump, Does.Contain("ms2/pet @hp=\"lots\" is text; the shipped table/pet.xml only has int 50..70, for example \"50\""));
                 Assert.That(dump, Does.Contain("attribute colour is never set on ms2/pet in the shipped table/pet.xml"));
                 Assert.That(dump, Does.Contain("attribute glow of ms2/pet is not in the shipped table/pet.xml; known from Maple2 only, unverified (PetTable)"));
