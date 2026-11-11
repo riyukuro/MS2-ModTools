@@ -898,7 +898,8 @@ files) is copied beside the solution file as well. The map editor reports an err
 `MISSING.txt` says so when the Resource folder does not hold it. The last line of the copy reads
 `copied N model files, N texture files and N other files`: other files are assets a map names that are not model
 files. Asset paths that differ only in letter case (`/Model/x` and `/model/y`) go into one folder, as they do on
-Windows; the letter case of a folder is that of the first path written there.
+Windows; the letter case of a folder is that of the first path that names it. Two files whose paths differ only in
+letter case are one file there: the one copied later takes the place of the other, without a message.
 
 The library and the settings folder are copied under another name (`Library.copying`) and get their name only when
 every file is there, so a copy that was stopped is not taken for a whole one: the next run starts it again. An

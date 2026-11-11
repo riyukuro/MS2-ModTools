@@ -78,7 +78,7 @@ namespace MS2.ModKit.Cli
             {
                 if (Directory.Exists(i))
                 {
-                    string[] fs = Directory.GetFiles(i, "*.xblock");
+                    string[] fs = WbProject.FilesOf(i, ".xblock", false).ToArray();
                     Array.Sort(fs, StringComparer.Ordinal);
                     files.AddRange(fs);
                 }
@@ -235,7 +235,12 @@ namespace MS2.ModKit.Cli
                 mod.Maps.Add(m);
                 files.Add(new KeyValuePair<string, byte[][]>(name, new[] { shipped, edited }));
             }
-            if (mod.Maps.Count == 0) { Console.WriteLine("nothing to write"); return problems.Count == 0 ? 0 : 1; }
+            if (mod.Maps.Count == 0)
+            {
+                Console.WriteLine("nothing to write");
+                foreach (string p in problems) Console.Error.WriteLine("problem: " + p);
+                return problems.Count == 0 ? 0 : 1;
+            }
             // what is checked is the text as it will be loaded again
             Mod loaded = Mod.Parse(mod.ToXml(), "the generated mod");
             foreach (KeyValuePair<string, byte[][]> f in files)

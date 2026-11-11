@@ -154,7 +154,7 @@ namespace MS2.ModKit.MapEdit
             if (!Directory.Exists(flat)) throw new ModKitException(dir + " has no flat folder");
             var files = new List<KeyValuePair<string, byte[]>>();
             string root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            foreach (string f in Directory.GetFiles(flat, "*.flat", SearchOption.AllDirectories))
+            foreach (string f in WbProject.FilesOf(flat, ".flat", true))
                 files.Add(new KeyValuePair<string, byte[]>(Path.GetFullPath(f).Substring(root.Length).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes(f)));
             return FromFlats(files);
         }

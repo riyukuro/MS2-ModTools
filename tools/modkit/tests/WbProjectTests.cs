@@ -454,8 +454,15 @@ namespace MS2.ModKit.Tests
             string res = Path.Combine(dir, "Resource"), root = Path.Combine(dir, "proj");
             Directory.CreateDirectory(Path.Combine(res, "Model"));
             Directory.CreateDirectory(root);
+            // where such names can be files, they are there and still not read
+            if (Path.DirectorySeparatorChar == '/')
+            {
+                File.WriteAllText(Path.Combine(res, "Model/C:made.nif"), "made up");
+                File.WriteAllText(Path.Combine(res, "Model/a\u0001.nif"), "made up");
+            }
             using (var src = new WbAssetSource(res))
             {
+                Assert.IsNull(src.Read("/Model/a\u0001.nif"));
                 Assert.IsNull(src.Read("/Model/C:made.nif"));
                 Assert.IsNull(src.Read("/C:/made.nif"));
                 Assert.IsNull(src.Read("/Model/./made.nif"));
@@ -534,6 +541,7 @@ namespace MS2.ModKit.Tests
 
             // a copy that stopped half way is thrown away, and folders that differ in letter case become one
             Directory.CreateDirectory(Path.Combine(root, "Library.copying/old"));
+            File.WriteAllText(Path.Combine(root, "Library.copying/old/left.model"), "made up");
             MakeArchive(arch, "tool/a.model", "Tool/b.model");
             WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
             var got = new List<string>();
@@ -558,6 +566,103 @@ namespace MS2.ModKit.Tests
             Assert.AreEqual("Library/tool/tool.emtproj: Gone.model", string.Join("|", WbProject.Missing(root, new List<string>()).ToArray()));
             var x = new System.Xml.XmlDocument();
             x.LoadXml(proj.TrimStart('\uFEFF'));
+        }
+
+        [Test]
+        public void FlatNameWithEscapesIsListedOnce()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            Put("Exported/flat/library/tool/odd.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Odd&amp;Name\" id=\"1\">\n</model>\n");
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbProject.BuildModels(root, flats, null, null);
+            string first = File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj"));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            Assert.AreEqual(first, File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj")), "a second run adds no entry");
+            Assert.AreEqual(0, r.Refused.Count);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Library/tool/Odd&Name.model")));
+        }
+
+        [Test]
+        public void UnescapeKnowsTheNamedAndTheNumericReferences()
+        {
+            Assert.AreEqual("a&b<c>d\"e'f", WbProject.Unescape("a&amp;b&lt;c&gt;d&quot;e&apos;f"));
+            Assert.AreEqual("A&B €", WbProject.Unescape("&#65;&#x26;&#x42; &#x20AC;"));
+            Assert.AreEqual("&amp;", WbProject.Unescape("&amp;amp;"), "one pass");
+            Assert.AreEqual("&made; &#xZZ; &#0; x&y", WbProject.Unescape("&made; &#xZZ; &#0; x&y"), "what is no reference stays");
+        }
+
+        [Test]
+        public void FileExtensionsMatchInAnyLetterCase()
+        {
+            string root = Path.Combine(dir, "proj");
+            Put("Exported/flat/library/tool/loud.FLAT", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Loud\" id=\"1\">\n</model>\n");
+            Put("proj/Library/tool/TOOL.EMTPROJ", ToolProjectHead + ToolProjectTail);
+            List<KeyValuePair<string, byte[]>> files = WbProject.ReadFlatFiles(Path.Combine(dir, "Exported"));
+            Assert.AreEqual(1, files.Count);
+            Assert.AreEqual("flat/library/tool/loud.FLAT", files[0].Key);
+            Assert.IsNotNull(WbFlats.FromFiles(files).Get("Loud"));
+            Assert.AreEqual("Library/tool/TOOL.EMTPROJ: BASE.model", string.Join("|", WbProject.Missing(root, new List<string>()).ToArray()));
+        }
+
+        [Test]
+        public void ListedFileOutsideItsFolderIsNotLookedFor()
+        {
+            string root = Path.Combine(dir, "proj");
+            Put("proj/Library/outside.model", "made up");
+            Put("proj/Library/tool/BASE.model", "made up");
+            Put("proj/Library/tool/tool.emtproj", ToolProjectHead + "\t\t<File path=\"..\\outside.model\" />\r\n" + ToolProjectTail);
+            Assert.AreEqual("Library/tool/tool.emtproj: ..\\outside.model", string.Join("|", WbProject.Missing(root, new List<string>()).ToArray()));
+        }
+
+        [Test]
+        public void ListedPresetOutsideItsFolderIsRefusedNotKept()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            Put("proj/Library/Kept.preset", "made up");
+            Put("proj/Library/tool/tool.emtproj", ToolProjectHead + "\t\t<File path=\"..\\Kept.preset\" />\r\n" + ToolProjectTail);
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            Assert.AreEqual(1, r.Refused.Count, string.Join("\n", r.Refused.ToArray()));
+            StringAssert.Contains("Kept.preset", r.Refused[0]);
+            foreach (KeyValuePair<string, int> st in r.Stats) Assert.AreNotEqual("library-preset-kept(shipped)", st.Key);
+            Assert.AreEqual("made up", File.ReadAllText(Path.Combine(root, "Library/Kept.preset")));
+        }
+
+        [Test]
+        public void MissingIsListedInOrdinalOrderOfTheName()
+        {
+            string root = Path.Combine(dir, "proj");
+            foreach (string n in new[] { "delta", "Zed", "beta", "Core", "alpha", "Mid", "gamma", "Top" })
+                Put("proj/Library/" + n + "/" + n + ".emtproj", ToolProjectHead + ToolProjectTail);
+            var want = new List<string>();
+            foreach (string n in new[] { "Core", "Mid", "Top", "Zed", "alpha", "beta", "delta", "gamma" }) want.Add("Library/" + n + "/" + n + ".emtproj: BASE.model");
+            Assert.AreEqual(want.ToArray(), WbProject.Missing(root, new List<string>()).ToArray());
+        }
+
+        [Test]
+        public void OfTwoNamesThatDifferInCaseTheFirstInOrdinalOrderIsTaken()
+        {
+            string d = Path.Combine(dir, "case");
+            Directory.CreateDirectory(Path.Combine(d, "probe"));
+            if (Directory.Exists(Path.Combine(d, "PROBE"))) Assert.Ignore("this file system does not keep two names that differ only in letter case");
+            string[] upper = { "Ab", "Cd", "Ef", "Gh", "Ij", "Kl", "Mn", "Op", "Qr", "St" };
+            foreach (string n in upper)
+            {
+                // made first and last in turn: a file system may list in the order of making, or against it
+                bool upperFirst = Array.IndexOf(upper, n) % 2 == 0;
+                Directory.CreateDirectory(Path.Combine(d, upperFirst ? n.ToUpperInvariant() : n.ToLowerInvariant()));
+                Directory.CreateDirectory(Path.Combine(d, n));
+                Directory.CreateDirectory(Path.Combine(d, upperFirst ? n.ToLowerInvariant() : n.ToUpperInvariant()));
+            }
+            var cp = new CasePaths();
+            foreach (string n in upper)
+            {
+                string mixed = n.Substring(0, 1).ToLowerInvariant() + n.Substring(1).ToUpperInvariant();     // "aB": none of the three
+                Assert.AreEqual(Path.Combine(d, n.ToUpperInvariant()), cp.Resolve(d, mixed, false));
+                Assert.AreEqual(Path.Combine(d, n), cp.Resolve(d, n, false), "the exact name wins");
+            }
         }
 
         [Test]

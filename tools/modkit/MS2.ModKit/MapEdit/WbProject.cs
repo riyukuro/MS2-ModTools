@@ -252,7 +252,7 @@ namespace MS2.ModKit.MapEdit
                 var listed = new SortedDictionary<string, string[]>(StringComparer.Ordinal);       // lower name -> name, file
                 foreach (Match m in Regex.Matches(text, "<File\\s+path=\"([^\"]+\\.(?:model|preset))\""))
                 {
-                    string relF = m.Groups[1].Value, nm = BaseName(relF);
+                    string relF = Unescape(m.Groups[1].Value), nm = BaseName(relF);
                     listed[nm.ToLowerInvariant()] = new[] { nm, relF };
                 }
                 var byLower = new SortedDictionary<string, string>(StringComparer.Ordinal);
@@ -421,14 +421,41 @@ namespace MS2.ModKit.MapEdit
             return OutPath.Under(root, name);
         }
 
-        static string Unescape(string s)
+        /// <summary>The text of an XML attribute value: the five named references and the numeric ones. A reference
+        /// that is none of them stays as written.</summary>
+        public static string Unescape(string s)
         {
-            return s.IndexOf('&') < 0 ? s : s.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"").Replace("&amp;", "&");
+            if (s.IndexOf('&') < 0) return s;
+            return Regex.Replace(s, "&(#[0-9]+|#x[0-9A-Fa-f]+|lt|gt|quot|apos|amp);", delegate (Match m)
+            {
+                string r = m.Groups[1].Value;
+                if (r == "lt") return "<";
+                if (r == "gt") return ">";
+                if (r == "quot") return "\"";
+                if (r == "apos") return "'";
+                if (r == "amp") return "&";
+                int c;
+                bool ok = r[1] == 'x'
+                    ? int.TryParse(r.Substring(2), System.Globalization.NumberStyles.AllowHexSpecifier, System.Globalization.CultureInfo.InvariantCulture, out c)
+                    : int.TryParse(r.Substring(1), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out c);
+                if (!ok || c <= 0 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) return m.Value;
+                return char.ConvertFromUtf32(c);
+            });
+        }
+
+        /// <summary>The files of a folder whose extension is ext (".flat") in any letter case, the same on every
+        /// system; a search pattern is matched with letter case on some systems and without on others.</summary>
+        public static List<string> FilesOf(string dir, string ext, bool deep)
+        {
+            var res = new List<string>();
+            foreach (string f in Directory.GetFiles(dir, "*", deep ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly))
+                if (string.Equals(Path.GetExtension(f), ext, StringComparison.OrdinalIgnoreCase)) res.Add(f);
+            return res;
         }
 
         static void ProjectFiles(string dir, List<string> res)
         {
-            foreach (string f in Directory.GetFiles(dir, "*.emtproj")) res.Add(f);
+            foreach (string f in FilesOf(dir, ".emtproj", false)) res.Add(f);
             foreach (string d in Directory.GetDirectories(dir)) ProjectFiles(d, res);
         }
 
@@ -475,14 +502,14 @@ namespace MS2.ModKit.MapEdit
                 string flat = Path.Combine(path, "flat");
                 if (!Directory.Exists(flat)) throw new ModKitException(path + " has no flat folder");
                 string root = Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                foreach (string f in Directory.GetFiles(flat, "*.flat", SearchOption.AllDirectories))
+                foreach (string f in FilesOf(flat, ".flat", true))
                     files.Add(new KeyValuePair<string, byte[]>(Path.GetFullPath(f).Substring(root.Length).Replace(Path.DirectorySeparatorChar, '/'), File.ReadAllBytes(f)));
                 return files;
             }
             if (!File.Exists(path)) throw new ModKitException("no flat files at " + path + " (a folder with flat/, or the Exported archive)");
             using (M2dArchive a = M2dArchive.Open(path))
                 foreach (M2dEntry e in a.Entries)
-                    if (e.Name.StartsWith("flat/", StringComparison.Ordinal) && e.Name.EndsWith(".flat", StringComparison.Ordinal))
+                    if (e.Name.StartsWith("flat/", StringComparison.Ordinal) && e.Name.EndsWith(".flat", StringComparison.OrdinalIgnoreCase))
                         files.Add(new KeyValuePair<string, byte[]>(e.Name, a.Read(e)));
             return files;
         }

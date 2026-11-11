@@ -404,7 +404,7 @@ namespace MS2.ModKit.MapEdit
             foreach (KeyValuePair<string, byte[]> f in files)
             {
                 string[] p = f.Key.Split('/');
-                if (p.Length == 4 && p[0] == "flat" && (p[1] == "library" || p[1] == "presets") && f.Key.EndsWith(".flat", StringComparison.Ordinal)) list.Add(f);
+                if (p.Length == 4 && p[0] == "flat" && (p[1] == "library" || p[1] == "presets") && f.Key.EndsWith(".flat", StringComparison.OrdinalIgnoreCase)) list.Add(f);
             }
             list.Sort(delegate (KeyValuePair<string, byte[]> a, KeyValuePair<string, byte[]> b)
             {
