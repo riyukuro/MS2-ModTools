@@ -285,26 +285,11 @@ namespace MS2.Tables
                 if (fileList.Items.Count > 0) fileList.Items[0].Selected = true;
                 // the selection may not have changed (the same file again): the row list must show the new rows
                 ShowRows();
-                host.SayOutside(Summary() + " (" + (watch.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
+                host.SayOutside(scan.Summary("\r\n") + " (" + (watch.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
             });
         }
 
         static string N(int n) { return n.ToString("N0", CultureInfo.InvariantCulture); }
-
-        string Summary()
-        {
-            int fill = 0, plain = 0, errors = 0;
-            foreach (TextRow r in scan.Rows) { if (r.Kind == TextKind.Fill) fill++; else plain++; }
-            foreach (TextFileStat f in scan.Files) if (f.Error != null) errors++;
-            string text = "text scan of " + scan.Target + " string/" + scan.TargetLang + " from " + scan.Source + " string/" + scan.SourceLang + ": "
-                + scan.Files.Count + " files, " + N(fill) + " attributes to fill, " + N(plain) + " plainly different (taken only when ticked)";
-            if (errors > 0)
-            {
-                text += "; " + errors + " files could not be read:";
-                foreach (TextFileStat f in scan.Files) if (f.Error != null) text += "\r\n  " + f.File + ": " + f.Error;
-            }
-            return text;
-        }
 
         void FillFiles()
         {

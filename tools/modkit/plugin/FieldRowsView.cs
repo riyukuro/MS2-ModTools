@@ -253,42 +253,11 @@ namespace MS2.Tables
                 foreach (FieldRow r in scan.Rows)
                     if (r.Ticked && (again ? keep.Contains(r.Id) : r.Default)) chosen.Add(r.Id);
                 ShowRows();
-                host.SayOutside(Summary() + " (" + (watch.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
+                host.SayOutside(scan.Summary("\r\n") + " (" + (watch.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
             });
         }
 
         static string N(int n) { return n.ToString("N0", CultureInfo.InvariantCulture); }
-
-        string Summary()
-        {
-            var kinds = new SortedDictionary<FieldRowKind, int>();
-            int def = 0;
-            foreach (FieldRow r in scan.Rows)
-            {
-                int n;
-                kinds.TryGetValue(r.Kind, out n);
-                kinds[r.Kind] = n + 1;
-                if (r.Default) def++;
-            }
-            var parts = new List<string>();
-            foreach (KeyValuePair<FieldRowKind, int> k in kinds) parts.Add(k.Key + " " + N(k.Value));
-            string text = "field row scan of " + scan.Target + " " + FieldRows.Entry + " from " + scan.Source + " " + FieldRows.MapFolder + "*.xml (" + scan.Locale + "): "
-                + N(scan.Open) + " maps open already; " + (parts.Count == 0 ? "nothing to list" : string.Join(", ", parts.ToArray()))
-                + "; " + N(def) + " ticked by default (the server has the map, not a Develop map)";
-            if (scan.NoSource.Count > 0)
-                text += "\r\n" + N(scan.NoSource.Count) + " closed rows of ours have no source file: " + Ids(scan.NoSource);
-            foreach (FieldRow r in scan.Rows)
-                if (r.Kind == FieldRowKind.Error) text += "\r\n  " + (r.File ?? r.Id.ToString(CultureInfo.InvariantCulture)) + ": " + r.Error;
-            return text;
-        }
-
-        static string Ids(List<int> ids)
-        {
-            var b = new System.Text.StringBuilder();
-            for (int i = 0; i < ids.Count && i < 60; i++) { if (i > 0) b.Append(' '); b.Append(ids[i].ToString(CultureInfo.InvariantCulture)); }
-            if (ids.Count > 60) b.Append(" ... (" + N(ids.Count - 60) + " more)");
-            return b.ToString();
-        }
 
         // ---- the rows ----
 

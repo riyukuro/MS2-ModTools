@@ -46,6 +46,23 @@ namespace MS2.ModKit.Cli
   modkit trigger-lint <folder or archive> [--json]
                                                lint the trigger scripts (trigger/<xblock>/*.xml of a folder or an
                                                Xml archive) as tools/trigger/lint.py does, with its allowlist
+  modkit field-rows <source> [--put MOD | --take MOD]
+                                               the maps our client's table/fielddata.xml has no loadable row for
+                                               while the source client (e.g. gms-client:Xml.m2d) has the map's file,
+                                               one line each; --put writes rows into the mod folder (--rows default:
+                                               the server has the map and it is not a Develop map; ticked: every
+                                               Fill and Add row; or id,id,...), --take takes them out (all listed
+                                               rows unless --rows); --target ARCHIVE (client:Xml.m2d), --pack
+                                               ARCHIVE (the server pack, server:Xml.m2d; none for no check),
+                                               --locale KR
+  modkit text-import <source> [--put MOD | --take MOD]
+                                               our string/<lang>/*.xml against the source client's, file by file;
+                                               --put sets the attributes still in Korean to the source text in
+                                               the mod folder, --take takes those sets out; --plain also takes the
+                                               plainly different ones, --files a.xml,b.xml only these files, --list
+                                               one line per attribute; --target ARCHIVE (client:Xml.m2d), --lang kr,
+                                               --source-lang en
+                                               (both: a MOD folder with no mod.xml needs --id ID, a new mod)
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
   modkit map-index <Exported.m2d or folder> <out.json>   the model listing of a game (its .flat files) as one file
@@ -100,8 +117,9 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
         }
 
         static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply",
-            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource", "--priority", "--src" };
-        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all", "--all-presets", "--no-asset-files" };
+            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource", "--priority", "--src",
+            "--target", "--pack", "--locale", "--rows", "--put", "--take", "--lang", "--source-lang", "--files" };
+        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all", "--all-presets", "--no-asset-files", "--list", "--plain" };
 
         static int Main(string[] argv)
         {
@@ -173,6 +191,8 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                     case "sync": return Sync(ctx);
                     case "refs": return Refs(ctx);
                     case "next-id": return NextId(ctx);
+                    case "field-rows": return FieldRowsCmd(ctx);
+                    case "text-import": return TextImportCmd(ctx);
                     case "trigger-lint":
                     {
                         if (a.Pos.Count != 1) throw new UsageException("trigger-lint needs one folder or archive");

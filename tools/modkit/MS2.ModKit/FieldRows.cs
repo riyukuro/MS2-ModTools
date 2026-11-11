@@ -382,5 +382,40 @@ namespace MS2.ModKit
             }
             return n;
         }
+
+        static string N(int n) { return n.ToString("N0", CultureInfo.InvariantCulture); }
+
+        /// <summary>
+        /// What the scan found, as the view and the command line say it: the counts by kind, the rows ticked by
+        /// default, our closed rows with no source file (up to 60 ids) and one line per source file that does not
+        /// parse. Lines are joined by nl.
+        /// </summary>
+        public string Summary(string nl)
+        {
+            var kinds = new SortedDictionary<FieldRowKind, int>();
+            int def = 0;
+            foreach (FieldRow r in Rows)
+            {
+                int n;
+                kinds.TryGetValue(r.Kind, out n);
+                kinds[r.Kind] = n + 1;
+                if (r.Default) def++;
+            }
+            var parts = new List<string>();
+            foreach (KeyValuePair<FieldRowKind, int> k in kinds) parts.Add(k.Key + " " + N(k.Value));
+            var b = new StringBuilder();
+            b.Append("field row scan of ").Append(Target).Append(' ').Append(Entry).Append(" from ").Append(Source).Append(' ').Append(MapFolder).Append("*.xml (").Append(Locale).Append("): ")
+             .Append(N(Open)).Append(" maps open already; ").Append(parts.Count == 0 ? "nothing to list" : string.Join(", ", parts.ToArray()))
+             .Append("; ").Append(N(def)).Append(" ticked by default (the server has the map, not a Develop map)");
+            if (NoSource.Count > 0)
+            {
+                b.Append(nl).Append(N(NoSource.Count)).Append(" closed rows of ours have no source file: ");
+                for (int i = 0; i < NoSource.Count && i < 60; i++) { if (i > 0) b.Append(' '); b.Append(NoSource[i].ToString(CultureInfo.InvariantCulture)); }
+                if (NoSource.Count > 60) b.Append(" ... (").Append(N(NoSource.Count - 60)).Append(" more)");
+            }
+            foreach (FieldRow r in Rows)
+                if (r.Kind == FieldRowKind.Error) b.Append(nl).Append("  ").Append(r.File ?? r.Id.ToString(CultureInfo.InvariantCulture)).Append(": ").Append(r.Error);
+            return b.ToString();
+        }
     }
 }

@@ -50,7 +50,7 @@ namespace MS2.ModKit.Tests
             "\t\t<ui bgMask=\"m&amp;n\" vscroll=\"1\" usePet=\"0\" isNoSkipFrame=\"0\" showHitEffect=\"1\" />\n" +
             "\t\t<survival a=\"1\" />\n";
 
-        sealed class Data : IDisposable
+        internal sealed class Data : IDisposable
         {
             public readonly string Dir;
             public Data()

@@ -64,7 +64,7 @@ namespace MS2.ModKit.Tests
             "  <key id=\"3001\" level=\"3\" name=\"Fake Shout\" tooltipDescription=\"Raises attack by 5%.\" />\n" +
             "</ms2>\n";
 
-        sealed class Data : IDisposable
+        internal sealed class Data : IDisposable
         {
             public readonly string Dir;
             public Data()

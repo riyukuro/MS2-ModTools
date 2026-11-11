@@ -512,5 +512,25 @@ namespace MS2.ModKit
             }
             return n;
         }
+
+        /// <summary>
+        /// What the scan found, as the view and the command line say it: files, attributes to fill, plainly
+        /// different ones, and one line per file that could not be read. Lines are joined by nl.
+        /// </summary>
+        public string Summary(string nl)
+        {
+            int fill = 0, plain = 0, errors = 0;
+            foreach (TextRow r in Rows) { if (r.Kind == TextKind.Fill) fill++; else plain++; }
+            foreach (TextFileStat f in Files) if (f.Error != null) errors++;
+            System.Globalization.CultureInfo inv = System.Globalization.CultureInfo.InvariantCulture;
+            string text = "text scan of " + Target + " string/" + TargetLang + " from " + Source + " string/" + SourceLang + ": "
+                + Files.Count + " files, " + fill.ToString("N0", inv) + " attributes to fill, " + plain.ToString("N0", inv) + " plainly different (taken only when ticked)";
+            if (errors > 0)
+            {
+                text += "; " + errors + " files could not be read:";
+                foreach (TextFileStat f in Files) if (f.Error != null) text += nl + "  " + f.File + ": " + f.Error;
+            }
+            return text;
+        }
     }
 }
