@@ -32,8 +32,11 @@ namespace MS2.Tables
                 modError = ModError(session);
             }, delegate
             {
-                if (skipped != null) host.SayOutside(SkippedText(skipped));
-                if (modError != null) host.SayOutside("Where used: " + modError);
+                // one text: a second SayOutside would replace the first
+                var said = new List<string>();
+                if (skipped != null) said.Add(SkippedText(skipped));
+                if (modError != null) said.Add("Where used: " + modError);
+                if (said.Count > 0) host.SayOutside(string.Join("\r\n", said.ToArray()));
                 if (owner.IsDisposed) return;
                 UseHit go;
                 using (var d = new WhereUsedDialog(kind, id, hits, Max, WhereUsedSkipped(session)))
