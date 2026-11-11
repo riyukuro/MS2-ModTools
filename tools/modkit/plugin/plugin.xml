@@ -69,6 +69,11 @@
         <display-name>Use the whole window</display-name>
         <description>When an MS2 Mods view opens, the Game Solution and Output View panes are collapsed to their edge tabs (auto-hide), once per Toolbench session and only when they are docked and showing. Also in the menu MS2 Mods.</description>
       </setting>
+      <setting scope="PerUser" id="MS2.Mods.AllowConflicts" path="MS2 Mods" property-type="Boolean" visible="true">
+        <value>False</value>
+        <display-name>Higher mod wins a conflict</display-name>
+        <description>Off: Apply writes nothing while two mods conflict. On: Apply goes on, and where two mods set the same thing the mod higher in the mods list of the MS2 Tables view wins. Also a box under that list.</description>
+      </setting>
       <setting scope="PerUser" id="MS2.Mods.AfterApply" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
         <display-name>Command after apply</display-name>

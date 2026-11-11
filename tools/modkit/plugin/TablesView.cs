@@ -172,7 +172,7 @@ namespace MS2.Tables
             modsList.ItemCheck += OnModCheck;
             modsList.MouseDown += OnModMouseDown;
             modsList.MouseMove += OnModMouseMove;
-            modsList.MouseUp += delegate { dragFrom = -1; modsList.Cursor = Cursors.Default; };
+            modsList.MouseUp += delegate { dragFrom = -1; pressOnName = false; modsList.Cursor = Cursors.Default; };
             allowBox.CheckedChanged += delegate
             {
                 if (filling) return;
@@ -451,6 +451,8 @@ namespace MS2.Tables
         void OnModCheck(object sender, ItemCheckEventArgs e)
         {
             if (filling || modList == null || e.Index < 0 || e.Index >= modList.Items.Count) return;
+            // a press on the name of the selected mod starts a drag, it must not also clear the mod's check
+            if (pressOnName) { e.NewValue = e.CurrentValue; return; }
             ModListItem it = modList.Items[e.Index];
             bool on = e.NewValue == CheckState.Checked;
             if (!Guard(delegate { it.Enabled = on; modList.Save(); })) { it.Enabled = !on; e.NewValue = e.CurrentValue; }
@@ -479,10 +481,12 @@ namespace MS2.Tables
 
         // dragging a mod: it moves as soon as the pointer is over another row, and the order is saved at once
         int dragFrom = -1;
+        bool pressOnName;
 
         void OnModMouseDown(object sender, MouseEventArgs e)
         {
             // not on the check box at the left, a click there only checks
+            pressOnName = e.Button == MouseButtons.Left && e.X > 16;
             dragFrom = e.Button == MouseButtons.Left && e.X > 16 && modList != null ? modsList.IndexFromPoint(e.Location) : -1;
         }
 

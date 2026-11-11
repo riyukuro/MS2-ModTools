@@ -58,15 +58,15 @@ namespace MS2.Tables
         public static bool LoadAllowConflicts()
         {
             ISettingService s = Platform.GetService<ISettingService>();
-            string v;
-            return s != null && s.GetSetting<string>(AllowConflictsId, out v) && v == "true";
+            bool v;
+            return s != null && s.GetSetting<bool>(AllowConflictsId, out v) && v;
         }
 
         public static void SaveAllowConflicts(bool on)
         {
             ISettingService s = Platform.GetService<ISettingService>();
             if (s == null) return;
-            s.SetSetting(AllowConflictsId, on ? "true" : "false");
+            s.SetSetting(AllowConflictsId, on);
             try { s.SaveSettings(SettingStorageMode.PerUser); }
             catch (Exception ex) { Logger.Warning("MS2 Mods: could not save the settings: " + ex.Message); }
         }
