@@ -1,6 +1,6 @@
 // The id lists behind the plugin's id pickers: one search (id or name) over the npcs, items, skills, effects, quests,
-// shops and drop boxes of an editor session, through the same Find each editor's own view uses, the ids the mod adds
-// first. And which kind of id a field or a quest condition code holds.
+// shops and drop boxes of an editor session, through the same Find each editor's own view uses, and over the maps,
+// interact objects and dungeons (IdLists.cs); the ids the mod adds first. And which kind of id a field or a quest condition code holds.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -9,8 +9,9 @@ namespace MS2.ModKit
 {
     public sealed class IdLookup
     {
-        public const string Npc = "npc", Item = "item", Skill = "skill", Effect = "effect", Quest = "quest", Shop = "shop", DropBox = "drop box";
-        public static readonly string[] Kinds = { Npc, Item, Skill, Effect, Quest, Shop, DropBox };
+        public const string Npc = "npc", Item = "item", Skill = "skill", Effect = "effect", Quest = "quest", Shop = "shop", DropBox = "drop box",
+            Map = "map", InteractObject = "interact object", Dungeon = "dungeon";
+        public static readonly string[] Kinds = { Npc, Item, Skill, Effect, Quest, Shop, DropBox, Map, InteractObject, Dungeon };
 
         readonly EditorSession session;
         ItemEditor items;
@@ -18,6 +19,7 @@ namespace MS2.ModKit
         QuestEditor quests;
         SkillEditor skills;
         GroupEditor groups;
+        TableIdList maps, interacts, dungeons;
 
         /// <summary>Over the data and the mod of a session; ask for a new one after the mod is replaced.</summary>
         public IdLookup(EditorSession session)
@@ -52,6 +54,9 @@ namespace MS2.ModKit
                 case Effect: return SkillHits(SkillKind.Effect, text, max);
                 case Shop: return (groups ?? (groups = session.Groups())).Find(GroupKind.Shop, text, max);
                 case DropBox: return (groups ?? (groups = session.Groups())).Find(GroupKind.DropBox, text, max);
+                case Map: return (maps ?? (maps = TableIdList.Maps(Data, Mod))).Find(text, max);
+                case InteractObject: return (interacts ?? (interacts = TableIdList.InteractObjects(Data, Mod))).Find(text, max);
+                case Dungeon: return (dungeons ?? (dungeons = TableIdList.Dungeons(Data, Mod))).Find(text, max);
             }
             throw new ModKitException("no id list \"" + kind + "\" (" + string.Join(", ", Kinds) + ")");
         }
@@ -83,14 +88,14 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// The kind of id the code of a quest condition of this type is, or null when it is free text or an id this
-        /// lookup has no list of (a map, an interact object, a dungeon). A buff's code is an additional effect.
+        /// The kind of id the code of a quest condition of this type is (QuestDraft.CodeTable), or null when it is
+        /// free text. A buff's code is an additional effect.
         /// </summary>
         public static string QuestCodeKind(string conditionType)
         {
             if (string.Equals(conditionType, "buff", StringComparison.OrdinalIgnoreCase)) return Effect;
             string t = QuestDraft.CodeTable(conditionType);
-            return t == Npc || t == Item || t == Quest || t == Skill ? t : null;
+            return t == Npc || t == Item || t == Quest || t == Skill || t == Map || t == InteractObject || t == Dungeon ? t : null;
         }
 
         /// <summary>
