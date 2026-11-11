@@ -785,13 +785,15 @@ The fields of the view, with the element and attribute they are in the table row
 | start NPC, complete NPC | `start@npc`, `complete@npc` |
 | reward exp, reward meso | `completeReward@exp`, `completeReward@money` |
 | reward items | rows with `code`, `rank`, `count`: `completeReward/v` in the table row; `essentialItem`, `globalEssentialItem` and the two job lists (`essentialJobItem`, `globalEssentialJobItem`) in the quest files |
-| condition count | `condition@value` of the n-th `<condition>`; empty or 0 means once |
+| items given on accept | the same lists under `acceptReward` |
+| condition type, code, count | `condition@type`, `@code`, `@value` of the n-th `<condition>`; an empty or 0 count means once |
 | texts | the four attributes of the text row, per language. `manual` is a list with `|` between the lines, one per condition |
 
 ### Using it
 
 1. Type an id, or part of a name, into **Quest id or name** and press Enter or **Find**. **Names in** picks the
-   language whose names are searched and listed (the shipped names). Quests the mod adds come first.
+   language whose names are searched and listed. A quest your mod has renamed is listed under its new name.
+   Quests the mod adds come first.
 2. Pick a quest. Three grids fill the view: **Fields and texts** at the left, **Conditions** and **Reward items**
    at the right. Each line has the value, the shipped value and where the value is: the number of places, or each
    place with its own value when the targets do not agree.
@@ -800,13 +802,28 @@ The fields of the view, with the element and attribute they are in the table row
    `*`; typing the shipped value back takes the edit out of the mod. A new quest's lines are green.
 4. A text goes to the language of its line, on every target that has that language. With **texts to every
    language** ticked it goes to the quest's row in every language.
-5. In **Conditions** only the count can be typed; the type and code of a condition are edited in the MS2 Tables
-   view.
-6. **Reward items** shows each list under its own name, because shipped data does not always hold the same rows in
-   the table's `v` list and in the files' lists. Typing into a row changes that row on every target that has it.
-   **Add row** and **Remove row** work on the list chosen in **List**. **Same on every target** writes the chosen
-   list's rows to `v`, `essentialItem` and `globalEssentialItem` everywhere, so the client shows what the server
-   gives; the two job lists stay as they are.
+5. In **Conditions** the type, the code and the count can be typed. The type must be one that a shipped quest
+   uses (the tooltip of the cell lists them). The column **code is** says what the code stands for:
+   - `free text`: a trigger name, a word or a small number. It can be typed.
+   - `<table> id, read-only`: the code is an id of another table, and the view has no list of that table to pick
+     from, so it is not edited here. Which table follows from the type: **npc** (`npc`, `talk_in`, `dialogue`,
+     `skill_damage_npc`), **item** (every type that starts with `item`, `openitembox`, `equip_exist`,
+     `install_item`, `uninstall_item`), **map** (`map`, `stay_map`, `survive_map`), **skill** (`skill`, `buff`),
+     **quest** (`quest`, `quest_daily`, `quest_clear`), **interact object** (types that start with
+     `interact_object`), **dungeon** (`dungeon_clear`, types that start with `dungeon_rank`).
+   - `an id, read-only`: a number of 7 digits or more under any other type.
+
+   A type can only be changed to one whose code is of the same kind (`npc` to `talk_in` is taken, `npc` to `item`
+   is not). To change such an id, edit the `<condition>` in the MS2 Tables view.
+6. **Reward items** shows each list under its own name, first the lists given on completion, then those given
+   when the quest is accepted (**On accept**). Shipped data does not always hold the same rows in the table's `v`
+   list and in the files' lists, and not always the same rows on every target. A row of the grid is one item: the
+   places are paired by item id, never by position. Where a place has no such row, or another rank or count, the
+   last column says what each place holds (`-`: no such row there). Typing into a row changes it in every place
+   that has it. **Add row** and **Remove row** work on the list chosen in **List**; a removed row is gone from
+   the list, and removing a row your mod added leaves no line in the mod. **Same on every target** writes the
+   chosen list's rows to `v`, `essentialItem` and `globalEssentialItem` everywhere, so the client shows what the
+   server gives; the two job lists and the accept lists stay as they are.
 7. **Plan** lists every change, entry by entry, under one line per target. **Apply** writes them, **Revert** takes
    them back.
 
@@ -815,13 +832,26 @@ The fields of the view, with the element and attribute they are in the table row
 Select a shipped quest and press **Clone to new id**. An empty id box takes the next free id after the source.
 
 - The id must be free in the data and in the mod, and at most 8 digits. It is written into the mod's
-  `<ids space="quest">`, so two mods that take the same id are reported as a conflict.
+  `<ids space="quest">`, so two mods that take the same id are reported as a conflict. An id that another enabled
+  mod reserves in its `<ids space="quest">` is not offered and not taken.
 - The clone gets a copy of the source's table row, of its quest file on every target (with `basic@questID` set to
   the new id), and of its text row in every language, in the file the source's row is in.
 - The copies are the source as shipped, not as your mod has changed it.
 - A clone cannot be cloned again; clone the shipped quest once more. **Remove clone** takes a clone out of the mod.
-- The talk scripts (`string/<language>/scriptquest*.xml`) and the tables that list quests are not copied. A new
-  quest that an npc should offer needs those rows too; add them in the MS2 Tables view.
+- With **with talk script and list rows** ticked (the default) the clone also gets a copy of every row that lists
+  the source by its id, so that an npc offers the new quest as it offers the source:
+
+  | Rows | Where |
+  |-|-|
+  | talk script, `<quest id>` with its scripts | `script/quest/questscript*.xml` on every target |
+  | fields of the quest marker, `<quest id fields>` | `table/questtofieldtable.xml` on every target |
+  | special type name, `<key id name>` | `string/<language>/specialquesttype.xml` on every target |
+  | script conditions and functions, rows with `questID` | `table/Server/QuestScriptCondition*.xml` and `QuestScriptFunction*.xml` in the server's `Server.m2d` |
+
+  The lines under the fields list what was copied. **Remove clone** takes these copies out too.
+- The copied talk script speaks the source's lines: its texts (`string/<language>/scriptquest*.xml`) have ids of
+  their own and are shared, not copied. Tables that name a quest without being keyed by it (quest masks of npcs
+  and portals, guide and learning entries) are not copied either; add such rows in the MS2 Tables view.
 
 ### What the client shows and what the server decides
 
