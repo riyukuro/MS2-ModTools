@@ -196,6 +196,22 @@ namespace MS2.ModKit
             if (loser == mod) Conflicts[n].Ask = Ask;
         }
 
+        /// <summary>
+        /// Per mod, the entries where a line of it is left out under a higher mod's delete (of the row or of the
+        /// entry) or file: lines of the mod that never meet each other in this plan.
+        /// </summary>
+        internal readonly Dictionary<Mod, Dictionary<string, bool>> Under = new Dictionary<Mod, Dictionary<string, bool>>();
+
+
+        internal static string UnderKey(string archive, string entry) { return archive + "\n" + entry.Replace('\\', '/').ToLowerInvariant(); }
+
+        internal void IsUnder(Mod mod, string archive, string entry)
+        {
+            Dictionary<string, bool> d;
+            if (!Under.TryGetValue(mod, out d)) Under[mod] = d = new Dictionary<string, bool>();
+            d[UnderKey(archive, entry)] = true;
+        }
+
         /// <summary>The row line (or the one set of a change) that is planned now; null outside of row lines.</summary>
         internal object Ask;
 
@@ -419,6 +435,8 @@ namespace MS2.ModKit
             FinishMirror(run);
             SyncPass(run, options);
             DoMaps(run, mods);
+            // the plan of one mod alone is read for its conflicts only: nothing of it is written
+            if (options.Alone) return plan;
 
             foreach (EntryState st in run.Order)
             {
@@ -461,18 +479,45 @@ namespace MS2.ModKit
         /// <summary>
         /// Two lines of one mod that contradict each other are a conflict that no priority decides, also where a
         /// higher mod (a delete of the row or of the entry, a file for the entry) has both lines left out and they
-        /// never meet in this plan. A mod that has lines left out is planned alone once more; a contradiction that
-        /// shows only there is added, for an entry where this plan has none of that mod.
+        /// never meet in this plan. The entry lines of a mod for the entries where that happened to it
+        /// (<see cref="Plan.Under"/>) are planned alone once more; a contradiction that shows only there is added,
+        /// for an entry where this plan has none of that mod.
         /// </summary>
         static void OwnContradictions(DataSet data, Plan plan, PlanOptions options)
         {
             foreach (Mod m in plan.Mods)
             {
-                bool loses = false;
-                foreach (PlanMessage c in plan.Conflicts) if (c.LoserId == m.Id) { loses = true; break; }
-                if (!loses) continue;
+                Dictionary<string, bool> under;
+                if (!plan.Under.TryGetValue(m, out under)) continue;
+                // one line alone contradicts nothing, and neither does one line for the mod's own file: only the
+                // entries with two row lines of the mod, two entry lines, or a row line and a delete are planned again
+                var lines = new Dictionary<string, int>(StringComparer.Ordinal);
+                var whole = new Dictionary<string, int>(StringComparer.Ordinal);
+                var deleted = new Dictionary<string, bool>(StringComparer.Ordinal);
+                var ops = new List<KeyValuePair<string, ModOp>>();
+                foreach (ModOp op in m.Ops)
+                {
+                    var en = op as EntryOp; var ed = op as EditOp;
+                    string name = en != null ? en.Name : ed != null ? ed.Entry : null;
+                    if (name == null) continue;
+                    string key = Plan.UnderKey(op.Archive, name);
+                    if (!under.ContainsKey(key)) continue;
+                    int n; lines.TryGetValue(key, out n);
+                    int w; whole.TryGetValue(key, out w);
+                    if (ed != null) foreach (RowOp r in ed.Rows) n += Math.Max(1, r.Attrs.Count);
+                    else { w++; if (en.Delete) deleted[key] = true; }
+                    lines[key] = n; whole[key] = w;
+                    ops.Add(new KeyValuePair<string, ModOp>(key, op));
+                }
+                var part = new Mod { Id = m.Id, Name = m.Name, Version = m.Version, Dir = m.Dir };
+                foreach (KeyValuePair<string, ModOp> o in ops) 
+                {
+                    int n = lines[o.Key], w = whole[o.Key];
+                    if (n > 1 || w > 1 || (n > 0 && deleted.ContainsKey(o.Key))) part.Ops.Add(o.Value);
+                }
+                if (part.Ops.Count == 0) continue;
                 Plan alone;
-                try { alone = Build(data, new[] { m }, new PlanOptions { Maps = options.Maps, NoSync = options.NoSync, Alone = true }); }
+                try { alone = Build(data, new[] { part }, new PlanOptions { Maps = options.Maps, NoSync = options.NoSync, Alone = true }); }
                 catch (ModKitException) { continue; }
                 var add = new List<PlanMessage>();
                 foreach (PlanMessage c in alone.Conflicts)
@@ -593,13 +638,14 @@ namespace MS2.ModKit
             {
                 // the mod's own file is left out, and so are its edits of that file
                 plan.Conflict(mod, op.Archive, st.Name, "edits its own entry, which is left out", Written(st, instead));
+                plan.IsUnder(mod, st.Archive, st.Name);
                 return;
             }
             if (st.BaseMod != null && st.BaseMod != mod)
             {
                 string text = "edits an entry that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds");
                 // the whole entry of the higher mod is written as that mod has it
-                if (!run.Outranks(mod, st.BaseMod)) { plan.Conflict(mod, op.Archive, st.Name, text, st.BaseMod); return; }
+                if (!run.Outranks(mod, st.BaseMod)) { plan.Conflict(mod, op.Archive, st.Name, text, st.BaseMod); plan.IsUnder(mod, st.Archive, st.Name); return; }
                 if (st.Existed && st.Original != null && st.Doc == null)
                 {
                     // the edit is of the higher mod: it is made in the shipped entry, the other mod's file is left out
@@ -653,12 +699,14 @@ namespace MS2.ModKit
             if (!run.Outranks(mod, del))
             {
                 plan.Conflict(mod, st.Archive, st.Name, text, del);
+                plan.IsUnder(mod, st.Archive, st.Name);
                 return true;
             }
             if (st.Original == null)
             {
                 // the entry was another mod's; the data ships none that could come back for this mod
                 plan.Conflict(mod, st.Archive, st.Name, text, del, null, " wins (the data ships no such entry)");
+                plan.IsUnder(mod, st.Archive, st.Name);
                 return true;
             }
             plan.EntryConflict(mod, st.Archive, st.Name, text, mod, del);
@@ -696,7 +744,7 @@ namespace MS2.ModKit
                 Mod del = st.Deleted[i].Value;
                 // a mod that contradicts itself: no priority decides that
                 if (del == mod) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); return true; }
-                if (!run.Outranks(mod, del)) { plan.Conflict(mod, st.Archive, st.Name, text, del); return true; }
+                if (!run.Outranks(mod, del)) { plan.Conflict(mod, st.Archive, st.Name, text, del); plan.IsUnder(mod, st.Archive, st.Name); return true; }
                 plan.Conflict(mod, st.Archive, st.Name, text, mod, del);
                 st.Ed.Undelete(row);
                 st.Deleted.RemoveAt(i);
@@ -716,7 +764,10 @@ namespace MS2.ModKit
             if (st.DocFailed) return false;
             if (st.Doc == null)
             {
-                try { st.Doc = XmlDoc.Parse(st.Base, st.Archive + " " + st.Name); }
+                try
+                {
+                    st.Doc = XmlDoc.Parse(st.Base, st.Archive + " " + st.Name);
+                }
                 catch (ModKitException x) { st.DocFailed = true; plan.Msg(plan.Errors, mod, st.Archive, st.Name, "cannot be edited as XML: " + x.Message); return false; }
                 if (st.Doc.EncodingFallback)
                     plan.Msg(plan.Notes, mod, st.Archive, st.Name, "the text is not valid in its declared encoding; edited as " + st.Doc.EncodingName);
