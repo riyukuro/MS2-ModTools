@@ -103,9 +103,11 @@ namespace MS2.ModKit.Tests
                     PlanChange c = p.Changes[0];
                     int n = EditorSession.ViewChars / 10 + 1000;
                     for (int i = 0; i < n; i++) p.Changes.Add(c);
+                    p.Errors.Add(new PlanMessage { ModId = "a.one", Archive = "client:Xml.m2d", Entry = "table/fake.xml", Text = "a made-up error past the changes" });
                     string text = s.Describe(p);
+                    Assert.That(text, Does.Contain("error: ") & Does.Contain("a made-up error past the changes"), "the error is shown before the cap");
                     Assert.That(text.Length, Is.LessThan(EditorSession.ViewChars + 2000));
-                    Assert.That(text, Does.StartWith("1 mod(s), " + (n + 1) + " change(s)"));
+                    Assert.That(text, Does.StartWith("1 mod(s), " + (n + 1) + " change(s), 1 error(s)"));
                     Assert.That(text, Does.Contain("targets: "));
                     Assert.That(text, Does.Match(@"\.\.\. [0-9,]+ more lines of [0-9,]+ not shown here; modkit validate or diff lists them all\r\n$"));
                 }

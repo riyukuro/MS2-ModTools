@@ -44,6 +44,29 @@ namespace MS2.ModKit
         public override string ToString() { return Entry + " " + At + " @" + Attr + ": " + Ours + " -> " + Source; }
     }
 
+    /// <summary>
+    /// The rows the user ticked, by entry, row selector and attribute: a rescan makes new TextRow objects for the
+    /// same rows, and a tick (or untick) made on a row of an old scan must hold for the new one.
+    /// </summary>
+    public sealed class TextTicks
+    {
+        readonly HashSet<string> on = new HashSet<string>(StringComparer.Ordinal);
+
+        public static string KeyOf(TextRow r) { return r.Entry.ToLowerInvariant() + "\n" + r.At + "\n" + r.Attr; }
+        public void Set(TextRow r, bool ticked) { if (ticked) on.Add(KeyOf(r)); else on.Remove(KeyOf(r)); }
+        public bool Has(TextRow r) { return on.Contains(KeyOf(r)); }
+        public void Clear() { on.Clear(); }
+        public int Count { get { return on.Count; } }
+
+        /// <summary>The ticked rows among rows, in their order.</summary>
+        public List<TextRow> Of(IEnumerable<TextRow> rows)
+        {
+            var l = new List<TextRow>();
+            foreach (TextRow r in rows) if (Has(r)) l.Add(r);
+            return l;
+        }
+    }
+
     /// <summary>What the scan found in one of our files.</summary>
     public sealed class TextFileStat
     {
@@ -217,9 +240,19 @@ namespace MS2.ModKit
                         l.Add(r);
                     }
                 }
-                Dictionary<string, string> modSets = ModSets(mod, target, entry);
+                Dictionary<string, string> modSets = ti.ModSets(mod, entry, doc);
                 var ourKeys = new HashSet<string>(StringComparer.Ordinal);
                 var hasKeys = new HashSet<string>(StringComparer.Ordinal);
+                // our rows by element name and key: the feature and locale variants of one row
+                var variants = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
+                foreach (XmlElem r in doc.Root.Children)
+                {
+                    string k = Key(r.Attr("id") ?? r.Attr("questID"));
+                    if (k == null) continue;
+                    List<XmlElem> l;
+                    if (!variants.TryGetValue(r.Name + "\n" + k, out l)) variants[r.Name + "\n" + k] = l = new List<XmlElem>(1);
+                    l.Add(r);
+                }
                 foreach (XmlElem r in doc.Root.Children)
                 {
                     string id = r.Attr("id") ?? r.Attr("questID");
@@ -228,6 +261,10 @@ namespace MS2.ModKit
                     ourKeys.Add(k);
                     List<XmlElem> cands;
                     if (!src.TryGetValue(k, out cands)) continue;
+                    // only source rows of our element name: two kinds of element may share an id
+                    string name = r.Name;
+                    cands = cands.FindAll(delegate(XmlElem c) { return c.Name == name; });
+                    if (cands.Count == 0) continue;
                     hasKeys.Add(k);
                     string feature = r.Attr("feature") ?? "", locale = r.Attr("locale") ?? "", level = r.Attr("level");
                     if (level != null)
@@ -235,17 +272,28 @@ namespace MS2.ModKit
                         cands = cands.FindAll(delegate(XmlElem c) { return (c.Attr("level") ?? "") == level; });
                         if (cands.Count == 0) continue;
                     }
-                    XmlElem exact = null;
-                    foreach (XmlElem c in cands)
-                        if ((c.Attr("feature") ?? "") == feature && (c.Attr("locale") ?? "") == locale) { exact = c; break; }
+                    // every source row with our feature and locale; of several, the ones whose id is written as ours
+                    // ("01002" and "1002" are one key); those left must agree
+                    List<XmlElem> exact = cands.FindAll(delegate(XmlElem c) { return (c.Attr("feature") ?? "") == feature && (c.Attr("locale") ?? "") == locale; });
+                    if (exact.Count > 1)
+                    {
+                        List<XmlElem> sameId = exact.FindAll(delegate(XmlElem c) { return (c.Attr("id") ?? c.Attr("questID")) == id; });
+                        if (sameId.Count > 0) exact = sameId;
+                    }
+                    bool variant = feature.Length > 0 || locale.Length > 0;
+                    List<XmlElem> mine = variants[r.Name + "\n" + k];
                     string at = null;
                     foreach (XmlAttr a in r.Attrs)
                     {
                         if (NotText.Contains(a.Name) || a.Value.Length == 0) continue;
                         string theirsText;
-                        if (exact != null) theirsText = exact.Attr(a.Name);
+                        if (exact.Count > 0) { if (!Agreed(exact, a.Name, out theirsText)) { st.Ambiguous++; continue; } }
                         else if (!Agreed(cands, a.Name, out theirsText)) { st.Ambiguous++; continue; }
-                        if (string.IsNullOrEmpty(theirsText)) { st.Missing++; continue; }
+                        // a variant of ours (feature or locale) the source has no row for: the key's text is taken
+                        // only when our other variants have this row's text or the source's (one already translated),
+                        // else it would overwrite what tells the variants apart
+                        else if (variant && theirsText != null && mine.Count > 1 && !NoOtherText(mine, r, a.Name, theirsText)) { st.Ambiguous++; continue; }
+                        if (Norm(theirsText).Length == 0) { st.Missing++; continue; }
                         bool korean = IsKorean(a.Value);
                         if (Norm(a.Value) == Norm(theirsText)) { st.Same++; continue; }
                         if (IsKorean(theirsText)) { if (korean) st.Korean++; continue; }
@@ -268,34 +316,79 @@ namespace MS2.ModKit
             return ti;
         }
 
-        // the source rows of a key give the attribute one text (rows without it do not count)
+        // the source rows of a key give the attribute one text (rows without it, or with only spaces, do not count)
         static bool Agreed(List<XmlElem> cands, string attr, out string text)
         {
             text = null;
             foreach (XmlElem c in cands)
             {
                 string v = c.Attr(attr);
-                if (string.IsNullOrEmpty(v)) continue;
+                if (Norm(v).Length == 0) continue;
                 if (text == null) text = v;
                 else if (Norm(text) != Norm(v)) { text = null; return false; }
             }
             return true;
         }
 
-        // the attributes the mod sets in the entry: "selector\nattribute" -> value
-        static Dictionary<string, string> ModSets(Mod mod, string archive, string entry)
+        // our other variants of row r give the attribute r's text or the source's
+        static bool NoOtherText(List<XmlElem> rows, XmlElem r, string attr, string theirs)
+        {
+            string mine = Norm(r.Attr(attr)), source = Norm(theirs);
+            foreach (XmlElem e in rows)
+            {
+                if (e == r) continue;
+                string v = Norm(e.Attr(attr));
+                if (v != mine && v != source) return false;
+            }
+            return true;
+        }
+
+        // the mod's row selectors that name a row by another form than RowPath.Canonical (written by hand, e.g.
+        // "key[id=1001][feature=]"), resolved against our file in the scan: entry (lower case) -> selector -> canonical
+        readonly Dictionary<string, Dictionary<string, string>> canon = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
+
+        // the selector as the scan's rows have it (the mod's selector when the scan did not resolve it)
+        string CanonAt(string entry, string at)
+        {
+            Dictionary<string, string> d;
+            string c;
+            at = at ?? "";
+            return canon.TryGetValue(entry.Replace('\\', '/').ToLowerInvariant(), out d) && d.TryGetValue(at, out c) ? c : at;
+        }
+
+        // the attributes the mod sets in the entry: "selector\nattribute" -> value. With doc, the mod's selectors are
+        // resolved against it and remembered (CanonAt) for Put, Take and InMod.
+        Dictionary<string, string> ModSets(Mod mod, string entry, XmlDoc doc)
         {
             var d = new Dictionary<string, string>(StringComparer.Ordinal);
             if (mod == null) return d;
+            string ekey = entry.Replace('\\', '/').ToLowerInvariant();
             foreach (ModOp op in mod.Ops)
             {
                 var ed = op as EditOp;
-                if (ed == null || !SameArchive(ed.Archive, archive) || !string.Equals(ed.Entry.Replace('\\', '/'), entry, StringComparison.OrdinalIgnoreCase)) continue;
+                if (ed == null || !SameArchive(ed.Archive, Target) || ed.Entry.Replace('\\', '/').ToLowerInvariant() != ekey) continue;
                 foreach (RowOp r in ed.Rows)
                 {
                     if (r.Kind != RowOpKind.Change) continue;
+                    string at = r.At ?? "";
+                    if (doc != null && doc.Root != null)
+                    {
+                        string err;
+                        XmlElem e = RowPath.Parse(at).TryResolve(doc.Root, out err);
+                        if (e != null)
+                        {
+                            string c = RowPath.Canonical(e);
+                            if (c != at)
+                            {
+                                Dictionary<string, string> m;
+                                if (!canon.TryGetValue(ekey, out m)) canon[ekey] = m = new Dictionary<string, string>(StringComparer.Ordinal);
+                                m[at] = c;
+                            }
+                        }
+                    }
+                    at = CanonAt(entry, at);
                     foreach (AttrOp a in r.Attrs)
-                        if (a.At == null && a.Kind != AttrOpKind.Text) d[(r.At ?? "") + "\n" + a.Name] = a.Kind == AttrOpKind.Set ? a.Value : null;
+                        if (a.At == null && a.Kind != AttrOpKind.Text) d[at + "\n" + a.Name] = a.Kind == AttrOpKind.Set ? a.Value : null;
                 }
             }
             return d;
@@ -333,7 +426,10 @@ namespace MS2.ModKit
                     EditOp have = EditOf(mod, t.Entry, false);
                     if (have != null)
                         foreach (RowOp r in have.Rows)
-                            if (r.Kind == RowOpKind.Change && !changes.ContainsKey(r.At ?? "")) changes[r.At ?? ""] = r;
+                        {
+                            string at = CanonAt(t.Entry, r.At);
+                            if (r.Kind == RowOpKind.Change && !changes.ContainsKey(at)) changes[at] = r;
+                        }
                 }
                 RowOp op;
                 if (!changes.TryGetValue(t.At, out op))
@@ -370,10 +466,11 @@ namespace MS2.ModKit
                     RowOp r = ed.Rows[j];
                     if (r.Kind != RowOpKind.Change) continue;
                     int before = r.Attrs.Count;
+                    string at = CanonAt(entry, r.At);
                     r.Attrs.RemoveAll(delegate(AttrOp a)
                     {
                         string v;
-                        return a.At == null && a.Kind == AttrOpKind.Set && want.TryGetValue(entry + "\n" + (r.At ?? "") + "\n" + a.Name, out v) && v == a.Value;
+                        return a.At == null && a.Kind == AttrOpKind.Set && want.TryGetValue(entry + "\n" + at + "\n" + a.Name, out v) && v == a.Value;
                     });
                     n += before - r.Attrs.Count;
                     if (before > 0 && r.Attrs.Count == 0) ed.Rows.RemoveAt(j);
@@ -391,7 +488,7 @@ namespace MS2.ModKit
             foreach (TextRow t in rows)
             {
                 Dictionary<string, string> d;
-                if (!sets.TryGetValue(t.Entry, out d)) sets[t.Entry] = d = ModSets(mod, Target, t.Entry);
+                if (!sets.TryGetValue(t.Entry, out d)) sets[t.Entry] = d = ModSets(mod, t.Entry, null);
                 string v;
                 if (d.TryGetValue(t.At + "\n" + t.Attr, out v) && v == t.Source) n++;
             }

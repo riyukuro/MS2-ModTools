@@ -32,7 +32,8 @@ namespace MS2.Tables
         EditorSession scanSession;
         bool filling;
         // the rows that are ticked (a fill starts ticked, a plain row unticked)
-        readonly HashSet<TextRow> chosen = new HashSet<TextRow>();
+        // ticked rows by (entry, row, attribute), not by object: a rescan makes new TextRow objects for the same rows
+        readonly TextTicks chosen = new TextTicks();
         readonly Dictionary<string, List<TextRow>> rowsOf = new Dictionary<string, List<TextRow>>(StringComparer.OrdinalIgnoreCase);
 
         readonly TextBox targetBox = new TextBox { Width = 130, Text = "client:Xml.m2d" };
@@ -278,10 +279,12 @@ namespace MS2.Tables
                     List<TextRow> list;
                     if (!rowsOf.TryGetValue(r.File, out list)) rowsOf[r.File] = list = new List<TextRow>();
                     list.Add(r);
-                    if (r.Kind == TextKind.Fill) chosen.Add(r);
+                    if (r.Kind == TextKind.Fill) chosen.Set(r, true);
                 }
                 FillFiles();
                 if (fileList.Items.Count > 0) fileList.Items[0].Selected = true;
+                // the selection may not have changed (the same file again): the row list must show the new rows
+                ShowRows();
                 host.SayOutside(Summary() + " (" + (watch.ElapsedMilliseconds / 1000.0).ToString("0.0", CultureInfo.InvariantCulture) + " s)");
             });
         }
@@ -337,7 +340,7 @@ namespace MS2.Tables
         bool AllFillsChosen(List<TextRow> rows)
         {
             if (rows == null) return false;
-            foreach (TextRow r in rows) if (r.Kind == TextKind.Fill && !chosen.Contains(r)) return false;
+            foreach (TextRow r in rows) if (r.Kind == TextKind.Fill && !chosen.Has(r)) return false;
             return true;
         }
 
@@ -345,7 +348,7 @@ namespace MS2.Tables
         {
             if (scan == null) { totalLabel.Text = ""; return; }
             int fill = 0, plain = 0;
-            foreach (TextRow r in chosen) { if (r.Kind == TextKind.Fill) fill++; else plain++; }
+            foreach (TextRow r in scan.Rows) if (chosen.Has(r)) { if (r.Kind == TextKind.Fill) fill++; else plain++; }
             totalLabel.Text = "ticked: " + N(fill) + " fills, " + N(plain) + " plainly different";
         }
 
@@ -374,7 +377,7 @@ namespace MS2.Tables
                             if (find.Length > 0 && !Has(r.Id, find) && !Has(r.Ours, find) && !Has(r.Source, find)) continue;
                             total++;
                             if (shown >= MaxRows) continue;
-                            var it = new ListViewItem(r.Kind == TextKind.Fill ? "fill" : "plain") { Tag = r, Checked = chosen.Contains(r) };
+                            var it = new ListViewItem(r.Kind == TextKind.Fill ? "fill" : "plain") { Tag = r, Checked = chosen.Has(r) };
                             it.SubItems.Add(r.Id);
                             it.SubItems.Add(r.Attr);
                             it.SubItems.Add(r.Ours);
@@ -397,7 +400,7 @@ namespace MS2.Tables
         void TickRow(ListViewItem it)
         {
             var r = (TextRow)it.Tag;
-            if (it.Checked) chosen.Add(r); else chosen.Remove(r);
+            chosen.Set(r, it.Checked);
             SyncFileTick(r.File);
             ShowTotal();
         }
@@ -420,7 +423,7 @@ namespace MS2.Tables
             List<TextRow> rows;
             if (!rowsOf.TryGetValue((string)f.Tag, out rows) || !rows.Exists(delegate(TextRow r) { return r.Kind == TextKind.Fill; })) { filling = true; try { f.Checked = false; } finally { filling = false; } return; }
             foreach (TextRow r in rows)
-                if (r.Kind == TextKind.Fill) { if (f.Checked) chosen.Add(r); else chosen.Remove(r); }
+                if (r.Kind == TextKind.Fill) { chosen.Set(r, f.Checked); }
             if (fileList.SelectedItems.Count > 0 && fileList.SelectedItems[0] == f) ShowRows();
             ShowTotal();
         }
@@ -436,7 +439,7 @@ namespace MS2.Tables
                 {
                     var r = (TextRow)it.Tag;
                     it.Checked = on;
-                    if (on) chosen.Add(r); else chosen.Remove(r);
+                    chosen.Set(r, on);
                     files.Add(r.File);
                 }
             }
@@ -449,9 +452,7 @@ namespace MS2.Tables
 
         List<TextRow> Ticked()
         {
-            var list = new List<TextRow>();
-            foreach (TextRow r in scan.Rows) if (chosen.Contains(r)) list.Add(r);
-            return list;
+            return chosen.Of(scan.Rows);
         }
 
         void NeedScan()

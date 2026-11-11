@@ -104,11 +104,11 @@ namespace MS2.ModKit.Tests
         [Test]
         public void Helpers()
         {
-            Assert.That(TextImport.Key("02040998"), Is.EqualTo("2040998"));
+            Assert.That(TextImport.Key("0001234"), Is.EqualTo("1234"));
             Assert.That(TextImport.Key("000"), Is.EqualTo("0"));
             Assert.That(TextImport.IsKorean("Fake 검"), Is.True);
             Assert.That(TextImport.IsKorean("Fake Sword"), Is.False);
-            Assert.That(TextImport.IsPlaceholder("SCRIPTQUEST_0831174302000023_NAME"), Is.True);
+            Assert.That(TextImport.IsPlaceholder("SCRIPTQUEST_0000000000009999_NAME"), Is.True);
             Assert.That(TextImport.IsPlaceholder("Fake Quest"), Is.False);
             Assert.That(TextImport.IsPlaceholder("HP"), Is.False);
             Assert.That(TextImport.Overlap("Paper Hat", "Paper Cap"), Is.EqualTo(1.0 / 3).Within(1e-9));
@@ -235,6 +235,142 @@ namespace MS2.ModKit.Tests
                 Assert.That(row.Attrs.Single().Value, Is.EqualTo("My Sword"));
                 Assert.That(m.Ops.OfType<EditOp>().Count(o => o.Entry == "string/kr/itemname.xml"), Is.EqualTo(1), "one edit of the entry");
                 Assert.That(op.Rows.Count, Is.EqualTo(4), "1001 (the user's) + 1002 + 1005 + 1005 Alpha");
+            }
+        }
+
+        // duplicates in the source: one key in two split files, one key written two ways, two element kinds with one
+        // id; our feature variant with no source row; a source text of spaces only
+        const string OurDup = Head + "<ms2>\n" +
+            "  <key id=\"4001\" name=\"가짜 하나\" />\n" +
+            "  <key id=\"4002\" name=\"가짜 둘\" />\n" +
+            "  <key id=\"4003\" name=\"가짜 셋\" />\n" +
+            "  <key id=\"4004\" name=\"가짜 넷\" />\n" +
+            "  <key id=\"4005\" name=\"가짜 다섯\" />\n" +
+            "  <key id=\"4005\" feature=\"Alpha\" name=\"가짜 다섯 알파\" />\n" +
+            "  <key id=\"4006\" name=\"가짜 여섯\" />\n" +
+            "  <key id=\"4006\" feature=\"Alpha\" name=\"가짜 여섯\" />\n" +
+            "  <key id=\"4007\" name=\"가짜 일곱\" />\n" +
+            "  <key id=\"4008\" locale=\"NA\" name=\"Fake Eight\" />\n" +
+            "  <key id=\"4008\" locale=\"JP\" name=\"가짜 여덟\" />\n" +
+            "  <key id=\"4008\" locale=\"TW\" name=\"가짜 여덟\" />\n" +
+            "</ms2>\n";
+
+        const string TheirDupA = Head + "<ms2>\n" +
+            "  <key id=\"4001\" name=\"Fake One\" />\n" +
+            "  <key id=\"04002\" name=\"Wrong Two\" />\n" +
+            "  <key id=\"4002\" name=\"Right Two\" />\n" +
+            "  <other id=\"4003\" name=\"Other Three\" />\n" +
+            "  <key id=\"4003\" name=\"Key Three\" />\n" +
+            "  <key id=\"04004\" name=\"Fake Four\" />\n" +
+            "  <key id=\"004004\" name=\"Fake Four\" />\n" +
+            "  <key id=\"4005\" name=\"Fake Five\" />\n" +
+            "  <key id=\"4006\" name=\"Fake Six\" />\n" +
+            "  <key id=\"4007\" name=\"   \" />\n" +
+            "  <key id=\"4008\" locale=\"NA\" name=\"Fake Eight\" />\n" +
+            "</ms2>\n";
+
+        const string TheirDupB = Head + "<ms2>\n  <key id=\"4001\" name=\"Fake Uno\" />\n</ms2>\n";
+
+        static Func<byte[]> B(string text) { return () => Fake.Crlf(text); }
+
+        [Test]
+        public void Scan_DuplicateSourceRows_AreAmbiguousOrPickedByTheirId()
+        {
+            var ours = new Dictionary<string, Func<byte[]>> { { "scriptquest.xml", B(OurDup) } };
+            var theirs = new Dictionary<string, Func<byte[]>> { { "scriptquest_a.xml", B(TheirDupA) }, { "scriptquest_b.xml", B(TheirDupB) } };
+            TextImport ti = TextImport.Scan(ours, theirs, null, Kms, "kr", Gms, "en");
+            TextFileStat f = ti.Files.Single();
+            Assert.That(ti.Rows.Select(r => r.At + "=" + r.Source), Is.EqualTo(new[]
+            {
+                "key[id=4002]=Right Two",                   // "04002" is the same key; the row written as ours wins
+                "key[id=4003]=Key Three",                   // <other id=4003> is another kind of row
+                "key[id=4004]=Fake Four",                   // two ways to write it, one text
+                "key[id=4005][feature=]=Fake Five",
+                "key[id=4006][feature=]=Fake Six",
+                "key[id=4006][feature=Alpha]=Fake Six",     // our variants have one text: the source's is for both
+                "key[id=4008][locale=JP]=Fake Eight",       // the other variant differs only by having the source's text
+                "key[id=4008][locale=TW]=Fake Eight",
+            }));
+            Assert.That(f.Ambiguous, Is.EqualTo(2), "4001 (two split files, two texts), 4005 Alpha (our variants differ)");
+            Assert.That(f.Missing, Is.EqualTo(1), "4007: spaces only");
+        }
+
+        [Test]
+        public void Ticks_HoldAcrossARescan()
+        {
+            using (var d = new Data())
+            using (EditorSession s = Session(d.Dir))
+            {
+                Mod m = s.NewMod("t.text");
+                TextImport first = Scan(s, m);
+                var ticks = new TextTicks();
+                foreach (TextRow r in first.Rows) ticks.Set(r, r.Kind == TextKind.Fill);
+                ticks.Set(first.Rows.Single(r => r.Id == "1001"), false);
+                // a new scan: new row objects; untick another row on the new list
+                TextImport again = Scan(s, m);
+                TextRow r1001 = again.Rows.Single(r => r.Id == "1001"), r1002 = again.Rows.Single(r => r.Id == "1002");
+                Assert.That(r1001, Is.Not.SameAs(first.Rows.Single(r => r.Id == "1001")));
+                Assert.That(ticks.Has(r1001), Is.False);
+                ticks.Set(r1002, false);
+                ticks.Set(first.Rows.Single(r => r.Id == "1004"), true);    // a plain row ticked on the old list
+                List<TextRow> put = ticks.Of(again.Rows);
+                Assert.That(put.Any(r => r.Id == "1001" || r.Id == "1002"), Is.False);
+                Assert.That(put.Count(r => r.Id == "1004"), Is.EqualTo(1));
+                Assert.That(again.Put(m, put), Is.EqualTo(8), "9 fills - 2 unticked + the plain row");
+                Assert.That(m.Ops.OfType<EditOp>().SelectMany(o => o.Rows).Any(r => r.At == "key[id=1001]" || r.At == "key[id=1002]"), Is.False);
+            }
+        }
+
+        [Test]
+        public void ModSelector_NotCanonical_IsTheSameRow()
+        {
+            using (var d = new Data())
+            using (EditorSession s = Session(d.Dir))
+            {
+                // the user's own text under a selector written by hand: kept
+                Mod m = s.NewMod("t.text");
+                var op = new EditOp { Archive = Kms, Entry = "string/kr/itemname.xml" };
+                var row = new RowOp { Kind = RowOpKind.Change, At = "key[id=1001][class=]" };
+                row.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "name", Value = "My Sword" });
+                op.Rows.Add(row);
+                m.Ops.Add(op);
+                TextImport ti = Scan(s, m);
+                Assert.That(ti.Files[0].Kept, Is.EqualTo(1));
+                Assert.That(ti.Rows.Any(x => x.Id == "1001"), Is.False);
+
+                // the source text under that selector: the row is in the mod, Put adds no second op, Take takes it
+                row.Attrs[0].Value = "Fake Sword:s";
+                ti = Scan(s, m);
+                var fills = ti.Rows.Where(x => x.Kind == TextKind.Fill).ToList();
+                Assert.That(ti.Files[0].Kept, Is.EqualTo(0));
+                Assert.That(ti.InMod(m, fills), Is.EqualTo(1));
+                Assert.That(ti.Put(m, fills), Is.EqualTo(8));
+                Assert.That(op.Rows.Count(r => r.At.StartsWith("key[id=1001]")), Is.EqualTo(1), "no second change op for 1001");
+                Assert.That(ti.InMod(m, fills), Is.EqualTo(9));
+                Assert.That(ti.Take(m, fills), Is.EqualTo(9));
+                Assert.That(m.IsEmpty, Is.True);
+            }
+        }
+
+        [Test]
+        public void Take_LeavesAChangedSet_AndARowOpWithOtherAttributes()
+        {
+            using (var d = new Data())
+            using (EditorSession s = Session(d.Dir))
+            {
+                Mod m = s.NewMod("t.text");
+                TextImport ti = Scan(s, m);
+                var fills = ti.Rows.Where(r => r.Kind == TextKind.Fill).ToList();
+                Assert.That(ti.Put(m, fills), Is.EqualTo(9));
+                EditOp items = m.Ops.OfType<EditOp>().Single(o => o.Entry == "string/kr/itemname.xml");
+                RowOp r1001 = items.Rows.Single(r => r.At == "key[id=1001]");
+                RowOp r1002 = items.Rows.Single(r => r.At == "key[id=1002]");
+                r1001.Attrs.Single().Value = "My Sword";                               // the user changed it after Put
+                r1002.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "class", Value = "fake" });  // and set another attribute
+                Assert.That(ti.Take(m, fills), Is.EqualTo(8));
+                Assert.That(items.Rows, Is.EquivalentTo(new[] { r1001, r1002 }));
+                Assert.That(r1001.Attrs.Single().Value, Is.EqualTo("My Sword"));
+                Assert.That(r1002.Attrs.Single().Name, Is.EqualTo("class"));
             }
         }
 
