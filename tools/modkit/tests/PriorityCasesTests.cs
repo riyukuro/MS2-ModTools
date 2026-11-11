@@ -260,6 +260,12 @@ namespace MS2.ModKit.Tests
                     }
                     Assert.That(f.Plan(a).Undecided, Is.EqualTo(1), rows);
                 }
+                // a contradiction that shows and one that a higher mod hides, in one entry: both are counted
+                string hp100 = hp5.Replace("101", "100");
+                Mod two = f.Mod("two", Edit(C, Pet, hp100 + hp100.Replace("\"5\"", "\"6\"") + hp5 + hp6));
+                Assert.That(f.Plan(two).Undecided, Is.EqualTo(2));
+                Plan both = f.Plan(two, f.Mod("over", Edit(C, Pet, del)));
+                Assert.That(both.Undecided, Is.EqualTo(2), Fake.Dump(both));
                 // no contradiction: nothing is added, with or without the higher mod
                 Mod ok = f.Mod("ok", Edit(C, Pet, hp5 + hp5)), top = f.Mod("top", Edit(C, Pet, del));
                 Assert.That(f.Plan(ok, top).Undecided, Is.EqualTo(0));
@@ -356,8 +362,13 @@ namespace MS2.ModKit.Tests
         [Test]
         public void TheLineAboutAnEditOfALeftOutFileNamesTheModThatIsWritten()
         {
-            // own: a file and an edit of it; f2 and f3: other files for the entry. f3 is written in both orders
-            foreach (string[] order in new[] { new[] { "own", "f2", "f3" }, new[] { "own", "f3", "f2" } })
+            // own: a file and an edit of it; f2 and f3: other files for the entry, in every order of priority
+            string[][] orders =
+            {
+                new[] { "own", "f2", "f3" }, new[] { "own", "f3", "f2" }, new[] { "f2", "own", "f3" },
+                new[] { "f3", "own", "f2" }, new[] { "f2", "f3", "own" }, new[] { "f3", "f2", "own" },
+            };
+            foreach (string[] order in orders)
                 using (var f = new Fake())
                 {
                     string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
@@ -370,9 +381,43 @@ namespace MS2.ModKit.Tests
                     Plan p = f.Plan(order.Select(n => n == "own" ? own : n == "f2" ? f2 : f3).ToArray());
                     string top = order[2], dump = string.Join(" < ", order) + "\n" + Fake.Dump(p);
                     Assert.That(p.Errors, Is.Empty, dump);
-                    Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain(top == "f3" ? "name=\"Third\"" : "name=\"Second\""), dump);
+                    Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain(top == "f3" ? "name=\"Third\"" : top == "f2" ? "name=\"Second\"" : "<own id=\"1\" v=\"2\"/>"), dump);
+                    if (top == "own") { Assert.That(p.LeftOut(), Is.EquivalentTo(new[] { "own wins 1 part of f2", "own wins 1 part of f3" }), dump); continue; }
                     Assert.That(p.Conflicts.Single(x => x.ModId == "own" && x.Text.Contains("edits its own entry")).WinnerId, Is.EqualTo(top), dump);
-                    Assert.That(p.LeftOut(), Is.EquivalentTo(new[] { top + " wins 1 part of " + order[1], top + " wins 2 parts of own" }), dump);
+                    Assert.That(p.LeftOut(), Is.EquivalentTo(new[] { top + " wins 1 part of " + (top == "f3" ? "f2" : "f3"), top + " wins 2 parts of own" }), dump);
+                }
+        }
+
+        [Test]
+        public void TheLineAboutAnEditOfALeftOutFileNamesTheModThatIsWrittenAlsoOverADelete()
+        {
+            // own: a file and an edit of it; del: deletes the entry; f3: another file for it
+            string[][] orders =
+            {
+                new[] { "own", "del", "f3" }, new[] { "own", "f3", "del" }, new[] { "del", "own", "f3" },
+                new[] { "f3", "own", "del" }, new[] { "del", "f3", "own" }, new[] { "f3", "del", "own" },
+            };
+            foreach (string[] order in orders)
+                using (var f = new Fake())
+                {
+                    string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
+                    string d = Path.Combine(f.ModDir("own", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" file=\"data/p.xml\"/>" + Set(S, "pet/100.xml", "environment/own[id=1]", "v", "2")), "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(filed));
+                    Mod own = Mod.Load(Path.GetDirectoryName(d));
+                    Mod del = f.Mod("del", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" delete=\"true\"/>");
+                    Mod f3 = FileMod(f, "f3", "pet/100.xml", Fake.PetFile(100, "Third"));
+                    Plan p = f.Plan(order.Select(n => n == "own" ? own : n == "del" ? del : f3).ToArray());
+                    string top = order[2], dump = string.Join(" < ", order) + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Conflicts.All(x => x.WinnerId != null), dump);
+                    if (top == "del") Assert.That(p.Changes.Any(x => x.Kind == ChangeKind.DeleteEntry), dump);
+                    else Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain(top == "f3" ? "name=\"Third\"" : "<own id=\"1\" v=\"2\"/>"), dump);
+                    if (top == "own") { Assert.That(p.LeftOut(), Is.EquivalentTo(new[] { "own wins 1 part of del", "own wins 1 part of f3" }), dump); continue; }
+                    PlanMessage line = p.Conflicts.Single(x => x.ModId == "own" && x.Text.Contains("edit") && x.LoserId == "own");
+                    Assert.That(line.WinnerId, Is.EqualTo(top), dump);
+                    Assert.That(line.Text, Does.Not.Contain("mod " + (top == "f3" ? "del" : "f3") + " wins"), dump);
+                    Assert.That(p.LeftOut(), Is.EquivalentTo(new[] { top + " wins 1 part of " + (top == "f3" ? "del" : "f3"), top + " wins 2 parts of own" }), dump);
                 }
         }
 

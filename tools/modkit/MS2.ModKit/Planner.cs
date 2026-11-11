@@ -481,7 +481,7 @@ namespace MS2.ModKit
         /// higher mod (a delete of the row or of the entry, a file for the entry) has both lines left out and they
         /// never meet in this plan. The entry lines of a mod for the entries where that happened to it
         /// (<see cref="Plan.Under"/>) are planned alone once more; a contradiction that shows only there is added,
-        /// for an entry where this plan has none of that mod.
+        /// unless this plan has the same line for the entry already.
         /// </summary>
         static void OwnContradictions(DataSet data, Plan plan, PlanOptions options)
         {
@@ -525,7 +525,7 @@ namespace MS2.ModKit
                     if (c.WinnerId != null || c.ModId != m.Id) continue;
                     bool has = false;
                     foreach (PlanMessage q in plan.Conflicts)
-                        if (q.WinnerId == null && q.ModId == m.Id && q.Archive == c.Archive && q.Entry == c.Entry) { has = true; break; }
+                        if (q.WinnerId == null && q.ModId == m.Id && q.Archive == c.Archive && q.Entry == c.Entry && q.Text == c.Text) { has = true; break; }
                     if (!has) add.Add(c);
                 }
                 plan.Conflicts.AddRange(add);
@@ -598,6 +598,9 @@ namespace MS2.ModKit
                 bool loses = run.Outranks(st.DeletedBy, mod);
                 plan.EntryConflict(mod, op.Archive, st.Name, "puts an entry where " + Who(st.DeletedBy, mod) + " deletes one", loses ? st.DeletedBy : mod, st.DeletedBy);
                 if (loses) { st.FileLeftOut[mod] = st.DeletedBy; return; }
+                // what the delete had left out is left out by this file now, and so is the delete
+                Mod del = st.DeletedBy;
+                foreach (Mod m in new List<Mod>(st.FileLeftOut.Keys)) if (st.FileLeftOut[m] == del) st.FileLeftOut[m] = mod;
                 DropEntryChange(plan, st);
             }
             else if (st.BaseMod != null)
