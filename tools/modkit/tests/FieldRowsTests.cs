@@ -134,7 +134,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(fr.NoSource, Is.EqualTo(new[] { 77 }));
                 Assert.That(fr.Rows.Select(r => r.Id + " " + r.Kind), Is.EqualTo(new[]
                 {
-                    "5 Add", "19 Fill", "30 Fill", "40 Add", "41 Add", "42 Add", "60 Several", "61 NoMap", "62 NoXBlock", "63 Error",
+                    "5 Add", "19 Fill", "30 FillBeside", "40 Add", "41 Add", "42 Add", "60 Several", "61 NoMap", "62 NoXBlock", "63 Error",
                 }));
                 FieldRow r19 = fr.Rows.Single(r => r.Id == 19);
                 Assert.That(r19.At, Is.EqualTo("fieldData[id=19]"));
@@ -154,7 +154,8 @@ namespace MS2.ModKit.Tests
                 Assert.That(fr.Rows.Single(r => r.Id == 60).Environments, Is.EqualTo(2));
                 Assert.That(fr.Rows.Single(r => r.Id == 63).Error, Is.Not.Null);
                 Assert.That(fr.Rows.Where(r => r.Ticked).Select(r => r.Id), Is.EqualTo(new[] { 5, 19, 30, 40, 41, 42 }));
-                Assert.That(fr.Rows.Where(r => r.Default).Select(r => r.Id), Is.EqualTo(new[] { 5, 19, 30, 40 }), "the server has no map 41; 42 is a Develop map");
+                Assert.That(fr.Rows.Where(r => r.Default).Select(r => r.Id), Is.EqualTo(new[] { 5, 19, 40 }), "30 has an environment already; the server has no map 41; 42 is a Develop map");
+                Assert.That(fr.Rows.Single(r => r.Id == 30).At, Is.EqualTo("fieldData[id=30]"));
                 Assert.That(fr.Rows.Single(r => r.Id == 41).OnServer, Is.False);
             }
         }
@@ -168,7 +169,7 @@ namespace MS2.ModKit.Tests
                 Mod m = s.NewMod("t.fields");
                 FieldRows fr = FieldRows.Scan(s.Data, Kms, Gms);
                 var fills = fr.Rows.Where(r => r.Ticked).ToList();
-                Assert.That(fr.Put(m, fr.Rows), Is.EqualTo(6), "only Fill and Add rows");
+                Assert.That(fr.Put(m, fr.Rows), Is.EqualTo(6), "only Fill, Add and FillBeside rows");
                 Assert.That(fr.Put(m, fills), Is.EqualTo(0), "already in");
                 Assert.That(fr.InMod(m, fr.Rows), Is.EqualTo(6));
                 EditOp ed = m.Ops.OfType<EditOp>().Single();
@@ -205,6 +206,37 @@ namespace MS2.ModKit.Tests
                 Assert.That(fr.InMod(back, fills), Is.EqualTo(5));
                 Assert.That(fr.Take(back, fr.Rows), Is.EqualTo(5));
                 Assert.That(back.IsEmpty, Is.True);
+            }
+        }
+
+        [Test]
+        public void Put_AfterRescanWithOtherSource_ReplacesByMap()
+        {
+            using (var d = new Data())
+            using (EditorSession s = Session(d.Dir))
+            {
+                Mod m = s.NewMod("t.fields");
+                FieldRows a = FieldRows.Scan(s.Data, Kms, Gms);
+                Assert.That(a.Put(m, a.Rows), Is.EqualTo(6));
+                // scan B: the same maps from another source, with other XML for each
+                var maps = new Dictionary<int, Func<byte[]>>();
+                foreach (int id in new[] { 5, 19, 30, 40, 41, 42 }) { string t = Map(Env("", "Other" + id)); maps[id] = () => Encoding.UTF8.GetBytes(t); }
+                FieldRows b = FieldRows.Scan(Encoding.UTF8.GetBytes(Table), maps, null, null, Kms, "b:Xml.m2d", "KR");
+                Assert.That(b.Rows.Select(r => r.Id + " " + r.Kind), Is.EqualTo(new[] { "5 Add", "19 Fill", "30 FillBeside", "40 Add", "41 Add", "42 Add" }));
+                Assert.That(b.InMod(m, b.Rows), Is.EqualTo(6), "in the mod by map, whatever the XML");
+                Assert.That(b.Put(m, b.Rows), Is.EqualTo(6), "each replaced");
+                Assert.That(b.Put(m, b.Rows), Is.EqualTo(0));
+                EditOp ed = m.Ops.OfType<EditOp>().Single();
+                Assert.That(ed.Rows.Count, Is.EqualTo(6), "one op per map");
+                Assert.That(ed.Rows.All(r => r.Xml.Contains("Other")));
+                Assert.That(ed.Rows.Count(r => r.In == "fieldData[id=19]"), Is.EqualTo(1));
+                Assert.That(ed.Rows.Count(r => r.Xml.StartsWith("<fieldData id=\"40\"")), Is.EqualTo(1));
+
+                // an op of the mod's own at a row's place is not taken for Put's
+                ed.Rows.Add(new RowOp { Kind = RowOpKind.Add, In = "fieldData[id=50]", Xml = "<camera distance=\"1\" />" });
+                Assert.That(a.Take(m, a.Rows), Is.EqualTo(6), "scan A takes out what B put");
+                Assert.That(ed.Rows.Count, Is.EqualTo(1));
+                Assert.That(a.InMod(m, a.Rows), Is.EqualTo(0));
             }
         }
 

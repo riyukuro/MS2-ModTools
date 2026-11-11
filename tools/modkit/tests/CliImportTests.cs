@@ -35,8 +35,9 @@ namespace MS2.ModKit.Tests
                 string so, se, mod = Path.Combine(d.Dir, "mods", "t.fields");
                 int rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d"));
                 Assert.That(rc, Is.EqualTo(0), so + se);
-                StringAssert.Contains("Fill 2, Add 4, Several 1, NoMap 1, NoXBlock 1, Error 1; 4 ticked by default", so);
+                StringAssert.Contains("Fill 1, Add 4, FillBeside 1, Several 1, NoMap 1, NoXBlock 1, Error 1; 3 ticked by default", so);
                 StringAssert.Contains("Fill\t19\t00000019_BF\tFakeOff\tno\t99\tyes\t16\tyes\n", so);
+                StringAssert.Contains("FillBeside\t30\tThirty\tFakeOn\tyes\t1\tyes\t2\tno\n", so);
                 StringAssert.Contains("Add\t41\tFortyOne\t-\t-\t-\tno\t1\tno\n", so);
                 Assert.That(File.Exists(Path.Combine(mod, "mod.xml")), Is.False, "a scan writes nothing");
 
@@ -46,17 +47,17 @@ namespace MS2.ModKit.Tests
 
                 rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--put", mod, "--id", "t.fields"));
                 Assert.That(rc, Is.EqualTo(0), so + se);
-                StringAssert.Contains("put 4 field rows into mod t.fields (4 chosen, 0 in the mod already)", so);
+                StringAssert.Contains("put 3 field rows into mod t.fields (3 chosen, 0 in the mod already)", so);
                 Mod m = Mod.Load(mod);
                 Assert.That(m.Id, Is.EqualTo("t.fields"));
-                Assert.That(m.Ops.OfType<EditOp>().Single().Rows.Count, Is.EqualTo(4));
+                Assert.That(m.Ops.OfType<EditOp>().Single().Rows.Count, Is.EqualTo(3));
 
                 rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--put", mod, "--rows", "41,42,60"));
                 Assert.That(rc, Is.EqualTo(2));
                 StringAssert.Contains("60 (Several)", se);
                 rc = Run(out so, out se, Roots(d.Dir, "field-rows", "gms-client:Xml.m2d", "--put", mod, "--rows", "ticked"));
                 Assert.That(rc, Is.EqualTo(0), so + se);
-                StringAssert.Contains("put 2 field rows into mod t.fields (6 chosen, 4 in the mod already)", so);
+                StringAssert.Contains("put 3 field rows into mod t.fields (6 chosen, 3 in the mod already)", so);
                 StringAssert.Contains("\tin mod\n", so);
 
                 rc = Run(out so, out se, Roots(d.Dir, "validate", mod));

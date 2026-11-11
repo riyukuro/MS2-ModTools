@@ -71,7 +71,7 @@ namespace MS2.ModKit.Cli
                     else if (put && !r.Ticked) bad.Add(s.Trim() + " (" + r.Kind + ")");
                     else if (!rows.Contains(r)) rows.Add(r);
                 }
-                if (bad.Count > 0) throw new UsageException("--rows: " + string.Join(", ", bad) + (put ? " is not a Fill or Add row of the scan" : " is not a row of the scan"));
+                if (bad.Count > 0) throw new UsageException("--rows: " + string.Join(", ", bad) + (put ? " is not a Fill, Add or FillBeside row of the scan" : " is not a row of the scan"));
             }
 
             string done = null;

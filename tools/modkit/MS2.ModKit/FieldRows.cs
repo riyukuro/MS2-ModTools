@@ -22,6 +22,8 @@ namespace MS2.ModKit
     {
         Fill,       // our row is there with no environment that has an xblock name: the environment goes into it
         Add,        // we have no row: a new row after the row with the next lower id
+        FillBeside, // our row has an environment already, none with an xblock name (one behind a feature, say): Fill would
+                    // put a second environment beside it, and which one the client takes is not checked; not ticked by default
         Several,    // the source has several environments for our locale: not filled
         NoMap,      // our client has no xblock file of the map: not filled
         NoXBlock,   // the source environment has no xblock name: not filled
@@ -45,11 +47,13 @@ namespace MS2.ModKit
         public string Before;       // Add with no lower row: the first row
         public string Error;
         public bool? OnServer;      // the server's pack has the map's file (null: no server pack given)
-        /// <summary>A row Put writes: Fill or Add.</summary>
-        public bool Ticked { get { return Kind == FieldRowKind.Fill || Kind == FieldRowKind.Add; } }
+        /// <summary>A row Put writes: Fill, Add or FillBeside.</summary>
+        public bool Ticked { get { return Kind == FieldRowKind.Fill || Kind == FieldRowKind.Add || Kind == FieldRowKind.FillBeside; } }
+        /// <summary>Fill or FillBeside: the environment goes into our row At.</summary>
+        public bool Fills { get { return Kind == FieldRowKind.Fill || Kind == FieldRowKind.FillBeside; } }
         /// <summary>Ticked by default: a row Put writes for a map the server has (the maps its ingest marks closed),
         /// except maps behind the Develop feature (the client's dev and test maps).</summary>
-        public bool Default { get { return Ticked && OnServer != false && !string.Equals(Feature, DevelopFeature, StringComparison.Ordinal); } }
+        public bool Default { get { return Ticked && Kind != FieldRowKind.FillBeside && OnServer != false && !string.Equals(Feature, DevelopFeature, StringComparison.Ordinal); } }
         public const string DevelopFeature = "Develop";
         public override string ToString() { return Kind + " " + Id + (Feature != "" ? " feature " + Feature : ""); }
     }
@@ -235,29 +239,31 @@ namespace MS2.ModKit
             var fr = new FieldRows(target, source, locale, features);
             XmlDoc doc = XmlDoc.Parse(fielddata, target + " " + Entry);
             if (doc.Root == null) throw new ModKitException(Entry + " has no root element");
-            // our rows by id, in id order: whether each is open
-            var ours = new SortedDictionary<int, bool>();
+            // our rows by id, in id order: whether each is open (2), has an environment without xblock name (1), or none (0)
+            var ours = new SortedDictionary<int, int>();
             foreach (XmlElem row in doc.Root.Children)
             {
                 int id;
                 if (row.Name != "fieldData" || !int.TryParse(row.Attr("id") ?? "", NumberStyles.None, CultureInfo.InvariantCulture, out id)) continue;
-                bool open = false;
+                int state = 0;
                 foreach (XmlElem env in row.Children)
                 {
                     if (env.Name != "environment") continue;
+                    state = Math.Max(state, 1);
                     foreach (XmlElem x in env.Children)
-                        if (x.Name == "xblock" && !string.IsNullOrEmpty(x.Attr("name"))) open = true;
+                        if (x.Name == "xblock" && !string.IsNullOrEmpty(x.Attr("name"))) state = 2;
                 }
-                bool was;
-                ours[id] = (ours.TryGetValue(id, out was) && was) || open;
+                int was;
+                ours[id] = ours.TryGetValue(id, out was) ? Math.Max(was, state) : state;
             }
             var ids = new List<int>(ours.Keys);
             var keys = new List<int>(maps.Keys);
             keys.Sort();
             foreach (int id in keys)
             {
-                bool open, have = ours.TryGetValue(id, out open);
-                if (have && open) { fr.Open++; continue; }
+                int state;
+                bool have = ours.TryGetValue(id, out state);
+                if (have && state == 2) { fr.Open++; continue; }
                 var r = new FieldRow { Id = id, File = FileOf(id), Feature = "" };
                 fr.Rows.Add(r);
                 XmlDoc src;
@@ -286,7 +292,7 @@ namespace MS2.ModKit
                 string key = id.ToString(CultureInfo.InvariantCulture);
                 if (have)
                 {
-                    r.Kind = FieldRowKind.Fill;
+                    r.Kind = state == 1 ? FieldRowKind.FillBeside : FieldRowKind.Fill;
                     r.At = "fieldData[id=" + key + "]";
                     r.Xml = compact;
                 }
@@ -300,8 +306,8 @@ namespace MS2.ModKit
                     r.Xml = "<fieldData id=\"" + key + "\">\n\t" + Indent(compact) + "\n</fieldData>";
                 }
             }
-            foreach (KeyValuePair<int, bool> o in ours)
-                if (!o.Value && !maps.ContainsKey(o.Key)) fr.NoSource.Add(o.Key);
+            foreach (KeyValuePair<int, int> o in ours)
+                if (o.Value != 2 && !maps.ContainsKey(o.Key)) fr.NoSource.Add(o.Key);
             fr.OursOnly = fr.NoSource.Count;
             return fr;
         }
@@ -323,63 +329,95 @@ namespace MS2.ModKit
 
         static string Norm(string xml) { return (xml ?? "").Replace("\r\n", "\n").Trim(); }
 
-        // the add op the mod has for a row as Put wrote it
-        static bool Is(RowOp op, FieldRow r)
+        // the place of an add op Put writes: "in fieldData[id=N]" for a Fill, "add N" (the id of the added <fieldData>) for
+        // an Add; null for any other op (one written by hand: a copy, set attributes, or other XML)
+        static string PlaceOf(RowOp op)
         {
-            if (op.Kind != RowOpKind.Add || op.Copy != null || op.Attrs.Count > 0 || Norm(op.Xml) != Norm(r.Xml)) return false;
-            if (r.Kind == FieldRowKind.Fill) return op.In == r.At && op.After == null && op.Before == null;
-            return op.In == null && op.After == r.After && op.Before == r.Before;
+            if (op.Kind != RowOpKind.Add || op.Copy != null || op.Attrs.Count > 0) return null;
+            string xml = Norm(op.Xml);
+            if (op.In != null) return op.After == null && op.Before == null && xml.StartsWith("<environment", StringComparison.Ordinal) ? "in " + op.In : null;
+            const string head = "<fieldData id=\"";
+            if (!xml.StartsWith(head, StringComparison.Ordinal)) return null;
+            int end = xml.IndexOf('"', head.Length);
+            int id;
+            if (end < 0 || !int.TryParse(xml.Substring(head.Length, end - head.Length), NumberStyles.None, CultureInfo.InvariantCulture, out id)) return null;
+            return "add " + id.ToString(CultureInfo.InvariantCulture);
+        }
+
+        static string PlaceOf(FieldRow r)
+        {
+            if (!r.Ticked || r.Xml == null) return null;
+            return r.Fills ? "in " + r.At : "add " + r.Id.ToString(CultureInfo.InvariantCulture);
+        }
+
+        // the ops of the edit by place (the first op of a place)
+        static Dictionary<string, RowOp> Places(EditOp ed)
+        {
+            var d = new Dictionary<string, RowOp>(StringComparer.Ordinal);
+            if (ed != null)
+                foreach (RowOp op in ed.Rows)
+                {
+                    string at = PlaceOf(op);
+                    if (at != null && !d.ContainsKey(at)) d[at] = op;
+                }
+            return d;
         }
 
         /// <summary>
-        /// Writes the rows (Fill and Add only) into the mod as add ops of table/fielddata.xml, sync="false". A row the
-        /// mod has already is not written again. Returns the number of rows written.
+        /// Writes the rows (Fill, FillBeside and Add) into the mod as add ops of table/fielddata.xml, sync="false". The
+        /// mod's op for the same map (the same In, or an added row with the same id), from an earlier scan with another
+        /// source or locale say, is replaced; one with the same XML is left. Returns the number of rows written or replaced.
         /// </summary>
         public int Put(Mod mod, IEnumerable<FieldRow> rows)
         {
             int n = 0;
+            EditOp ed = EditOf(mod, false);
+            Dictionary<string, RowOp> places = Places(ed);
             foreach (FieldRow r in rows)
             {
-                if (!r.Ticked || r.Xml == null) continue;
-                EditOp ed = EditOf(mod, false);
-                bool there = false;
-                if (ed != null) foreach (RowOp op in ed.Rows) if (Is(op, r)) { there = true; break; }
-                if (there) continue;
-                var add = new RowOp { Kind = RowOpKind.Add, Xml = r.Xml, Sync = false };
-                if (r.Kind == FieldRowKind.Fill) add.In = r.At;
-                else { add.After = r.After; add.Before = r.Before; }
-                EditOf(mod, true).Rows.Add(add);
+                string at = PlaceOf(r);
+                if (at == null) continue;
+                RowOp op;
+                if (places.TryGetValue(at, out op))
+                {
+                    if (Norm(op.Xml) == Norm(r.Xml) && (r.Fills || (op.After == r.After && op.Before == r.Before))) continue;
+                    op.Xml = r.Xml;
+                    if (!r.Fills) { op.After = r.After; op.Before = r.Before; }
+                    n++;
+                    continue;
+                }
+                op = new RowOp { Kind = RowOpKind.Add, Xml = r.Xml, Sync = false };
+                if (r.Fills) op.In = r.At;
+                else { op.After = r.After; op.Before = r.Before; }
+                if (ed == null) ed = EditOf(mod, true);
+                ed.Rows.Add(op);
+                places[at] = op;
                 n++;
             }
             return n;
         }
 
-        /// <summary>Takes out the ops Put wrote for the rows; an edit left with no row op goes. Returns the number taken out.</summary>
+        /// <summary>Takes out the mod's ops for the rows' maps (as Put writes them, whatever the XML); an edit left with
+        /// no row op goes. Returns the number taken out.</summary>
         public int Take(Mod mod, IEnumerable<FieldRow> rows)
         {
-            var list = new List<FieldRow>(rows);
+            var at = new HashSet<string>(StringComparer.Ordinal);
+            foreach (FieldRow r in rows) { string p = PlaceOf(r); if (p != null) at.Add(p); }
             EditOp ed = EditOf(mod, false);
             if (ed == null) return 0;
-            int n = ed.Rows.RemoveAll(delegate(RowOp op)
-            {
-                foreach (FieldRow r in list) if (r.Xml != null && Is(op, r)) return true;
-                return false;
-            });
+            int n = ed.Rows.RemoveAll(delegate(RowOp op) { string p = PlaceOf(op); return p != null && at.Contains(p); });
             if (ed.Rows.Count == 0) mod.Ops.Remove(ed);
             return n;
         }
 
-        /// <summary>How many of the rows the mod has as Put wrote them.</summary>
+        /// <summary>How many of the rows the mod has an op for (by map, as Put writes them).</summary>
         public int InMod(Mod mod, IEnumerable<FieldRow> rows)
         {
             EditOp ed = EditOf(mod, false);
             if (ed == null) return 0;
+            Dictionary<string, RowOp> places = Places(ed);
             int n = 0;
-            foreach (FieldRow r in rows)
-            {
-                if (r.Xml == null) continue;
-                foreach (RowOp op in ed.Rows) if (Is(op, r)) { n++; break; }
-            }
+            foreach (FieldRow r in rows) { string p = PlaceOf(r); if (p != null && places.ContainsKey(p)) n++; }
             return n;
         }
 

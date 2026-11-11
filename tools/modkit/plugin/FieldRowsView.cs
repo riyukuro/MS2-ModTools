@@ -85,15 +85,15 @@ namespace MS2.Tables
             for (int i = 0; i < Columns.Length; i++)
                 rowList.Columns.Add(Columns[i], Widths[i], i == 0 || (i >= 4 && i <= 8) ? HorizontalAlignment.Right : HorizontalAlignment.Left);
             rowList.ShowItemToolTips = true;
-            tips.SetToolTip(rowList, "Fill: our row is empty; Add: we have no row. The other kinds cannot be filled. Choose a row to see what Put writes");
+            tips.SetToolTip(rowList, "Fill: our row is empty; Add: we have no row; FillBeside: our row has an environment without xblock name, and the client's pick of the two is not checked (not ticked by default). The other kinds cannot be filled. Choose a row to see what Put writes");
 
             FlowLayoutPanel rowBar = Bar();
             rowBar.Controls.Add(Lbl("Find"));
             rowBar.Controls.Add(findBox);
             tips.SetToolTip(findBox, "Shows the rows whose id, xblock or feature has this text");
             rowBar.Controls.Add(fillableOnlyBox);
-            tips.SetToolTip(fillableOnlyBox, "Shows only the Fill and Add rows");
-            rowBar.Controls.Add(Btn("Tick shown", "Ticks the Fill and Add rows shown", delegate { TickShown(true); }));
+            tips.SetToolTip(fillableOnlyBox, "Shows only the rows Put can write (Fill, Add, FillBeside)");
+            rowBar.Controls.Add(Btn("Tick shown", "Ticks the Fill, Add and FillBeside rows shown", delegate { TickShown(true); }));
             rowBar.Controls.Add(Btn("Untick shown", "Unticks the rows shown", delegate { TickShown(false); }));
             rowBar.Controls.Add(Btn("Default ticks", "Ticks the rows the scan ticks: the server has the map and it is not a Develop map", delegate { DefaultTicks(); }));
             rowBar.Controls.Add(rowsLabel);
@@ -291,7 +291,7 @@ namespace MS2.Tables
                         it.SubItems.Add(YesNo(r.OnServer));
                         it.SubItems.Add(r.Xml == null ? "" : r.Attrs.ToString(CultureInfo.InvariantCulture));
                         it.SubItems.Add(mod != null && r.Xml != null && scan.InMod(mod, new[] { r }) > 0 ? "yes" : "");
-                        it.SubItems.Add(r.Kind == FieldRowKind.Fill ? r.At : r.Kind == FieldRowKind.Add ? (r.After != null ? "after " + r.After : "before " + r.Before) : "");
+                        it.SubItems.Add(r.Fills ? r.At : r.Kind == FieldRowKind.Add ? (r.After != null ? "after " + r.After : "before " + r.Before) : "");
                         if (!r.Ticked) it.ForeColor = r.Kind == FieldRowKind.Error ? Color.Firebrick : SystemColors.GrayText;
                         else if (r.FeatureOn == false) it.ForeColor = Color.DarkOrange;
                         it.ToolTipText = Tip(r);
@@ -312,6 +312,8 @@ namespace MS2.Tables
             switch (r.Kind)
             {
                 case FieldRowKind.Fill: return "our row is empty: the environment goes into it" + FeatureTip(r);
+                case FieldRowKind.FillBeside: return "our row has an environment already, none with an xblock name (one behind a feature, say): the environment goes in beside it. "
+                    + "Which of the two the client takes is not checked, so the map may stay closed; not ticked by default" + FeatureTip(r);
                 case FieldRowKind.Add: return "we have no row: a new row goes " + (r.After != null ? "after " + r.After : "before " + r.Before) + FeatureTip(r);
                 case FieldRowKind.Several: return "the source has " + r.Environments + " environments for our locale: not filled";
                 case FieldRowKind.NoMap: return "our client has no xblock file " + r.XBlock + ": not filled";

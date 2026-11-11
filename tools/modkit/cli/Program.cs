@@ -50,8 +50,9 @@ namespace MS2.ModKit.Cli
                                                the maps our client's table/fielddata.xml has no loadable row for
                                                while the source client (e.g. gms-client:Xml.m2d) has the map's file,
                                                one line each; --put writes rows into the mod folder (--rows default:
-                                               the server has the map and it is not a Develop map; ticked: every
-                                               Fill and Add row; or id,id,...), --take takes them out (all listed
+                                               the server has the map, it is not a Develop map and not FillBeside;
+                                               ticked: every Fill, Add and FillBeside row; or id,id,...), --take
+                                               takes them out (all listed
                                                rows unless --rows); --target ARCHIVE (client:Xml.m2d), --pack
                                                ARCHIVE (the server pack, server:Xml.m2d; none for no check),
                                                --locale KR
