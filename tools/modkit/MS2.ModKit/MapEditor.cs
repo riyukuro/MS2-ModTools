@@ -264,7 +264,8 @@ namespace MS2.ModKit
         /// <summary>
         /// Sets one property item of a shipped entity (value null: unsets it). The shipped value again drops the set.
         /// Refused on an entity the mod removes. With the entity's model (Model(e.Model)) a property the model and the
-        /// entity lack is refused, and an index where the model's type is a plain value (or none where it is a list).
+        /// entity lack is refused, and an index where the model's type is a plain value (or none where it is a list);
+        /// a set the mod already has is not checked again, so a hand-written or older one can still be taken out.
         /// </summary>
         public static void Set(Mod mod, string xblock, XEntity e, string name, string index, string value, FlatModel model = null)
         {
@@ -273,18 +274,6 @@ namespace MS2.ModKit
             if (index != null && index.Trim().Length == 0) throw new ModKitException("the index is empty; leave it out for a plain value");
             string id = IdOf(e);
             if (IsRemoved(mod, xblock, id)) throw new ModKitException("the mod removes entity " + id + "; restore it first");
-            XProp shippedProp = e.Find(name);
-            if (shippedProp != null && shippedProp.Items.Count > 0 && (index == null) != (shippedProp.Items[0].Index == null))
-                throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
-            if (model != null && shippedProp == null)
-            {
-                FlatProp fp = model.Prop(name);
-                if (fp == null) throw new ModKitException("the model " + model.Name + " has no property " + name);
-                bool list = fp.Type != null && fp.Type.StartsWith("Assoc", StringComparison.Ordinal);
-                if (list != (index != null))
-                    throw new ModKitException("the property " + name + " is " + (list ? "a list (" + fp.Type + "); give an index" : "a plain value (" + fp.Type + "); leave the index out"));
-            }
-            string old = Shipped(e, name, index);
             MapOp m = MapOf(mod, xblock);
             MapEntityOp op = null;
             MapSet set = null;
@@ -294,6 +283,19 @@ namespace MS2.ModKit
                 MapSet f = c.Sets.Find(delegate (MapSet s) { return s.Name == name && s.Index == index; });
                 if (f != null) { op = c; set = f; break; }
             }
+            // a set the mod already has is not checked again, so it can still be changed or taken out
+            XProp shippedProp = e.Find(name);
+            if (set == null && shippedProp != null && shippedProp.Items.Count > 0 && (index == null) != (shippedProp.Items[0].Index == null))
+                throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
+            if (set == null && model != null && shippedProp == null)
+            {
+                FlatProp fp = model.Prop(name);
+                if (fp == null) throw new ModKitException("the model " + model.Name + " has no property " + name);
+                bool list = fp.Type != null && fp.Type.StartsWith("Assoc", StringComparison.Ordinal);
+                if (list != (index != null))
+                    throw new ModKitException("the property " + name + " is " + (list ? "a list (" + fp.Type + "); give an index" : "a plain value (" + fp.Type + "); leave the index out"));
+            }
+            string old = Shipped(e, name, index);
             if (value == old)
             {
                 if (set != null) op.Sets.Remove(set);

@@ -19,6 +19,8 @@ namespace MS2.ModKit.Tests
         public const string MapA = "90000001_ab", MapB = "90000002_ab";
         // MapLoose: a map file no row of the map table names. MapTwo: one of the two map files of map 90000005.
         public const string MapLoose = "90000004_ab", MapTwo = "90000005_ab";
+        // MapUpper: a map file whose entity ids are in capitals (a mod keeps ids in lower case and must still find them)
+        public const string MapUpper = "90000006_ab";
         public const string K = "client:Resource/Exported.m2d", G = "gms-client:Resource/Exported.m2d", S = "server:Resource/Exported.m2d";
         public const string EntryA = "xblock/" + MapA + ".xblock", EntryB = "xblock/" + MapB + ".xblock";
         public const string Tags = "server:Xml.m2d", TagsK = "client:Xml.m2d", TagEntry = "table/mapspawntag.xml";
@@ -85,6 +87,7 @@ namespace MS2.ModKit.Tests
             list.Add(E("xblock/" + MapLoose + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/" + MapTwo + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/90000005_cd.xblock", XBlock.Bytes(B(), XDialect.Tab)));
+            list.Add(E("xblock/" + MapUpper + ".xblock", XBlock.Bytes(new List<XEntity> { Ent(Crate2.ToUpperInvariant(), "Crate_A", "Crate_U_1", "Position", "0, 0, 150") }, XDialect.Tab)));
             list.Add(E("texture/made_up.bin", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }));
             M2dWriter.Create(Path.Combine(Path.Combine(dir, "Resource"), "Exported.m2d"), gms ? PackVersion.MS2F : PackVersion.NS2F, M2dFlag.AesZlib, list);
         }
@@ -970,7 +973,7 @@ namespace MS2.ModKit.Tests
                             else if (e.Name == FakeMaps.EntryB) Assert.That(made.Read(e.Name), Is.Not.EqualTo(orig.Read(e)));
                             else { Assert.That(made.ReadRaw(made.Find(e.Name)), Is.EqualTo(orig.ReadRaw(e)), e.Name); same++; }
                         }
-                        Assert.That(same, Is.EqualTo(7));       // three models, three maps no mod names, the other file: stored bytes untouched
+                        Assert.That(same, Is.EqualTo(8));       // three models, four maps no mod names, the other file: stored bytes untouched
                     }
 
                 // a second apply of the same mod writes the same files

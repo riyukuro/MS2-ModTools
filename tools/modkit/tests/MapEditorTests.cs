@@ -198,6 +198,9 @@ namespace MS2.ModKit.Tests
                 MapEditor.Set(mod, X, crate2, "Scale", null, "2", model);
                 MapEditor.Set(mod, X, crate2, "Nope", null, "1");         // without the model: the planner warns, as for a hand-written mod
                 Assert.That(mod.Maps[0].Ops[0].Sets.Count, Is.EqualTo(2));
+                // a set the mod already has is not checked again: with the model it can still be taken out
+                MapEditor.Set(mod, X, crate2, "Nope", null, null, model);
+                Assert.That(mod.Maps[0].Ops[0].Sets.Select(s => s.Name).ToArray(), Is.EqualTo(new[] { "Scale" }));
 
                 var bad = new XEntity { Id = "not-an-id", Model = crate2.Model, Name = "x" };
                 Assert.Throws<ModKitException>(() => MapEditor.Set(mod, X, bad, "Scale", null, "2"));
@@ -206,6 +209,25 @@ namespace MS2.ModKit.Tests
                 var upper = new XEntity { Id = FakeMaps.Crate1.ToUpperInvariant(), Model = crate2.Model, Name = "u" };
                 MapEditor.Remove(mod, X, upper);
                 Assert.That(mod.Maps[0].Ops.Last().Id, Is.EqualTo(FakeMaps.Crate1.ToLowerInvariant()), "a mod keeps ids in lower case");
+            }
+        }
+
+        [Test]
+        public void AnIdInCapitalsInTheFileIsFoundByTheLowerCaseOp()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                XEntity crate = ed.Shipped(FakeMaps.MapUpper).Single();
+                Assert.That(crate.Id, Is.EqualTo(FakeMaps.Crate2.ToUpperInvariant()));
+                Mod mod = f.Mod("up", "");
+                MapEditor.Set(mod, FakeMaps.MapUpper, crate, "Position", null, "7, 7, 7");
+                Assert.That(mod.Maps[0].Ops[0].Id, Is.EqualTo(FakeMaps.Crate2));
+                Plan p = f.Plan(mod);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Dump(p), Does.Not.Contain("has no entity"));
+                string t = Text(p, K, "xblock/" + FakeMaps.MapUpper + ".xblock");
+                Assert.That(t, Does.Contain("7, 7, 7"));
             }
         }
 

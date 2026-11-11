@@ -51,7 +51,7 @@ namespace MS2.ModKit
             internal XDialect Dialect;
             internal XmlElem Set;
             internal FlatIndex Flat;
-            internal readonly Dictionary<string, MapEnt> ById = new Dictionary<string, MapEnt>(StringComparer.Ordinal);
+            internal readonly Dictionary<string, MapEnt> ById = new Dictionary<string, MapEnt>(StringComparer.OrdinalIgnoreCase);
             internal readonly List<MapEnt> Shipped = new List<MapEnt>();
             internal readonly List<MapEnt> Added = new List<MapEnt>();
         }

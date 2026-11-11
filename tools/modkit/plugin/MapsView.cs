@@ -297,7 +297,7 @@ namespace MS2.Tables
         void OnHostBusy(bool on)
         {
             ViewLayout.Lock(this, lockable, on, outputBox);
-            if (on || !reopen || IsDisposed) return;
+            if (on || !reopen || IsDisposed || !IsHandleCreated) return;
             reopen = false;
             // after the job's own end: the file chosen when the data set changed is read from the new one
             BeginInvoke((MethodInvoker)delegate
