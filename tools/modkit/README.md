@@ -710,6 +710,153 @@ Revert puts the data files back. It does not touch the game's database. When a c
 the server can keep per-character shop state there, such as how much of a limited stock row is bought. That stays
 after Revert, and also after the shop is removed. Clear it with your server's own tools if you need a clean state.
 
+## Maps
+
+A map mod changes a map the game already ships: it adds, moves or removes props, monster spawn places, NPC spawn
+places and portals. There is no view for it yet; a map mod is written by hand in `mod.xml` and applied with the
+command line. All names and numbers below are made up.
+
+### What a shipped map is
+
+Each map is one file, `xblock/<map name>.xblock`, inside the archive `Resource/Exported.m2d`. The file is a list of
+entities. An entity has an id (32 hex digits), a model name (what kind of thing it is), a display name, and only the
+properties that differ from the model's defaults, such as its position. The defaults of every model are in the
+`.flat` files of the same archive.
+
+Each client has its own copy of the archive and the server reads one too. The Korean and the global client do not
+always hold the same bytes for a map, so a map mod is never a whole replacement file. It is a list of small
+operations, and each copy gets the same operations applied to its own file.
+
+### What a map mod looks like
+
+```xml
+<mod id="my-map-mod" name="A crate, some wolves and a door" version="1">
+  <map xblock="90000001_ab">
+    <add name="crate" model="Crate_A" entity-name="my_crate">
+      <property name="Position" value="150, 300, 450" />
+    </add>
+    <change id="0123456789abcdef0123456789abcdef" model="Crate_A" position="0, 150, 300">
+      <set name="Position" old="0, 150, 300" value="0, 150, 450" />
+    </change>
+    <remove id="fedcba9876543210fedcba9876543210" model="Crate_A" position="300, 300, 300" />
+    <spawn name="wolves" model="SpawnPoint_A" entity-name="my_wolves" point="140000">
+      <property name="Position" value="450, 300, 450" />
+      <row difficulty="1" tag="wolf" coolTime="20" population="3" />
+    </spawn>
+    <portal name="east" model="Portal_A" entity-name="my_door" id="50000" to-map="90000002" to-portal="50000">
+      <property name="Position" value="600, 300, 450" />
+    </portal>
+  </map>
+  <map xblock="90000002_ab">
+    <portal name="west" model="Portal_A" entity-name="my_door_back" id="50000" to-map="90000001" to-portal="50000">
+      <property name="Position" value="0, 300, 450" />
+    </portal>
+  </map>
+</mod>
+```
+
+- `<add>` puts a new entity into the map. `name` is your own name for the operation and must be unique inside the
+  `<map>`. The new entity's id is worked out from the mod id, the map name and that name, so it is the same every
+  time and on every copy. Copy the model name and the properties from an entity of the kind you want that is already
+  in the map.
+- `<change>` sets or removes properties of an existing entity: `<set name="..." old="..." value="..."/>` and
+  `<unset name="..." old="..."/>`. A property with several values takes `index="..."` to name one of them.
+- `<remove>` takes an existing entity out.
+- `<spawn>` adds a place where monsters appear. `point` is its number on this map. The place alone spawns nothing:
+  what appears there is decided by a row in the server's table `table/mapspawntag.xml`, keyed by the map and that
+  number. Each `<row>` inside the `<spawn>` becomes such a row on the server (the map and the number are filled in
+  for you). Copy its attributes from the row of a shipped spawn place whose monsters you want.
+- `<portal>` adds a portal. `id` is its number on this map, `to-map` and `to-portal` say where it leads. A portal
+  works one way; for a way back, add a second portal on the other map that points here, as in the example.
+- An NPC spawn place is a plain `<add>` of the map's NPC spawn model with its `NpcList` property:
+  `<property name="NpcList"><set index="99000001" value="1" /></property>`.
+
+### Expected old values
+
+`<change>` and `<remove>` say what you expect to find: the entity's model, its position, and the old value of each
+property you change. The tool compares that with each copy before it touches it. When a copy holds something else
+(a different game version, or another mod was there first), you get a warning and the operation is skipped on that
+copy only. This is what keeps a mod written against one client from damaging another whose map is not the same.
+The tool never falls back to replacing the whole file.
+
+### Reserved numbers
+
+Numbers inside a map must not collide with the game's own or with another mod's.
+
+| number | range kept for mods | why this range |
+|---|---|---|
+| portal `id` | 50000-59999 per map | no shipped map uses a portal number that high |
+| spawn `point` | 140000-149999 per map | shipped maps already use spawn numbers in 50000-59999, and the server's spawn table goes up into the 90000s |
+
+Both are read by the client as whole numbers of 32 bits, so the ranges fit. A number outside the range is allowed
+and gives a warning. A number that is already used on the map is an error.
+
+### Applying: each client and the server
+
+```sh
+modkit validate my-map-mod                 # errors, conflicts and warnings; nothing is written
+modkit diff my-map-mod                     # the same, and every entity and row it would change
+modkit apply -w workspace my-map-mod       # modded copies of the touched archives, in the workspace
+modkit revert -w workspace                 # remove them again
+```
+
+One mod is applied to every copy you have set up (see [Profiles](#profiles-which-data-you-have)): the Korean
+client, the global client and the server. Your original archives are only read. Apply writes modded copies into
+the workspace, `Resource/Exported.m2d` for each client and for the server, plus the server's `Xml.m2d` when the mod
+has spawn rows. Every other entry of an archive is carried over exactly as stored, and every entity you did not
+name keeps its bytes. Revert removes the copies; the originals were never changed.
+
+Many private servers do not keep their own map archive: their `Resource` folder is a link to a client's. The tool
+sees that, writes the map once, and says so in a line of the plan. (The command line sees links; the build of the
+library that runs inside Toolbench only sees that two folders have the same path.)
+
+### The server must ingest again
+
+The server does not read map files while it runs. It reads them once, during its ingest step, and stores what it
+needs (portals, spawn places, the ground monsters walk on) in its database and in stored navigation meshes. So
+after every apply or revert of a map mod:
+
+1. put the modded archives where the server's ingest reads them,
+2. remove the stored navigation meshes of the changed maps,
+3. run the server's ingest again, then start the server.
+
+The tool does none of these three; every plan of a map mod ends with a line that names the changed maps and says
+so. Until it is done the clients show the change and the server does not know about it: a new portal does nothing,
+a new spawn place stays empty, and monsters walk through a new prop.
+
+The `.tok` files (the client's own walkable-ground data) are not touched.
+
+### What the warnings mean
+
+| warning | meaning | what to do |
+|---|---|---|
+| `has no such map` | This copy has no such map | Nothing, if that game version does not have the map |
+| `has no entity ...`, `is a "..." here, the mod expects "..."`, `stands at "..." here`, `property ... is ... here, the mod expects ...` | The copy does not hold what the mod was written against; the operation is skipped there | Look at that copy's map, then adjust or split the mod |
+| `is outside the range kept for mods` | A portal or spawn number is not from the reserved range | Use a reserved number unless you need a low one on purpose |
+| `is not in the model listing of this target` | No `.flat` file defines that model on this copy | Check the spelling; copy the name from a shipped entity |
+| `has no property ...`, `is a list`, `is a plain value`, `is not a ...` | The model has no such property, or the value does not fit the property's type | Compare with a shipped entity of the same model |
+| `NPC ... of the NPC list is not in the NPC data of this target` | No NPC with that id on this copy | Use an existing NPC id, or add the NPC in a mod of the same apply |
+| `has no <row>` | A spawn place without a server row spawns nothing | Add a `<row>` |
+| `the server has no such archive, the spawn rows are not written` | The server data has no `Xml.m2d` | Set the server data folder up first |
+| `this target's map table has no map ...` | The portal leads to a map id this copy does not know | Fix `to-map` |
+| `that map has no such portal after this plan` | With all mods applied, the target map has no portal with the number of `to-portal` | Add the portal on the other map, or fix the number |
+| `no portal of that map leads back to map ...` | There is no way back | Fine for a one-way door; else add one |
+
+Errors stop the apply: an entity id or a number that is already in the map, a spawn row that already exists for
+that map and number. Two mods that touch the same entity, or bring the same number, are a conflict.
+
+### Converting maps for the map editor
+
+Four commands convert between the game's map files and the files the Gamebryo map editor works on. They replace
+the Python scripts of [tools/mapedit](../mapedit/README.md) and give the same bytes.
+
+```sh
+modkit map-index <Exported.m2d or folder> index.json                # the model listing, once per game version
+modkit map-to-block <map.xblock or folder> -o blocks --index index.json    # game map -> editor map
+modkit map-from-block blocks/<map>.block -o exported --index index.json    # editor map -> game map
+modkit map-normalize exported/<map>.xblock -o final --original <shipped map>   # put it in the shipped file's order
+```
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different

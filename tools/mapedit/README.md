@@ -23,6 +23,16 @@ python3 tools/mapedit/flatindex.py out/maps/extracted/Exported out/maps/analysis
 | `flatindex.py`, `msmap/` | shared code |
 | `maptest.sh` | headless in-game screenshot (the header lists its settings) |
 
+The conversions also exist in C#, in [tools/modkit](../modkit/README.md#maps), with the same output bytes and no Python or
+`lxml` needed. The scripts stay here; the other tools of this folder have no C# counterpart.
+
+| script | C# command |
+|---|---|
+| `flatindex.py` | `modkit map-index` |
+| `xblock2block.py` | `modkit map-to-block` |
+| `block2xblock.py` | `modkit map-from-block` |
+| `normalize_xblock.py` | `modkit map-normalize` |
+
 To open a shipped map in World Builder: `flat2model.py`, `mklayout.py`, then `tools/toolbench/mkgsl.py`
 (see [tools/toolbench](../toolbench/README.md)).
 
