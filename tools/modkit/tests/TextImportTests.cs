@@ -296,6 +296,27 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void Scan_SharedSourceFile_IsReadOnceAndItsErrorShownForEach()
+        {
+            // scriptquest_a.xml of ours has no family: its source is the file of that name, one of scriptquest's split files
+            var reads = new Dictionary<string, int>();
+            Func<string, string, Func<byte[]>> counted = (name, text) => () => { int n; reads.TryGetValue(name, out n); reads[name] = n + 1; return Fake.Crlf(text); };
+            var ours = new Dictionary<string, Func<byte[]>> { { "scriptquest.xml", B(OurDup) }, { "scriptquest_a.xml", B(OurDup) }, { "scriptnpc.xml", B(OurDup) } };
+            var theirs = new Dictionary<string, Func<byte[]>>
+            {
+                { "scriptquest_a.xml", counted("a", Head + "<ms2>\n  <key id=\"4001\" name=\"Fake\"\n</ms2>\n") },
+                { "scriptquest_b.xml", counted("b", TheirDupB) },
+                { "scriptnpc.xml", counted("npc", TheirDupB) },
+            };
+            TextImport ti = TextImport.Scan(ours, theirs, null, Kms, "kr", Gms, "en");
+            Assert.That(ti.Files.Select(f => f.File + ":" + (f.Error == null ? "-" : f.Error.Split(':')[0])), Is.EqualTo(new[]
+            {
+                "scriptnpc.xml:-", "scriptquest.xml:scriptquest_a.xml", "scriptquest_a.xml:scriptquest_a.xml",
+            }));
+            Assert.That(reads.OrderBy(k => k.Key).Select(k => k.Key + "=" + k.Value), Is.EqualTo(new[] { "a=1", "b=1", "npc=1" }));
+        }
+
+        [Test]
         public void Ticks_HoldAcrossARescan()
         {
             using (var d = new Data())

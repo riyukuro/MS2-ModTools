@@ -211,12 +211,25 @@ namespace MS2.ModKit
             var ti = new TextImport(target, targetLang, source, sourceLang);
             var names = new List<string>(ours.Keys);
             names.Sort(StringComparer.OrdinalIgnoreCase);
-            var parsed = new Dictionary<string, XmlDoc>(StringComparer.OrdinalIgnoreCase);
+            // the parsed source files of the family in use (with the parse error, if any): a family's files serve our
+            // files of that family one after the other (the names are sorted), and the others are let go, so the
+            // host never holds all the source string files at once
+            var parsed = new Dictionary<string, KeyValuePair<XmlDoc, string>>(StringComparer.OrdinalIgnoreCase);
             foreach (string file in names)
             {
                 var st = new TextFileStat { File = file };
                 ti.Files.Add(st);
                 st.SourceFiles.AddRange(SourceFilesOf(file, theirs.Keys));
+                if (parsed.Count > 0)
+                {
+                    var keep = new Dictionary<string, KeyValuePair<XmlDoc, string>>(StringComparer.OrdinalIgnoreCase);
+                    foreach (string sfName in st.SourceFiles)
+                    {
+                        KeyValuePair<XmlDoc, string> had;
+                        if (parsed.TryGetValue(sfName, out had)) keep[sfName] = had;
+                    }
+                    parsed = keep;
+                }
                 string entry = Folder(targetLang) + file;
                 XmlDoc doc;
                 try { doc = XmlDoc.Parse(ours[file](), target + " " + entry); }
@@ -226,13 +239,15 @@ namespace MS2.ModKit
                 var src = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
                 foreach (string sfName in st.SourceFiles)
                 {
-                    XmlDoc sd;
-                    if (!parsed.TryGetValue(sfName, out sd))
+                    KeyValuePair<XmlDoc, string> got;
+                    if (!parsed.TryGetValue(sfName, out got))
                     {
-                        try { sd = XmlDoc.Parse(theirs[sfName](), source + " " + Folder(sourceLang) + sfName); }
-                        catch (Exception ex) { st.Error = sfName + ": " + ex.Message; sd = null; }
-                        parsed[sfName] = sd;
+                        try { got = new KeyValuePair<XmlDoc, string>(XmlDoc.Parse(theirs[sfName](), source + " " + Folder(sourceLang) + sfName), null); }
+                        catch (Exception ex) { got = new KeyValuePair<XmlDoc, string>(null, sfName + ": " + ex.Message); }
+                        parsed[sfName] = got;
                     }
+                    if (got.Value != null) st.Error = got.Value;
+                    XmlDoc sd = got.Key;
                     if (sd == null || sd.Root == null) continue;
                     foreach (XmlElem r in sd.Root.Children)
                     {
