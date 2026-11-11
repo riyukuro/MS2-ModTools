@@ -17,6 +17,8 @@ namespace MS2.ModKit.Tests
         public const string Crate1 = "10000000000000000000000000000001", Spawn1 = "20000000000000000000000000000002",
             Portal1 = "30000000000000000000000000000003", Crate2 = "f000000000000000000000000000000f";
         public const string MapA = "90000001_ab", MapB = "90000002_ab";
+        // MapLoose: a map file no row of the map table names. MapTwo: one of the two map files of map 90000005.
+        public const string MapLoose = "90000004_ab", MapTwo = "90000005_ab";
         public const string K = "client:Resource/Exported.m2d", G = "gms-client:Resource/Exported.m2d", S = "server:Resource/Exported.m2d";
         public const string EntryA = "xblock/" + MapA + ".xblock", EntryB = "xblock/" + MapB + ".xblock";
         public const string Tags = "server:Xml.m2d", TagsK = "client:Xml.m2d", TagEntry = "table/mapspawntag.xml";
@@ -80,8 +82,23 @@ namespace MS2.ModKit.Tests
             var list = new List<KeyValuePair<string, byte[]>>(Flats);
             list.Add(E(EntryA, XBlock.Bytes(A(gms), gms ? XDialect.Spaced : XDialect.Tab)));
             list.Add(E(EntryB, XBlock.Bytes(B(), XDialect.Tab)));
+            list.Add(E("xblock/" + MapLoose + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
+            list.Add(E("xblock/" + MapTwo + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("texture/made_up.bin", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }));
             M2dWriter.Create(Path.Combine(Path.Combine(dir, "Resource"), "Exported.m2d"), gms ? PackVersion.MS2F : PackVersion.NS2F, M2dFlag.AesZlib, list);
+        }
+
+        // a row of the map table: one environment that names the map file (in capitals, as shipped tables do)
+        public static string Row(string open, string close, string file)
+        {
+            return "\t<" + open + ">\n\t\t<environment>\n\t\t\t<xblock name=\"" + file + "\" />\n\t\t</environment>\n\t</" + close + ">\n";
+        }
+
+        // a map with one map file per feature
+        public static string TwoFiles(string open, string close)
+        {
+            return "\t<" + open + ">\n\t\t<environment>\n\t\t\t<xblock name=\"90000005_AB\" />\n\t\t</environment>\n"
+                + "\t\t<environment feature=\"MadeUp\">\n\t\t\t<xblock name=\"90000005_CD\" />\n\t\t</environment>\n\t</" + close + ">\n";
         }
 
         public const string TagRow = "<region mapCode=\"90000001\" spawnPointID=\"7\" difficulty=\"1\" tag=\"wolf\" coolTime=\"20\" population=\"3\" />";
@@ -107,14 +124,15 @@ namespace MS2.ModKit.Tests
             else Exported(ServerDir, false);
             M2dWriter.Create(Path.Combine(KmsDir, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                E("table/fielddata.xml", Head + "<ms2>\n\t<fieldData id=\"90000001\" />\n\t<fieldData id=\"90000002\" />\n</ms2>\n"),
+                E("table/fielddata.xml", Head + "<ms2>\n" + Row("fieldData id=\"90000001\"", "fieldData", "90000001_AB") + Row("fieldData id=\"90000002\"", "fieldData", "90000002_AB") + TwoFiles("fieldData id=\"90000005\"", "fieldData") + "</ms2>\n"),
                 E("npcdata/990.xml", Head + "<ms2>\n\t<npc id=\"99000001\" />\n</ms2>\n"),
                 E(TagEntry, TagTable),      // the Korean client ships the table too; the made-up global client does not
             });
             var perId = new List<KeyValuePair<string, byte[]>>
             {
-                E("map/90000001.xml", Head + "<ms2 />\n"),
-                E("map/90000002.xml", Head + "<ms2 />\n"),
+                E("map/90000001.xml", Head + Row("ms2", "ms2", "90000001_AB")),
+                E("map/90000002.xml", Head + Row("ms2", "ms2", "90000002_AB")),
+                E("map/90000005.xml", Head + TwoFiles("ms2", "ms2")),
                 E("npc/9/90/99000001.xml", Head + "<ms2 />\n"),
             };
             M2dWriter.Create(Path.Combine(GmsDir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, perId);
@@ -239,6 +257,74 @@ namespace MS2.ModKit.Tests
             Assert.That(MapValues.NewEntityId("test-mod2", "90000001_ab", "crate-1"), Is.Not.EqualTo(id));
             Assert.That(MapValues.NewEntityId("test-mod", "90000002_ab", "crate-1"), Is.Not.EqualTo(id));
             Assert.That(MapValues.NewEntityId("test-mod", "90000001_ab", "crate-2"), Is.Not.EqualTo(id));
+        }
+
+        // ---- is the changed map file one the game loads? ----
+
+        static string MapOf(string file, string attrs, string body) { return "<map xblock=\"" + file + "\"" + attrs + ">" + body + "</map>"; }
+
+        [Test]
+        public void MapFileTheMapTableNamesGivesNoWarning()
+        {
+            using (var f = new FakeMaps())
+            {
+                // the table writes the name in capitals, the archive in small letters: the same file
+                Plan p = f.Plan(f.Mod("a", Map(AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Lines(p.Warnings).Where(w => w.Contains("map table")), Is.Empty, Fake.Dump(p));
+                Assert.That(Lines(p.Notes).Where(n => n.Contains("more than one map file")), Is.Empty, Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void MapFileNoMapUsesGivesAWarningAndIsStillChanged()
+        {
+            using (var f = new FakeMaps())
+            {
+                // no row has the file, and no row has the map id its name starts with
+                Plan p = f.Plan(f.Mod("a", MapOf(FakeMaps.MapLoose, "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string[] w = Lines(p.Warnings).Where(x => x.Contains("no map of this target's map table uses this map file")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(3), Fake.Dump(p));       // one per target: bundle table and one file per id
+                Assert.That(w.All(x => x.Contains("xblock/" + FakeMaps.MapLoose + ".xblock")), Is.True, Fake.Dump(p));
+                Assert.That(w.Any(x => x.Contains("the map table names")), Is.False, Fake.Dump(p));
+                // a warning, not a refusal
+                Assert.That(Encoding.UTF8.GetString(Bytes(p, K, "xblock/" + FakeMaps.MapLoose + ".xblock")), Does.Contain("Crate_A_900"));
+
+                // the mod says which map it means: the warning names the file the table has for that map
+                p = f.Plan(f.Mod("b", MapOf(FakeMaps.MapLoose, " id=\"90000001\"", AddCrate)));
+                w = Lines(p.Warnings).Where(x => x.Contains("no map of this target's map table uses this map file")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(w.All(x => x.Contains("for map 90000001 the map table names 90000001_AB (no feature)")), Is.True, Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void MapFileWhoseRowTheModBringsGivesNoWarningThere()
+        {
+            using (var f = new FakeMaps())
+            {
+                string row = "<edit archive=\"client:Xml.m2d\" entry=\"table/fielddata.xml\"><add><xml><fieldData id=\"90000004\"><environment><xblock name=\"90000004_AB\" /></environment></fieldData></xml></add></edit>";
+                Plan p = f.Plan(f.Mod("a", row + MapOf(FakeMaps.MapLoose, "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string[] w = Lines(p.Warnings).Where(x => x.Contains("no map of this target's map table uses this map file")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains(" " + G + " ")) + w.Count(x => x.Contains(" " + S + " ")), Is.EqualTo(2), Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void OneOfSeveralMapFilesOfAMapGivesANote()
+        {
+            using (var f = new FakeMaps())
+            {
+                Plan p = f.Plan(f.Mod("a", MapOf(FakeMaps.MapTwo, "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Lines(p.Warnings).Where(w => w.Contains("map table")), Is.Empty, Fake.Dump(p));
+                string[] n = Lines(p.Notes).Where(x => x.Contains("map 90000005 has more than one map file in the map table")).ToArray();
+                Assert.That(n.Length, Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(n.All(x => x.Contains("90000005_AB (no feature), 90000005_CD (feature MadeUp)")), Is.True, Fake.Dump(p));
+            }
         }
 
         [Test]
@@ -624,7 +710,7 @@ namespace MS2.ModKit.Tests
                             else if (e.Name == FakeMaps.EntryB) Assert.That(made.Read(e.Name), Is.Not.EqualTo(orig.Read(e)));
                             else { Assert.That(made.ReadRaw(made.Find(e.Name)), Is.EqualTo(orig.ReadRaw(e)), e.Name); same++; }
                         }
-                        Assert.That(same, Is.EqualTo(4));       // three models and the other file: stored bytes untouched
+                        Assert.That(same, Is.EqualTo(6));       // three models, two maps no mod names, the other file: stored bytes untouched
                     }
 
                 // a second apply of the same mod writes the same files

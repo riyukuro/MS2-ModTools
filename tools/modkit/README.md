@@ -723,6 +723,13 @@ entities. An entity has an id (32 hex digits), a model name (what kind of thing 
 properties that differ from the model's defaults, such as its position. The defaults of every model are in the
 `.flat` files of the same archive.
 
+Which map file the game loads for a map id is said by the map table in `Xml.m2d`: the rows of
+`table/fielddata.xml`, or one file `map/<id>.xml` per map. A row can name more than one map file, one per feature
+(`<environment feature="..."><xblock name="..."/>`), and the features that are on decide which one is loaded. The
+archive may also hold map files that no row names; the game never loads those. A plan warns when a mod changes such
+a file, and says in a note when the changed file is one of several of its map (see the warnings below). Before you
+write a map mod, look the map id up in the map table and take the file name from there.
+
 Each client has its own copy of the archive and the server reads one too. The Korean and the global client do not
 always hold the same bytes for a map, so a map mod is never a whole replacement file. It is a list of small
 operations, and each copy gets the same operations applied to its own file.
@@ -832,6 +839,9 @@ The tool does none of these three; every plan of a map mod ends with a line that
 so. Until it is done the clients show the change and the server does not know about it: a new portal does nothing,
 a new spawn place stays empty, and monsters walk through a new prop.
 
+Known limit: added blocks change what players stand on, not where monsters walk, until the map's navigation mesh is
+rebuilt. Rebuilding needs PathEngine, which is not included here.
+
 The `.tok` files (the client's own walkable-ground data) are not touched.
 
 ### What the warnings mean
@@ -848,9 +858,14 @@ The `.tok` files (the client's own walkable-ground data) are not touched.
 | `the server has no such archive, the spawn rows are not written` | The server data has no `Xml.m2d` | Set the server data folder up first |
 | `was put into no map file, so its spawn rows are not written either` | No copy took the spawn place (for example no copy has that map), so no row is written for it | Fix the map name, or what the other warning of that spawn names |
 | `this target has no such table, the spawn rows are not written there` | That copy does not ship `table/mapspawntag.xml`. A warning on the server, a note on a client | On the server: set the data folder up first. On a client: nothing to do |
+| `no map of this target's map table uses this map file, so the game does not load it` | No row of this copy's map table names the changed file. The file is still changed, and nothing shows in the game. When the table has a row for the map id (the leading digits of the file name, or `<map id="...">`), the warning lists the files that row names | Change the file the map table names |
 | `this target's map table has no map ...` | The portal leads to a map id this copy does not know | Fix `to-map` |
 | `that map has no such portal after this plan` | With all mods applied, the target map has no portal with the number of `to-portal` | Add the portal on the other map, or fix the number |
 | `no portal of that map leads back to map ...` | There is no way back | Fine for a one-way door; else add one |
+
+A note, not a warning: `map ... has more than one map file in the map table` lists the files the map's row names,
+each with its feature. The mod changes only the one it names; if the features that are on pick another file, the
+game shows nothing of the mod. Put the same `<map>` block in for the other file too when both should change.
 
 Errors stop the apply: an entity id or a number that is already in the map, a spawn row that already exists for
 that map and number. Two mods that touch the same entity, or bring the same number, are a conflict.
@@ -1167,6 +1182,8 @@ are skipped.
 
 - XML entries only. Other files in the archives (`.xblock`, images, scripts) can be added, replaced or deleted whole
   with `<entry>`, not edited.
+- Maps: added blocks change what players stand on, not where monsters walk, until the map's navigation mesh is
+  rebuilt (needs PathEngine, not included).
 - A mod is checked against the original data and the other mods given in the same command, not against mods you
   apply some other day.
 - Nothing here knows what a table means: which tables must agree between client and server, or which other tables

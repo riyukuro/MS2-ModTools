@@ -64,6 +64,7 @@ namespace MS2.ModKit
             internal readonly List<MapState> Order = new List<MapState>();
             internal readonly Dictionary<string, Dictionary<long, bool>> Npcs = new Dictionary<string, Dictionary<long, bool>>();
             internal readonly Dictionary<string, Dictionary<long, bool>> MapIds = new Dictionary<string, Dictionary<long, bool>>();
+            internal readonly Dictionary<string, MapTable> Tables = new Dictionary<string, MapTable>();
             internal readonly Dictionary<string, List<MapEnt>> Others = new Dictionary<string, List<MapEnt>>();
             internal readonly Dictionary<string, bool> Changed = new Dictionary<string, bool>();
         }
@@ -235,6 +236,7 @@ namespace MS2.ModKit
             }
             mr.States[st] = ms;
             mr.Order.Add(ms);
+            MapFileCheck(run, mr, mod, mop, ms);
             return ms;
         }
 
