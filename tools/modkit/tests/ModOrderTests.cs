@@ -88,6 +88,41 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // the output box of a view is two lines high: the counts and the first error stand above the targets
+        [Test]
+        public void SessionPlanText_StartsWithTheCountsAndTheErrors()
+        {
+            using (var f = new Fake())
+            {
+                f.ModDir("a.one", Hp("11"));
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+                {
+                    string[] lines = s.Describe(s.Plan(null)).Split(new[] { "\r\n" }, StringSplitOptions.None);
+                    // the made-up data has no schema cache: one warning
+                    Assert.That(lines[0], Is.EqualTo("1 mod(s), 1 change(s), 0 error(s), 0 conflict(s), 1 warning(s)"));
+                    Assert.That(lines[1], Does.StartWith("warning: "));
+                    Assert.That(lines[2], Does.StartWith("targets: "));
+                }
+                f.ModDir("b.two", Hp("22").Replace("id=100", "id=777"));
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+                {
+                    Plan p = s.Plan(null);
+                    Assert.That(p.Errors.Count, Is.EqualTo(1));
+                    string[] lines = s.Describe(p).Split(new[] { "\r\n" }, StringSplitOptions.None);
+                    Assert.That(lines[0], Is.EqualTo("2 mod(s), 1 change(s), 1 error(s), 0 conflict(s), 1 warning(s)"));
+                    Assert.That(lines[1], Is.EqualTo("error: " + p.Errors[0]));
+                    Assert.That(lines[2], Does.StartWith("warning: "));
+                    Assert.That(lines[3], Does.StartWith("targets: "));
+                    ApplyResult r = s.Apply(null);
+                    Assert.That(r.Applied, Is.False);
+                    lines = s.Describe(r).Split(new[] { "\r\n" }, StringSplitOptions.None);
+                    Assert.That(lines[0], Is.EqualTo("nothing written: " + r.Reason));
+                    Assert.That(lines[1], Does.Contain("1 error(s)"));
+                    Assert.That(lines[2], Does.StartWith("error: "));
+                }
+            }
+        }
+
         [Test]
         public void SessionAppliesWithTheTopModWinning()
         {
@@ -103,6 +138,8 @@ namespace MS2.ModKit.Tests
                     Assert.That(r.Applied, Is.False);
                     Assert.That(r.Reason, Is.EqualTo("1 conflict(s)"));
                     Assert.That(r.Plan.Conflicts[0].WinnerId, Is.EqualTo("a.one"));
+                    // a refused apply says so in the first line of a view's text, then the conflicts
+                    Assert.That(s.Describe(r), Does.StartWith("nothing written: 1 conflict(s)\r\npriority, the highest first: a.one > b.two\r\n"));
                     s.AllowConflicts = true;
                     r = s.Apply(null);
                     Assert.That(r.Applied, EditorSession.Report(r));

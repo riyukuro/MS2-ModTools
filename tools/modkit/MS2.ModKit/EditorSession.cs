@@ -401,39 +401,59 @@ namespace MS2.ModKit
             foreach (PlanMessage m in p.Conflicts) sb.Append(m.ConflictLine()).Append("\r\n");
         }
 
-        static string Report(Plan p, bool conflicts)
+        static void Totals(StringBuilder sb, Plan p)
         {
-            var sb = new StringBuilder();
             sb.Append(p.Mods.Count).Append(" mod(s), ").Append(p.Changes.Count).Append(" change(s), ")
               .Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ")
               .Append(p.Warnings.Count).Append(" warning(s)\r\n");
-            if (conflicts) Conflicts(sb, p);
+        }
+
+        static void Messages(StringBuilder sb, Plan p)
+        {
             foreach (PlanMessage m in p.Errors) sb.Append("error: ").Append(m).Append("\r\n");
             foreach (PlanMessage m in p.Warnings) sb.Append("warning: ").Append(m).Append("\r\n");
+        }
+
+        static void Rest(StringBuilder sb, Plan p)
+        {
             foreach (PlanMessage m in p.Notes) sb.Append("note: ").Append(m).Append("\r\n");
             foreach (PlanChange c in p.Changes) sb.Append("  ").Append(c).Append("\r\n");
+        }
+
+        static string Report(Plan p, bool conflicts)
+        {
+            var sb = new StringBuilder();
+            Totals(sb, p);
+            if (conflicts) Conflicts(sb, p);
+            Messages(sb, p);
+            Rest(sb, p);
             return sb.ToString();
         }
 
         /// <summary>
-        /// What a view shows for a plan: the conflicts with their winners first, so that they are read without
-        /// scrolling, then the targets of the session's data with what the plan does there, then the rest of Report(p).
+        /// What a view shows for a plan, with what must be read at the top, since the output box of a view is two
+        /// lines high: the conflicts with their winners, the counts, the errors and the warnings. Then the targets of
+        /// the session's data with what the plan does there, then the notes and the changes.
         /// </summary>
         public string Describe(Plan p)
         {
             var sb = new StringBuilder();
             Conflicts(sb, p);
+            Totals(sb, p);
+            Messages(sb, p);
             sb.Append(Targets.Line(Data)).Append("\r\n");
             foreach (string l in Targets.PlanLines(p, Data)) sb.Append("  ").Append(l).Append("\r\n");
-            return sb.Append(Report(p, false)).ToString();
+            Rest(sb, p);
+            return sb.ToString();
         }
 
-        /// <summary>The targets of the session's data, what the apply or revert wrote or removed on each, then the plan and the server step.</summary>
+        /// <summary>The targets of the session's data, what the apply or revert wrote or removed on each, then the plan and the server step. A refused apply: the reason, then the plan.</summary>
         public string Describe(ApplyResult r)
         {
+            // a refused apply says so first, then why: the plan as a view shows it
+            if (!r.Applied) return "nothing written: " + r.Reason + "\r\n" + (r.Plan != null ? Describe(r.Plan) : "");
             var sb = new StringBuilder(Targets.Line(Data)).Append("\r\n");
             if (r.Plan != null) foreach (string l in Targets.PlanLines(r.Plan, Data)) sb.Append("  plan, ").Append(l).Append("\r\n");
-            if (!r.Applied) return sb.Append(Report(r)).ToString();
             foreach (string l in Targets.ResultLines(r, Data, WorkspaceDir)) sb.Append("  ").Append(l).Append("\r\n");
             if (r.Plan != null) sb.Append(Report(r.Plan));
             sb.Append(ServerStep.Report(r.Server));
