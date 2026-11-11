@@ -38,7 +38,8 @@ namespace MS2.ModKit.Tests
         }
 
         // npc 2900002 gets a shop and a drop box of the group fixture and a skill of the skill fixture, and item
-        // 1200001 a skill, an additional effect and a repacking scroll, and quest 701 a map condition, so the views have fields to pick them in
+        // 1200001 a skill, an additional effect and a repacking scroll, and quest 701 a map condition, start npc 2900002, an npc
+        // condition on 2900001 and item 1200001 as its complete reward, so the views have fields to pick them in and jump to
         static byte[] Patch(string name, byte[] data)
         {
             if (string.Equals(name, "npc/02/90/02900002.xml", StringComparison.OrdinalIgnoreCase))
@@ -49,9 +50,16 @@ namespace MS2.ModKit.Tests
                 return Encoding.UTF8.GetBytes(t);
             }
             string x = Encoding.UTF8.GetString(data);
-            // quest 701's talk condition becomes a map one, for the map picker
-            const string talk = "<condition type=\"talk\" code=\"32\" />";
-            if (x.Contains(talk)) return Encoding.UTF8.GetBytes(x.Replace(talk, "<condition type=\"map\" code=\"9100001\" />"));
+            if (string.Equals(name, "questdata/questdata.xml", StringComparison.OrdinalIgnoreCase) || string.Equals(name, "quest/00000701.xml", StringComparison.OrdinalIgnoreCase))
+            {
+                // quest 701's talk condition becomes a map one, for the map picker; its start npc, npc condition and
+                // complete reward name an npc and an item the views show, for a Where used jump to a quest row
+                x = x.Replace("<condition type=\"talk\" code=\"32\" />", "<condition type=\"map\" code=\"9100001\" />")
+                     .Replace("<start npc=\"31\" />", "<start npc=\"2900002\" />")
+                     .Replace("type=\"npc\" code=\"41\"", "type=\"npc\" code=\"2900001\"")
+                     .Replace(" code=\"9001\" rank=", " code=\"1200001\" rank=");
+                return Encoding.UTF8.GetBytes(x);
+            }
             const string item = "<property slotMax=\"1\" sellPrice=\"40\" />";
             if (x.Contains("<item id=\"1200001\">") && x.Contains(item))
                 return Encoding.UTF8.GetBytes(x.Replace(item, "<property slotMax=\"1\" sellPrice=\"40\" rePackingScrollID=\"1200002\" />\n\t\t\t<skill skillID=\"70000001\" skillLevel=\"1\" />\n\t\t\t<AdditionalEffect id=\"71000001\" level=\"1\" />"));
