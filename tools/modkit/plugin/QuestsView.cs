@@ -772,6 +772,7 @@ namespace MS2.Tables
             string text = cloneIdBox.Text.Trim();
             long id = text.Length == 0 ? ed.NextFreeId(d.Id + 1) : Number(text, "id");
             long source = d.Id;
+            int lines = ed.ModLines(source);
             QuestDraft made = ed.Clone(source, id, listedBox.Checked);
             host.EditedOutside();
             FillHits(id);
@@ -779,7 +780,8 @@ namespace MS2.Tables
             // a mod folder that could not be read when the id was checked: its reserved ids are not known
             string warn = "";
             foreach (string w in host.SharedSession().ModWarnings) warn += "warning: " + w + "\r\n";
-            host.SayOutside(warn + "quest " + id + " added as a copy of quest " + source + ". Save mod, then Plan shows it per target.\r\n\r\n" + Describe(made));
+            host.SayOutside(warn + "quest " + id + " added as a copy of quest " + source
+                + (lines > 0 ? " as shipped: the " + lines + " line(s) this mod has on quest " + source + " are not in the copy" : "") + ". Save mod, then Plan shows it per target.\r\n\r\n" + Describe(made));
         }
 
         void RemoveClone()

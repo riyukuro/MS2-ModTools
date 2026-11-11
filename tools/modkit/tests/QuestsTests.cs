@@ -344,6 +344,33 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ModLines_CountsWhatACloneWouldNotCopy()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                Assert.That(ed.ModLines(701), Is.EqualTo(0));
+                ed.Open(701).SetText("name", "Other Errand");
+                int text = ed.ModLines(701);
+                Assert.That(text, Is.GreaterThan(0));
+                ed.Open(701).SetStartNpc(61);
+                Assert.That(ed.ModLines(701), Is.GreaterThan(text));
+                Assert.That(ed.ModLines(702), Is.EqualTo(0));
+                // a clone is no line on its source, and its own rows are not lines on a shipped quest
+                long id = ed.NextFreeId(703);
+                QuestDraft made = ed.Clone(702, id);
+                Assert.That(ed.ModLines(702), Is.EqualTo(0));
+                made.SetStartNpc(61);
+                Assert.That(ed.ModLines(id), Is.EqualTo(0));
+                Assert.That(ed.ModLines(702), Is.EqualTo(0));
+                // the same after a save and load
+                f.Reload();
+                Assert.That(f.Editor().ModLines(701), Is.GreaterThan(text));
+                Assert.That(f.Editor().ModLines(702), Is.EqualTo(0));
+            }
+        }
+
+        [Test]
         public void Rewards_SetAddRemove_PerList()
         {
             using (var f = new FakeQuests(true, true, true))

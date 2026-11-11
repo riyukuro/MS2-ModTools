@@ -1565,6 +1565,31 @@ namespace MS2.ModKit
         }
 
         /// <summary>
+        /// The number of lines the mod holds on a shipped quest: changes, added and removed rows in its table rows,
+        /// its files and its text rows. 0 for a quest the mod leaves alone and for a quest the mod adds. A clone
+        /// copies the quest as shipped, so these lines are what a clone of the quest does not get.
+        /// </summary>
+        public int ModLines(long id)
+        {
+            int n = 0;
+            foreach (QuestPlace p in Open(id).Places)
+            {
+                if (p.IsNew || p.Root.Orig == null) continue;
+                string at = RowPath.Canonical(p.Root.Orig);
+                foreach (EditOp ed in Edits(p.Archive, p.Entry))
+                    foreach (RowOp r in ed.Rows)
+                        if (Under(r.At, at) || (r.Kind == RowOpKind.Add && Under(r.In, at))) n++;
+            }
+            return n;
+        }
+
+        static bool Under(string path, string at)
+        {
+            if (path == null) return false;
+            return at.Length == 0 || path == at || path.StartsWith(at + "/", StringComparison.Ordinal);
+        }
+
+        /// <summary>
         /// The rows the mod copies for a new quest in the files that list quests by id, one text line per file:
         /// archive, entry, what the row is and how many.
         /// </summary>
