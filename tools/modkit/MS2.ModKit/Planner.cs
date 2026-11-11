@@ -135,6 +135,15 @@ namespace MS2.ModKit
         public bool NoSync;
         /// <summary>The plan of one mod alone, made inside a plan of several mods.</summary>
         internal bool Alone;
+        /// <summary>What the plan of several mods has read of the shipped data, for the plans of one mod alone.</summary>
+        internal ShippedCache Shipped;
+    }
+
+    /// <summary>Shipped entries as read and parsed once. A parsed document is not changed by a plan (edits are kept beside it).</summary>
+    internal sealed class ShippedCache
+    {
+        internal readonly Dictionary<string, byte[]> Bytes = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        internal readonly Dictionary<byte[], XmlDoc> Docs = new Dictionary<byte[], XmlDoc>();
     }
 
     public sealed class Plan
@@ -201,6 +210,9 @@ namespace MS2.ModKit
         /// entry) or file: lines of the mod that never meet each other in this plan.
         /// </summary>
         internal readonly Dictionary<Mod, Dictionary<string, bool>> Under = new Dictionary<Mod, Dictionary<string, bool>>();
+
+        /// <summary>The shipped entries this plan has read (shared with the plans of one mod alone made for it).</summary>
+        internal ShippedCache Shipped = new ShippedCache();
 
 
         internal static string UnderKey(string archive, string entry) { return archive + "\n" + entry.Replace('\\', '/').ToLowerInvariant(); }
@@ -362,7 +374,12 @@ namespace MS2.ModKit
                 EntryState st;
                 if (States.TryGetValue(key, out st)) return st;
                 st = new EntryState { Archive = archive, Name = real, Existed = e != null };
-                if (e != null) st.Original = st.Base = arch.Read(e);
+                if (e != null)
+                {
+                    byte[] bytes;
+                    if (!Plan.Shipped.Bytes.TryGetValue(key, out bytes)) Plan.Shipped.Bytes[key] = bytes = arch.Read(e);
+                    st.Original = st.Base = bytes;
+                }
                 States[key] = st;
                 Order.Add(st);
                 return st;
@@ -376,6 +393,7 @@ namespace MS2.ModKit
             if (options == null) options = new PlanOptions();
             var run = new Run { Data = data, Plan = new Plan(), Options = options };
             Plan plan = run.Plan;
+            if (options.Shipped != null) plan.Shipped = options.Shipped;
             var seen = new Dictionary<string, bool>();
             foreach (Mod m in mods)
             {
@@ -473,6 +491,8 @@ namespace MS2.ModKit
             IdSpaces.Check(data, plan, options.Progress);
             if (options.Schemas != null) options.Schemas.Check(plan);
             if (!options.Alone && mods.Count > 1) OwnContradictions(data, plan, options);
+            // the plan is kept by its caller: the shipped bytes and documents are not kept with it
+            plan.Shipped = null;
             return plan;
         }
 
@@ -517,7 +537,7 @@ namespace MS2.ModKit
                 }
                 if (part.Ops.Count == 0) continue;
                 Plan alone;
-                try { alone = Build(data, new[] { part }, new PlanOptions { Maps = options.Maps, NoSync = options.NoSync, Alone = true }); }
+                try { alone = Build(data, new[] { part }, new PlanOptions { Maps = options.Maps, NoSync = options.NoSync, Alone = true, Shipped = plan.Shipped }); }
                 catch (ModKitException) { continue; }
                 var add = new List<PlanMessage>();
                 foreach (PlanMessage c in alone.Conflicts)
@@ -769,7 +789,12 @@ namespace MS2.ModKit
             {
                 try
                 {
-                    st.Doc = XmlDoc.Parse(st.Base, st.Archive + " " + st.Name);
+                    // a shipped entry is parsed once for the plan and the plans of one mod alone made for it
+                    XmlDoc doc = null;
+                    bool shipped = st.Base == st.Original && plan.Shipped != null;
+                    if (!shipped || !plan.Shipped.Docs.TryGetValue(st.Base, out doc)) doc = XmlDoc.Parse(st.Base, st.Archive + " " + st.Name);
+                    if (shipped) plan.Shipped.Docs[st.Base] = doc;
+                    st.Doc = doc;
                 }
                 catch (ModKitException x) { st.DocFailed = true; plan.Msg(plan.Errors, mod, st.Archive, st.Name, "cannot be edited as XML: " + x.Message); return false; }
                 if (st.Doc.EncodingFallback)
