@@ -931,8 +931,10 @@ Open the solution file of the project, open the map's block file, edit, and save
   values in the Entity Editor. Under Wine this needs the launcher fix described in
   [tools/toolbench](../toolbench/README.md).
 - **A second copy of an entity:** Cut, Copy and Paste of the Edit menu stay grey for entities on every system; that
-  menu only serves text boxes. World Builder's own way is to hold Shift while dragging the entity's gizmo, which
-  leaves a copy behind. When that is hard to do, drag the same model from the palette again and type the values.
+  menu only serves text boxes. World Builder's own way: select the entity, switch on the Translation Gizmo in the
+  toolbar, hold Shift and drag one of the gizmo's arrows. That makes a copy with all the values of the entity, named
+  after it with a number (`Chair0` gives `Chair00`), and selects it. The copy is saved and converted like an entity
+  added from the palette.
 
 ### From an edited map to a mod
 
