@@ -387,7 +387,7 @@ namespace MS2.ModKit
         }
     }
 
-    public abstract class EntityEditor
+    public abstract partial class EntityEditor
     {
         public const string ClientXml = "client:Xml.m2d", GmsXml = "gms-client:Xml.m2d", ServerXml = "server:Xml.m2d";
         /// <summary>The part kind of the per-id file.</summary>

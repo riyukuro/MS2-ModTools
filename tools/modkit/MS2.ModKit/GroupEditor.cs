@@ -112,7 +112,7 @@ namespace MS2.ModKit
         }
     }
 
-    public sealed class GroupEditor
+    public sealed partial class GroupEditor
     {
         public readonly DataSet Data;
         public readonly Mod Mod;
