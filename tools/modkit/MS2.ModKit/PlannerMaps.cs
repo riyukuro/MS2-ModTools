@@ -69,12 +69,16 @@ namespace MS2.ModKit
         }
 
         /// <summary>The file a path leads to, links followed (net35: the full path only).</summary>
-        internal static string RealPath(string path)
+        internal static string RealPath(string path) { return RealPath(path, 0); }
+
+        // A link's target may itself lie under a linked folder, so the target is resolved again from its root.
+        static string RealPath(string path, int depth)
         {
             string full = Path.GetFullPath(path);
 #if NET35
             return full;
 #else
+            if (depth > 16) return full;
             try
             {
                 string root = Path.GetPathRoot(full);
@@ -85,7 +89,7 @@ namespace MS2.ModKit
                     FileSystemInfo fi = Directory.Exists(cur) ? (FileSystemInfo)new DirectoryInfo(cur) : new FileInfo(cur);
                     if (fi.LinkTarget == null) continue;
                     FileSystemInfo t = fi.ResolveLinkTarget(true);
-                    if (t != null) cur = t.FullName;
+                    if (t != null) cur = RealPath(t.FullName, depth + 1);
                 }
                 return cur;
             }

@@ -95,7 +95,12 @@ namespace MS2.ModKit.Tests
             Directory.CreateDirectory(KmsDir); Directory.CreateDirectory(GmsDir); Directory.CreateDirectory(ServerDir);
             Exported(KmsDir, false);
             Exported(GmsDir, true);
-            if (serverLinksToKms) Directory.CreateSymbolicLink(Path.Combine(ServerDir, "Resource"), Path.Combine(KmsDir, "Resource"));
+            if (serverLinksToKms)
+            {
+                // the link's target lies under a second linked folder, as on a machine whose game folder is itself a link
+                Directory.CreateSymbolicLink(Path.Combine(Dir, "alias"), Path.Combine(Dir, "orig"));
+                Directory.CreateSymbolicLink(Path.Combine(ServerDir, "Resource"), Path.Combine(Dir, "alias", "kms", "Resource"));
+            }
             else Exported(ServerDir, false);
             M2dWriter.Create(Path.Combine(KmsDir, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
