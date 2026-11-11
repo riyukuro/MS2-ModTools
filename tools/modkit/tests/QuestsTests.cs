@@ -160,7 +160,8 @@ namespace MS2.ModKit.Tests
         /// <summary>Languages: kms-client en (group files) and zz (one file), gms-client en, server en and zz.</summary>
         /// <param name="lopsided">The kms-client has no row for the answer text of quest 701; the others have.</param>
         /// <param name="busy">Quest 701's talk script has more scripts and contents, see Script.</param>
-        public FakeQuests(bool kms, bool gms, bool server, string dir = null, bool twins = false, bool lopsided = false, bool busy = false)
+        /// <param name="gmsMute">The gms-client ships quest 702's talk script and lacks its texts: 1 = the whole text file, 2 = the row of the first text.</param>
+        public FakeQuests(bool kms, bool gms, bool server, string dir = null, bool twins = false, bool lopsided = false, bool busy = false, int gmsMute = 0)
         {
             ownDir = dir == null;
             Dir = dir ?? Path.Combine(Path.GetTempPath(), "modkit-quests-" + Guid.NewGuid().ToString("N"));
@@ -184,6 +185,12 @@ namespace MS2.ModKit.Tests
                 if (server2) Strings(l, "zz", false);
                 Talk(l, "en", true);
                 if (server2) Talk(l, "zz", true);
+                if (!server2 && gmsMute != 0)
+                {
+                    int at = l.FindIndex(x => x.Key == "string/en/scriptquest_b.xml");
+                    if (gmsMute == 1) l.RemoveAt(at);
+                    else l[at] = E(l[at].Key, Head + "<ms2>\n\t<key id=\"702101\" npc=\"0\" name=\"Fine\" />\n</ms2>\n");
+                }
                 Listed(l, false, busy);
                 if (server2)
                     M2dWriter.Create(Path.Combine(d, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> {
@@ -743,6 +750,54 @@ namespace MS2.ModKit.Tests
                 Plan p = Planner.Build(f.Data, new[] { Mod.Parse(f.Mod.ToXml(), "round trip") }, new PlanOptions());
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(p.Warnings.ConvertAll(m => m.Text), Is.Not.Empty.And.All.StartsWith("quest 706, script 100 names talk text 702200, and the "), "was " + other);
+            }
+        }
+
+        // the gms-client ships the talk script of a quest and not its texts: its copy of the clone keeps the names
+        // it ships, as nothing there has a row to copy
+        [TestCase(1)]
+        [TestCase(2)]
+        public void Plan_OwnTalkTexts_WhereTheGmsClientShipsTheScriptWithoutTheTexts_NoWarning(int mute)
+        {
+            using (var f = new FakeQuests(true, true, true, gmsMute: mute))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(702, 706);
+                Assert.That(ed.OwnTalkTexts(706), Is.EqualTo(2));
+                Plan p = f.Plan();
+                string gms = FakeQuests.Out(p, QuestEditor.GmsXml, "script/quest/questscript_b.xml");
+                string clone = gms.Substring(gms.IndexOf("<quest id=\"706\">", StringComparison.Ordinal));
+                string server = FakeQuests.Out(p, QuestEditor.ServerXml, "script/quest/questscript_b.xml");
+                Assert.That(server.Substring(server.IndexOf("<quest id=\"706\">", StringComparison.Ordinal)), Does.Contain("$script:706001$").And.Contain("$script:706002$").And.Not.Contain("$script:702100$"));
+                Assert.That(clone, Does.Contain("$script:702100$").And.Not.Contain("$script:706001$"), "no row to copy there");
+                Assert.That(clone, mute == 1 ? Does.Contain("$script:702101$").And.Not.Contain("$script:706002$") : Does.Contain("$script:706002$").And.Not.Contain("$script:702101$"));
+                Assert.That(p.Notes.FindAll(m => m.Archive == QuestEditor.GmsXml && m.Text.Contains("talk text name(s) stay")).Count, Is.EqualTo(1), Fake.Dump(p));
+                string rows = FakeQuests.Out(p, QuestEditor.GmsXml, "string/en/scriptquest_b.xml");
+                if (mute == 1) Assert.That(rows, Is.Null);
+                else Assert.That(rows, Does.Contain("id=\"706002\"").And.Not.Contain("706001"));
+            }
+        }
+
+        // a name set by hand at a place where the gms-client ships a text is still a warning there
+        [Test]
+        public void Plan_ATalkNameWithoutARowOnTheGmsClient_WhereItShipsAText_Warns()
+        {
+            using (var f = new FakeQuests(true, true, true, gmsMute: 2))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(702, 706);
+                ed.OwnTalkTexts(706);
+                // the answer (a text the gms-client has) now names the first text's own id, which has no row there
+                foreach (ModOp op in f.Mod.Ops)
+                {
+                    var e = op as EditOp;
+                    if (e == null || e.Archive != QuestEditor.ServerXml || !e.Entry.StartsWith("script/quest/", StringComparison.Ordinal)) continue;
+                    foreach (RowOp r in e.Rows)
+                        foreach (AttrOp a in r.Attrs) if (a.Value == "$script:706002$") a.Value = "$script:706001$";
+                }
+                Plan p = Planner.Build(f.Data, new[] { Mod.Parse(f.Mod.ToXml(), "round trip") }, new PlanOptions());
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Warnings.ConvertAll(m => m.Archive + " " + m.Text), Has.Exactly(1).StartsWith(QuestEditor.GmsXml + " quest 706, script 100 names talk text 706001, and the gms-client has no row"), Fake.Dump(p));
             }
         }
 

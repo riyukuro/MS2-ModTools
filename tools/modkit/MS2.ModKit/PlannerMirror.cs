@@ -148,6 +148,7 @@ namespace MS2.ModKit
             try
             {
                 if (ed != null && there) ed = WithoutMissingElements(run, mo.Mod, arch, ed);
+                if (ed != null && there) ed = MirrorTalk(run, mo, arch, ed);
                 if (en != null) DoEntryOp(run, mo.Mod, en);
                 else DoEditOp(run, mo.Mod, ed);
             }

@@ -881,6 +881,10 @@ Select a shipped quest and press **Clone to new id**. An empty id box takes the 
   neither is that name in the clone of the quest, in the same script. Such a text moved to another quest or
   script by hand is warned about. The output pane wraps its lines, so a long message reads without scrolling
   sideways.
+- The other client (the one the server's lines are mirrored to) often ships a quest's talk script without its
+  texts. Its copy of the clone then keeps the names it ships where it has no row to copy, and gets own texts for
+  the rest; Plan says so in a note per script file (`N talk text name(s) stay as the gms-client ships them`),
+  not in a warning. A name without a row at a place where that client does ship a text is still a warning.
 - Limits: a text the script names but a target has no row for keeps the source's id on that target. A quest holds at most 999
   texts of its own; when the ids do not suffice nothing is copied. The talk texts of a shipped quest are not
   edited here; use the MS2 Tables view.

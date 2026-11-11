@@ -5,6 +5,12 @@
 // shipped is not looked at, so the unmodded data gives no warning; nor is a name a clone (an added row that copies
 // quest X under a new id) has in the script where X has it as shipped, so the clone of a quest that speaks a text
 // without a row is as quiet as its source. The same text moved to another quest or script by hand is a warning.
+//
+// The mirror (PlannerMirror.cs) of a line about talk texts keeps to what the other side has: a text row that copies
+// a row the other side does not ship is not added there, and a script row keeps the name the other side ships at a
+// place where the line would write a name that has no row there, when the shipped name has no row there either
+// (the other client never had a text for it; its copy of a clone says what its copy of the source says). Both are
+// notes. A name without a row at a place where the other side ships a text stays, and is the warning above.
 using System;
 using System.Collections.Generic;
 using MS2.ModKit.M2d;
@@ -98,6 +104,149 @@ namespace MS2.ModKit
             string quest = key.Substring(0, cut), from;
             if (!clones.TryGetValue(quest, out from)) return null;
             return from + key.Substring(cut);
+        }
+
+        // ---- the mirror ----
+
+        static readonly System.Text.RegularExpressions.Regex KeyIdRx = new System.Text.RegularExpressions.Regex("^<key\\b[^>]*?\\sid=\"(\\d+)\"", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        static bool AddedTalkId(RowOp r, out long id)
+        {
+            id = 0;
+            if (r.Kind != RowOpKind.Add) return false;
+            AttrOp a = r.Attrs.FindLast(delegate(AttrOp x) { return x.Kind == AttrOpKind.Set && x.Name == "id" && string.IsNullOrEmpty(x.At); });
+            if (a != null) return QuestEditor.TryId(a.Value ?? "", out id);
+            if (r.Xml == null) return false;
+            System.Text.RegularExpressions.Match m = KeyIdRx.Match(r.Xml.TrimStart());
+            return m.Success && QuestEditor.TryId(m.Groups[1].Value, out id);
+        }
+
+        // the root of an entry as the other side has it before the edits; null when it has none or it does not parse
+        static XmlElem MirrorRoot(Run run, M2dArchive arch, string archive, string entry)
+        {
+            EntryState st;
+            byte[] b = null;
+            if (run.States.TryGetValue(Key(archive, entry), out st)) b = st.Base;
+            if (b == null) { M2dEntry e = arch.Find(entry); if (e != null) b = arch.Read(e); }
+            if (b == null) return null;
+            try { return XmlDoc.Parse(b, archive + " " + entry).Root; }
+            catch (ModKitException) { return null; }
+        }
+
+        // the text ids the archive ships a row for, kept with the data set
+        static HashSet<long> ShippedTalkIds(Run run, M2dArchive arch, string archive)
+        {
+            string key = "talk text ids\n" + archive;
+            object o;
+            if (run.Data.Cache.TryGetValue(key, out o)) return (HashSet<long>)o;
+            var set = new HashSet<long>();
+            foreach (M2dEntry e in arch.Entries)
+            {
+                if (!QuestEditor.TalkRx.IsMatch(e.Name.Replace('\\', '/'))) continue;
+                XmlDoc doc;
+                try { doc = XmlDoc.Parse(arch.Read(e), archive + " " + e.Name); }
+                catch (ModKitException) { continue; }
+                if (doc.Root == null) continue;
+                foreach (XmlElem k in doc.Root.Children)
+                {
+                    long id;
+                    if (k.Name == "key" && QuestEditor.TryId(k.Attr("id") ?? "", out id)) set.Add(id);
+                }
+            }
+            run.Data.Cache[key] = set;
+            return set;
+        }
+
+        // the text ids the other side has a row for once the mods are in: the ones it ships, the ones a mod adds
+        // there itself, and the ones the mirror brings (a row in a file it ships, copied from a row it ships)
+        static HashSet<long> MirrorTalkIds(Run run, M2dArchive arch, string archive)
+        {
+            HashSet<long> set;
+            if (run.MirrorTalk.TryGetValue(archive, out set)) return set;
+            set = new HashSet<long>(ShippedTalkIds(run, arch, archive));
+            Profile to = Profile.OfArchive(archive);
+            var roots = new Dictionary<string, XmlElem>(StringComparer.OrdinalIgnoreCase);
+            foreach (Mod m in run.Plan.Mods)
+                foreach (ModOp op in m.Ops)
+                {
+                    var ed = op as EditOp;
+                    if (ed == null || !QuestEditor.TalkRx.IsMatch(ed.Entry.Replace('\\', '/'))) continue;
+                    bool own = op.Archive == archive;
+                    if (!own)
+                    {
+                        Profile from = Profile.OfArchive(op.Archive);
+                        if (from == null || to == null || !from.Mirrors(to) || to.ArchiveIn(op.Archive) != archive) continue;
+                    }
+                    XmlElem root = null;
+                    if (!own && !roots.TryGetValue(ed.Entry, out root)) roots[ed.Entry] = root = MirrorRoot(run, arch, archive, ed.Entry);
+                    if (!own && root == null) continue;
+                    foreach (RowOp r in ed.Rows)
+                    {
+                        long id;
+                        string err;
+                        if (!AddedTalkId(r, out id)) continue;
+                        if (own || r.Copy == null || RowPath.Parse(r.Copy).TryResolve(root, out err) != null) set.Add(id);
+                    }
+                }
+            run.MirrorTalk[archive] = set;
+            return set;
+        }
+
+        static RowOp CopyOf(RowOp r)
+        {
+            var n = new RowOp { Kind = r.Kind, At = r.At, Copy = r.Copy, Xml = r.Xml, After = r.After, Before = r.Before, In = r.In, Sync = r.Sync, Line = r.Line,
+                Grouped = r.Grouped, FromIndent = r.FromIndent, NoNewId = r.NoNewId };
+            n.Attrs.AddRange(r.Attrs);
+            return n;
+        }
+
+        /// <summary>A mirrored line of a talk text file or a talk script, cut to what the other side has (see the head of this file).</summary>
+        static EditOp MirrorTalk(Run run, MirrorOp mo, M2dArchive arch, EditOp ed)
+        {
+            bool texts = QuestEditor.TalkRx.IsMatch(ed.Entry.Replace('\\', '/'));
+            if (!texts && !QuestEditor.IsTalkScript(ed.Entry)) return ed;
+            XmlElem root = MirrorRoot(run, arch, ed.Archive, ed.Entry);
+            if (root == null) return ed;
+            var rows = new List<RowOp>();
+            int rowsOut = 0, namesOut = 0;
+            HashSet<long> have = null;
+            foreach (RowOp r in ed.Rows)
+            {
+                string err;
+                if (texts)
+                {
+                    if (r.Kind == RowOpKind.Add && r.Copy != null && RowPath.Parse(r.Copy).TryResolve(root, out err) == null) rowsOut++;
+                    else rows.Add(r);
+                    continue;
+                }
+                string at = r.Kind == RowOpKind.Add ? r.Copy : r.Kind == RowOpKind.Change ? r.At : null;
+                XmlElem row = string.IsNullOrEmpty(at) ? null : RowPath.Parse(at).TryResolve(root, out err);
+                RowOp nr = r;
+                if (row != null)
+                    foreach (AttrOp a in r.Attrs)
+                    {
+                        long to, was;
+                        if (a.Kind != AttrOpKind.Set || a.Name != "text" || string.IsNullOrEmpty(a.At) || !QuestEditor.TryTalkRef(a.Value, out to)) continue;
+                        XmlElem el = RowPath.Parse(a.At).TryResolve(row, out err);
+                        if (el == null || !QuestEditor.TryTalkRef(el.Attr("text"), out was) || was == to) continue;
+                        if (have == null) have = MirrorTalkIds(run, arch, ed.Archive);
+                        if (have.Contains(to) || have.Contains(was)) continue;
+                        if (nr == r) nr = CopyOf(r);
+                        nr.Attrs.Remove(a);
+                        namesOut++;
+                    }
+                rows.Add(nr);
+            }
+            if (rowsOut == 0 && namesOut == 0) return ed;
+            string name = mo.To.Name;
+            if (rowsOut > 0)
+                run.Plan.Msg(run.Plan.Notes, mo.Mod, ed.Archive, ed.Entry, "not mirrored from " + mo.From + ": " + rowsOut + " new text row(s) copy rows the " + name + " does not ship; it gets no row for them");
+            if (namesOut > 0)
+                run.Plan.Msg(run.Plan.Notes, mo.Mod, ed.Archive, ed.Entry, "not mirrored from " + mo.From + ": " + namesOut + " talk text name(s) stay as the " + name +
+                    " ships them; it has no row for the new text nor for the one it names there now");
+            var cut = new EditOp { Archive = ed.Archive, Line = ed.Line, Entry = ed.Entry };
+            cut.Rows.AddRange(rows);
+            return cut;
         }
 
         static void TalkNameCheck(Run run)

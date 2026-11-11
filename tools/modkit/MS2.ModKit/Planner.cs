@@ -374,6 +374,8 @@ namespace MS2.ModKit
             internal MirrorCtx Mirror;
             internal readonly Dictionary<string, Dropped> Dropped = new Dictionary<string, Dropped>(StringComparer.Ordinal);
             internal readonly List<Dropped> DroppedOrder = new List<Dropped>();
+            /// <summary>The talk text ids a mirror target has rows for (PlannerTalk.cs), by archive.</summary>
+            internal readonly Dictionary<string, HashSet<long>> MirrorTalk = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
             /// <summary>Shop and drop box state (PlannerGroups.cs).</summary>
             internal readonly GroupRun Groups = new GroupRun();
 
