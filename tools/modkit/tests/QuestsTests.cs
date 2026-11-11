@@ -135,6 +135,24 @@ namespace MS2.ModKit.Tests
             else l.Add(E("string/" + lang + "/questdescription_final.xml", Head + "<ms2>\n" + Row(701, "Fake Errand", sfx) + Row(702, "Clay Hunt", sfx) + "</ms2>\n"));
         }
 
+        // the talk texts: quest 701 has all three (the third also for feature F1), quest 702 has none for its
+        // script 200, and zz lacks the answer of 701
+        static void Talk(List<KeyValuePair<string, byte[]>> l, string lang, bool groups)
+        {
+            string sfx = lang == "en" ? "" : " (" + lang + ")";
+            string a = "\t<key id=\"701100\" npc=\"61\" name=\"Hello there" + sfx + "\" />\n" +
+                (lang == "en" ? "\t<key id=\"701101\" npc=\"0\" name=\"Tell me more\" />\n" : "") +
+                "\t<key id=\"701200\" npc=\"61\" name=\"Bring clay" + sfx + "\" />\n" +
+                "\t<key id=\"701200\" npc=\"61\" feature=\"F1\" name=\"Bring fine clay" + sfx + "\" />\n";
+            string b = "\t<key id=\"702100\" npc=\"63\" name=\"Hunt time" + sfx + "\" />\n\t<key id=\"702101\" npc=\"0\" name=\"Fine" + sfx + "\" />\n";
+            if (groups)
+            {
+                l.Add(E("string/" + lang + "/scriptquest_a.xml", Head + "<ms2>\n" + a + "</ms2>\n"));
+                l.Add(E("string/" + lang + "/scriptquest_b.xml", Head + "<ms2>\n" + b + "</ms2>\n"));
+            }
+            else l.Add(E("string/" + lang + "/scriptquest_final.xml", Head + "<ms2>\n" + a + b + "</ms2>\n"));
+        }
+
         /// <summary>Languages: kms-client en (group files) and zz (one file), gms-client en, server en and zz.</summary>
         public FakeQuests(bool kms, bool gms, bool server, string dir = null, bool twins = false)
         {
@@ -146,6 +164,7 @@ namespace MS2.ModKit.Tests
                 k = Path.Combine(Dir, "kms"); Directory.CreateDirectory(k);
                 var l = new List<KeyValuePair<string, byte[]>> { E("questdata/questdata.xml", Table), E("quest/00000701.xml", Sparse(701)), E("quest/00000702.xml", Sparse(702)) };
                 Strings(l, "en", true); Strings(l, "zz", false);
+                Talk(l, "en", false); Talk(l, "zz", false);
                 Listed(l, true);
                 M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, l);
             }
@@ -157,6 +176,8 @@ namespace MS2.ModKit.Tests
                 var l = new List<KeyValuePair<string, byte[]>> { E("quest/00000701.xml", Full(701)), E("quest/00000702.xml", Full(702)) };
                 Strings(l, "en", true);
                 if (server2) Strings(l, "zz", false);
+                Talk(l, "en", true);
+                if (server2) Talk(l, "zz", true);
                 Listed(l, false);
                 if (server2)
                     M2dWriter.Create(Path.Combine(d, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> {
@@ -367,6 +388,190 @@ namespace MS2.ModKit.Tests
                 f.Reload();
                 Assert.That(f.Editor().ModLines(701), Is.GreaterThan(text));
                 Assert.That(f.Editor().ModLines(702), Is.EqualTo(0));
+            }
+        }
+
+        [Test]
+        public void TalkLines_OfAShippedQuestAndOfAClone()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                List<QuestTalkLine> l = ed.TalkLines(701);
+                Assert.That(l.ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 701100, 701101, 701200 }));
+                Assert.That(l.ConvertAll(t => t.Script + " " + t.Element), Is.EqualTo(new[] { "100 content", "100 distractor", "200 content" }));
+                Assert.That(l.ConvertAll(t => t.Text), Is.EqualTo(new[] { "Hello there", "Tell me more", "Bring clay" }));
+                Assert.That(l.ConvertAll(t => t.Own), Is.All.False);
+                Assert.That(l[0].Rows, Is.EqualTo(4), "kms en + zz, server en + zz");
+                Assert.That(l[1].Rows, Is.EqualTo(2), "zz has no row");
+                Assert.That(l[2].Rows, Is.EqualTo(8), "a row per feature");
+                // a text without any row is a line without text
+                l = ed.TalkLines(702);
+                Assert.That(l.ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 702100, 702101, 702200 }));
+                Assert.That(l[2].Text, Is.Null);
+                Assert.That(l[2].Rows, Is.EqualTo(0));
+                // in another language: its text where it has one
+                ed.Language = "zz";
+                Assert.That(ed.TalkLines(701).ConvertAll(t => t.Text), Is.EqualTo(new[] { "Hello there (zz)", "Tell me more", "Bring clay (zz)" }));
+                ed.Language = "en";
+                // a clone speaks the source's lines; a clone without the talk script has none
+                ed.Clone(701, 705);
+                l = ed.TalkLines(705);
+                Assert.That(l.ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 701100, 701101, 701200 }));
+                Assert.That(l.ConvertAll(t => t.Own), Is.All.False);
+                Assert.That(ed.OwnTalkTextCount(705), Is.EqualTo(0));
+                ed.Clone(701, 706, false);
+                Assert.That(ed.TalkLines(706), Is.Empty);
+                Assert.That(ed.OwnTalkTexts(706), Is.EqualTo(0));
+                Assert.Throws<ModKitException>(delegate { ed.OwnTalkTexts(701); });
+                Assert.Throws<ModKitException>(delegate { ed.SetTalkText(705, 701100, null, "x"); });
+                Assert.That(f.Mod.Ids.Exists(r => r.Space == QuestEditor.TalkIdSpace), Is.False);
+            }
+        }
+
+        [Test]
+        public void OwnTalkTexts_CopiesTheTextsAndRenamesTheScript()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(701, 705);
+                Assert.That(ed.OwnTalkTexts(705), Is.EqualTo(3));
+                Assert.That(ed.OwnTalkTexts(705), Is.EqualTo(0), "a second time changes nothing");
+                string before = f.Mod.ToXml();
+                f.Reload();
+                Assert.That(f.Mod.ToXml(), Is.EqualTo(before));
+                ed = f.Editor();
+                List<QuestTalkLine> l = ed.TalkLines(705);
+                Assert.That(l.ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 705001, 705002, 705003 }));
+                Assert.That(l.ConvertAll(t => t.Own), Is.All.True);
+                Assert.That(l.ConvertAll(t => t.Text), Is.EqualTo(new[] { "Hello there", "Tell me more", "Bring clay" }));
+                Assert.That(l.ConvertAll(t => t.Rows), Is.EqualTo(new[] { 4, 2, 8 }));
+                Assert.That(ed.OwnTalkTextCount(705), Is.EqualTo(3));
+                IdRange range = f.Mod.Ids.Find(r => r.Space == QuestEditor.TalkIdSpace);
+                Assert.That(range, Is.Not.Null);
+                Assert.That(new[] { range.From, range.To }, Is.EqualTo(new long[] { 705001, 705003 }));
+                Assert.That(string.Join("\n", ed.Registration(705).ToArray()), Does.Contain("3 talk text(s) of its own"));
+
+                // the texts of one language, then of every language
+                Assert.That(ed.SetTalkText(705, 705001, "zz", "Good day (zz)"), Is.EqualTo(2), "kms and server");
+                Assert.That(ed.SetTalkText(705, 705003, null, "Bring sand"), Is.EqualTo(8));
+                Assert.That(ed.SetTalkText(705, 705002, "en", "Go on"), Is.EqualTo(2));
+                Assert.That(ed.SetTalkText(705, 705002, "en", "Tell me more"), Is.EqualTo(2), "back to the source's text");
+                Assert.Throws<ModKitException>(delegate { ed.SetTalkText(705, 701100, null, "x"); });
+                f.Reload();
+                ed = f.Editor();
+                Assert.That(ed.TalkLines(705).ConvertAll(t => t.Text), Is.EqualTo(new[] { "Hello there", "Tell me more", "Bring sand" }));
+                ed.Language = "zz";
+                Assert.That(ed.TalkLines(705)[0].Text, Is.EqualTo("Good day (zz)"));
+
+                Plan p = f.Plan();
+                // the clone's script row names its own texts, the source's row is as shipped
+                foreach (string[] at in new[] { new[] { K, "script/quest/questscript_final.xml" }, new[] { G, "script/quest/questscript_a.xml" }, new[] { S, "script/quest/questscript_a.xml" } })
+                {
+                    string o = FakeQuests.Out(p, at[0], at[1]);
+                    Assert.That(o, Does.Contain("<quest id=\"701\">\n\t\t<script id=\"100\">\n\t\t\t<content text=\"$script:701100$\">\n\t\t\t\t<distractor text=\"$script:701101$\" goto=\"200\" />"), at[0]);
+                    Assert.That(o, Does.Contain("<content text=\"$script:701200$\" voiceID=\"v1\" />"), at[0]);
+                    Assert.That(o, Does.Contain("<quest id=\"705\">\n\t\t<script id=\"100\">\n\t\t\t<content text=\"$script:705001$\">\n\t\t\t\t<distractor text=\"$script:705002$\" goto=\"200\" />"), at[0]);
+                    Assert.That(o, Does.Contain("<content text=\"$script:705003$\" voiceID=\"v1\" />"), at[0]);
+                }
+                // the text rows: copies with the new id, next to the untouched rows of the source
+                foreach (string[] at in new[] { new[] { K, "string/en/scriptquest_final.xml" }, new[] { G, "string/en/scriptquest_a.xml" }, new[] { S, "string/en/scriptquest_a.xml" } })
+                {
+                    string o = FakeQuests.Out(p, at[0], at[1]);
+                    foreach (string row in new[] {
+                        "<key id=\"701100\" npc=\"61\" name=\"Hello there\" />", "<key id=\"701101\" npc=\"0\" name=\"Tell me more\" />",
+                        "<key id=\"701200\" npc=\"61\" name=\"Bring clay\" />", "<key id=\"701200\" npc=\"61\" feature=\"F1\" name=\"Bring fine clay\" />",
+                        "<key id=\"705001\" npc=\"61\" name=\"Hello there\" />", "<key id=\"705002\" npc=\"0\" name=\"Tell me more\" />",
+                        "<key id=\"705003\" npc=\"61\" name=\"Bring sand\" />", "<key id=\"705003\" npc=\"61\" feature=\"F1\" name=\"Bring sand\" />" })
+                        Assert.That(o, Does.Contain(row), at[0]);
+                }
+                foreach (string[] at in new[] { new[] { K, "string/zz/scriptquest_final.xml" }, new[] { S, "string/zz/scriptquest_a.xml" } })
+                {
+                    string o = FakeQuests.Out(p, at[0], at[1]);
+                    Assert.That(o, Does.Contain("<key id=\"701100\" npc=\"61\" name=\"Hello there (zz)\" />"), at[0]);
+                    Assert.That(o, Does.Contain("<key id=\"705001\" npc=\"61\" name=\"Good day (zz)\" />"), at[0]);
+                    Assert.That(o, Does.Not.Contain("705002"), at[0]);
+                    Assert.That(o, Does.Contain("<key id=\"705003\" npc=\"61\" feature=\"F1\" name=\"Bring sand\" />"), at[0]);
+                }
+                // the other group's text file is not written
+                Assert.That(FakeQuests.Out(p, S, "string/en/scriptquest_b.xml"), Is.Null);
+            }
+        }
+
+        [Test]
+        public void OwnTalkTexts_SkipsTakenIdsAndTextsWithoutRows()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                // 702 names a text no file has: that line stays the source's
+                ed.Clone(702, 705);
+                Assert.That(ed.OwnTalkTexts(705), Is.EqualTo(2));
+                List<QuestTalkLine> l = ed.TalkLines(705);
+                Assert.That(l.ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 705001, 705002, 702200 }));
+                Assert.That(l.ConvertAll(t => t.Own), Is.EqualTo(new[] { true, true, false }));
+                // quest 701's clone 702100/1000 = 702: its first ids are shipped texts of quest 702 and are skipped
+                ed.Clone(701, 7021);
+                Assert.That(ed.OwnTalkTexts(7021), Is.EqualTo(3));
+                Assert.That(ed.TalkLines(7021).ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 7021001, 7021002, 7021003 }));
+                // a second clone of the same source gets ids of its own
+                ed.Clone(701, 70);
+                Assert.That(ed.OwnTalkTexts(70), Is.EqualTo(3));
+                Assert.That(ed.TalkLines(70).ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 70001, 70002, 70003 }));
+                f.Plan();
+            }
+        }
+
+        [Test]
+        public void ShareTalkTexts_AndRemoveClone_LeaveNothing()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(701, 705);
+                string cloned = f.Mod.ToXml();
+                ed.OwnTalkTexts(705);
+                ed.SetTalkText(705, 705001, null, "Good day");
+                f.Reload();
+                ed = f.Editor();
+                Assert.That(ed.ShareTalkTexts(705), Is.EqualTo(3));
+                Assert.That(ed.ShareTalkTexts(705), Is.EqualTo(0));
+                Assert.That(f.Mod.ToXml(), Is.EqualTo(cloned));
+                Assert.That(ed.TalkLines(705).ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 701100, 701101, 701200 }));
+
+                // two clones with own texts: removing one leaves the other whole
+                ed.Clone(702, 706);
+                ed.OwnTalkTexts(706);
+                string one = f.Mod.ToXml();
+                ed.OwnTalkTexts(705);
+                ed.Clone(701, 707);
+                ed.OwnTalkTexts(707);
+                ed.RemoveClone(707);
+                Assert.That(ed.ShareTalkTexts(705), Is.EqualTo(3));
+                f.Reload();
+                Assert.That(f.Mod.ToXml(), Is.EqualTo(Mod.Parse(one, "one").ToXml()));
+                Assert.That(f.Editor().TalkLines(706).ConvertAll(t => t.Own), Is.EqualTo(new[] { true, true, false }));
+                f.Plan();
+                f.Editor().RemoveClone(706);
+                f.Editor().RemoveClone(705);
+                Assert.That(f.Mod.Ops, Is.Empty);
+                Assert.That(f.Mod.Ids, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void OwnTalkTexts_WithoutTheKmsClient()
+        {
+            using (var f = new FakeQuests(false, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(701, 705);
+                Assert.That(ed.OwnTalkTexts(705), Is.EqualTo(3));
+                ed.SetTalkText(705, 705002, null, "Go on");
+                Plan p = f.Plan();
+                Assert.That(FakeQuests.Out(p, G, "string/en/scriptquest_a.xml"), Does.Contain("<key id=\"705002\" npc=\"0\" name=\"Go on\" />"));
+                Assert.That(FakeQuests.Out(p, S, "script/quest/questscript_a.xml"), Does.Contain("<distractor text=\"$script:705002$\" goto=\"200\" />"));
             }
         }
 

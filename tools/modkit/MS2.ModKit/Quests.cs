@@ -683,7 +683,7 @@ namespace MS2.ModKit
         public int SetText(string field, string value) { return SetText(null, field, value); }
     }
 
-    public sealed class QuestEditor
+    public sealed partial class QuestEditor
     {
         public const string IdSpace = "quest", TableEntry = "questdata/questdata.xml";
         public const string ClientXml = "client:Xml.m2d", GmsXml = "gms-client:Xml.m2d", ServerXml = "server:Xml.m2d";
@@ -1538,6 +1538,7 @@ namespace MS2.ModKit
                         ed.Rows.RemoveAll(delegate(RowOp r) { long v; return r.Kind == RowOpKind.Add && r.Copy != null && TryId(KeyValue(r, "questID"), out v) && v == id; });
                         if (ed.Rows.Count == 0) Mod.Ops.Remove(ed);
                     }
+            ShareTalkTexts(id);
             foreach (KeyValuePair<EditOp, RowOp> kv in ListedOps(id))
             {
                 kv.Key.Rows.Remove(kv.Value);
@@ -1625,6 +1626,13 @@ namespace MS2.ModKit
                 if (langs.Count > 0) l.Add(a + "  string/<" + string.Join(",", langs.ToArray()) + ">/questdescription*.xml  <quest questID=\"" + Padded(id) + "\"> row, where the source has one");
             }
             l.AddRange(ListedRows(id));
+            int own = OwnTalkTextCount(id);
+            if (own > 0)
+                foreach (string a in Sides())
+                {
+                    List<string> langs = TalkLanguagesIn(a);
+                    if (langs.Count > 0) l.Add(a + "  string/<" + string.Join(",", langs.ToArray()) + ">/scriptquest*.xml  <key id> rows of " + own + " talk text(s) of its own, where the source has one");
+                }
             if (FileXml == ServerXml && Data.Exists(GmsXml))
                 l.Add(GmsXml + "  the server's lines above, mirrored: the same files, rows and attributes");
             return l;
