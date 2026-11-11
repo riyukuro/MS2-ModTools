@@ -2,7 +2,8 @@
 //   quests     start/complete npc, the condition codes (QuestCodeKind: npc, item, quest, skill, buff = effect, ...),
 //              the item codes of the reward lists (completeReward and acceptReward)
 //   shops      the item of each stock row (shop_game.xml)
-//   drop boxes the items of each row (the nested drop tables and the flat splits; itemID and item are one place)
+//   drop boxes the items of each row (the nested drop tables and the flat splits; itemID and item are one place,
+//              itemID2 and item2 another)
 //   npcs       shopId, the *DropBoxId lists, skill@ids, additionalEffect@codes (NpcFieldKind)
 //   items      skill@skillID, AdditionalEffect@id, the repacking scrolls (ItemFieldKind)
 // Skills name no id through a field IdLookup knows, so a skill is never the place that names something.
@@ -175,8 +176,9 @@ namespace MS2.ModKit
             {
                 string k = IdLookup.GroupRowFieldKind(kind, f.Key);
                 if (k == null) continue;
-                // a drop box's item is "itemID" in the nested tables and "item" in the flat ones: one place by name
-                string label = kind == GroupKind.DropBox && f.Key == "itemID" ? "item" : f.Key;
+                // a drop box's item is "itemID" in the nested tables and "item" in the flat ones, its second item
+                // "itemID2" and "item2": one place by name each
+                string label = kind == GroupKind.DropBox && f.Key == "itemID" ? "item" : kind == GroupKind.DropBox && f.Key == "itemID2" ? "item2" : f.Key;
                 foreach (long t in Ids(f.Value)) into.Add(k, t, Hit(sk, id, describe + " " + label, f.Key, index));
             }
         }

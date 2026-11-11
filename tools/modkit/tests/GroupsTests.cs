@@ -2,7 +2,7 @@
 //   shops: server only (table/Server/shop_game.xml, shop_game_info.xml); sn repeats across shops (numbered per shop).
 //   box 7001: server nested has two rows of item 5001 in group 1 and a group 2 with weight 0; the Korean client
 //             nested has one row of 5001 and no group 2; the flat sides have both 5001 rows and group 2.
-//   box 7003 lives in the quest split, box 7004 in a region folder (table/na/).
+//   box 7003 lives in the quest split (its flat row has a second item, item2 5004), box 7004 in a region folder (table/na/).
 // Every id, item and name in here is made up.
 using System;
 using System.Collections.Generic;
@@ -79,7 +79,7 @@ namespace MS2.ModKit.Tests
             Flat(7100, 1, 5001, " socketDataID=\"\" isApplySmartGenderDrop=\"True\"") +
             "</ms2>\n";
 
-        public static readonly string FlatQuest = Head + "<ms2>\n" + Flat(7003, 1, 5002, "") + "</ms2>\n";
+        public static readonly string FlatQuest = Head + "<ms2>\n" + Flat(7003, 1, 5002, " item2=\"5004\"") + "</ms2>\n";
         public static readonly string FlatNa = Head + "<ms2>\n" + Flat(7004, 1, 5003, " locale=\"NA\"") + "</ms2>\n";
 
         public const string ShopCategory = Head + "<ms2>\n\t<category id=\"1\">\n\t\t<tab name=\"1\" priority=\"1\">\n\t\t\t<tab name=\"2\" category=\"AA,BB\" priority=\"1\" />\n\t\t</tab>\n\t</category>\n</ms2>\n";

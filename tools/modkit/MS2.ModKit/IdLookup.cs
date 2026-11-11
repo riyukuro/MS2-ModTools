@@ -168,7 +168,7 @@ namespace MS2.ModKit
         public static string GroupRowFieldKind(GroupKind kind, string field)
         {
             if (kind == GroupKind.Shop) return field == "id" ? Item : null;
-            return field == "itemID" || field == "itemID2" || field == "item" ? Item : null;
+            return field == "itemID" || field == "itemID2" || field == "item" || field == "item2" ? Item : null;
         }
     }
 }

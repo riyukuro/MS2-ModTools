@@ -36,6 +36,9 @@ namespace MS2.ModKit.Tests
                 Assert.That(new WhereUsed(s).Of(IdLookup.Item, 5003)[0].Index, Is.EqualTo(3), "the fourth stock row of shop 9001");
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.DropBox, 7001)), Is.EqualTo(new[] { "npc 2900001: dropiteminfo@individualDropBoxId" }));
                 Assert.That(new WhereUsed(s).Of(IdLookup.Item, 5999).Count, Is.EqualTo(0));
+                List<UseHit> second = new WhereUsed(s).Of(IdLookup.Item, 5004);
+                Assert.That(Lines(second), Is.EqualTo(new[] { "drop box 7003: group 1 item2" }), "a flat row's second item (both flat sides: one place)");
+                Assert.That(second[0].Field, Is.EqualTo("item2"));
                 Assert.Throws<ModKitException>(delegate { new WhereUsed(s).Of(IdLookup.Map, 1); });
             }
         }
