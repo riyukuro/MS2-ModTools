@@ -420,7 +420,9 @@ namespace MS2.ModKit.Xml
         public readonly XmlDoc Doc;
         readonly List<Edit> edits = new List<Edit>();
         readonly Dictionary<string, Edit> attrEdits = new Dictionary<string, Edit>();
-        readonly Dictionary<XmlElem, List<string>> appends = new Dictionary<XmlElem, List<string>>();
+        sealed class Appended { internal string Text; }
+        readonly Dictionary<XmlElem, List<Appended>> appends = new Dictionary<XmlElem, List<Appended>>();
+        readonly Dictionary<XmlElem, Edit> deletes = new Dictionary<XmlElem, Edit>();
         readonly List<XmlElem> appendOrder = new List<XmlElem>();
         int seq;
 
@@ -505,7 +507,27 @@ namespace MS2.ModKit.Xml
         {
             int s, end;
             if (!OwnLines(e, out s, out end)) { s = e.Start; end = e.End; }
-            Add(s, end, "", "delete <" + e.Name + "> (line " + e.Line + ")");
+            deletes[e] = Add(s, end, "", "delete <" + e.Name + "> (line " + e.Line + ")");
+        }
+
+        /// <summary>Takes a Delete back. Edits inside the element that were dropped for it stay dropped.</summary>
+        public void Undelete(XmlElem e)
+        {
+            Edit x;
+            if (!deletes.TryGetValue(e, out x)) return;
+            edits.Remove(x);
+            deletes.Remove(e);
+        }
+
+        /// <summary>Takes back an insert; what is the value InsertAfter, InsertBefore or Append returned.</summary>
+        public void Remove(object what)
+        {
+            var x = what as Edit;
+            if (x != null) { edits.Remove(x); return; }
+            var a = what as Appended;
+            if (a == null) return;
+            foreach (XmlElem p in new List<XmlElem>(appendOrder))
+                if (appends[p].Remove(a) && appends[p].Count == 0) { appends.Remove(p); appendOrder.Remove(p); }
         }
 
         /// <summary>Forgets edits that lie inside the element (used when a later op deletes it).</summary>
@@ -574,34 +596,36 @@ namespace MS2.ModKit.Xml
         }
 
         /// <summary>Inserts an element text as the next sibling of anchor. fromIndent is the indent the fragment has now.</summary>
-        public void InsertAfter(XmlElem anchor, string fragment, string fromIndent)
+        public object InsertAfter(XmlElem anchor, string fragment, string fromIndent)
         {
             string what = "add after <" + anchor.Name + "> (line " + anchor.Line + ")";
-            if (!Doc.IsFirstOnLine(anchor.Start)) { Add(anchor.End, anchor.End, fragment, what); return; }
+            if (!Doc.IsFirstOnLine(anchor.Start)) return Add(anchor.End, anchor.End, fragment, what);
             string ind = Doc.IndentOf(anchor.Start);
             int ls, after;
-            if (OwnLines(anchor, out ls, out after)) Add(after, after, ind + Reindent(fragment, fromIndent, ind) + Doc.NewLine, what);
-            else Add(anchor.End, anchor.End, Doc.NewLine + ind + Reindent(fragment, fromIndent, ind), what);
+            if (OwnLines(anchor, out ls, out after)) return Add(after, after, ind + Reindent(fragment, fromIndent, ind) + Doc.NewLine, what);
+            return Add(anchor.End, anchor.End, Doc.NewLine + ind + Reindent(fragment, fromIndent, ind), what);
         }
 
-        public void InsertBefore(XmlElem anchor, string fragment, string fromIndent)
+        public object InsertBefore(XmlElem anchor, string fragment, string fromIndent)
         {
             string what = "add before <" + anchor.Name + "> (line " + anchor.Line + ")";
-            if (!Doc.IsFirstOnLine(anchor.Start)) { Add(anchor.Start, anchor.Start, fragment, what); return; }
+            if (!Doc.IsFirstOnLine(anchor.Start)) return Add(anchor.Start, anchor.Start, fragment, what);
             string ind = Doc.IndentOf(anchor.Start);
             int ls, after;
-            if (OwnLines(anchor, out ls, out after)) Add(ls, ls, ind + Reindent(fragment, fromIndent, ind) + Doc.NewLine, what);
-            else Add(anchor.Start, anchor.Start, Reindent(fragment, fromIndent, ind) + Doc.NewLine + ind, what);
+            if (OwnLines(anchor, out ls, out after)) return Add(ls, ls, ind + Reindent(fragment, fromIndent, ind) + Doc.NewLine, what);
+            return Add(anchor.Start, anchor.Start, Reindent(fragment, fromIndent, ind) + Doc.NewLine + ind, what);
         }
 
         /// <summary>Adds an element text as the last child of parent.</summary>
-        public void Append(XmlElem parent, string fragment, string fromIndent)
+        public object Append(XmlElem parent, string fragment, string fromIndent)
         {
-            if (parent.Children.Count > 0) { InsertAfter(parent.Children[parent.Children.Count - 1], fragment, fromIndent); return; }
+            if (parent.Children.Count > 0) return InsertAfter(parent.Children[parent.Children.Count - 1], fragment, fromIndent);
             string ind = Doc.IndentOf(parent.Start) + Doc.IndentUnit;
-            List<string> list;
-            if (!appends.TryGetValue(parent, out list)) { appends[parent] = list = new List<string>(); appendOrder.Add(parent); }
-            list.Add(Reindent(fragment, fromIndent, ind));
+            List<Appended> list;
+            if (!appends.TryGetValue(parent, out list)) { appends[parent] = list = new List<Appended>(); appendOrder.Add(parent); }
+            var a = new Appended { Text = Reindent(fragment, fromIndent, ind) };
+            list.Add(a);
+            return a;
         }
 
         void FlushAppends()
@@ -611,7 +635,7 @@ namespace MS2.ModKit.Xml
             {
                 string pind = Doc.IndentOf(p.Start), ind = pind + Doc.IndentUnit;
                 var sb = new StringBuilder();
-                foreach (string f in appends[p]) sb.Append(Doc.NewLine).Append(ind).Append(f);
+                foreach (Appended f in appends[p]) sb.Append(Doc.NewLine).Append(ind).Append(f.Text);
                 sb.Append(Doc.NewLine).Append(pind);
                 string what = "add in <" + p.Name + "> (line " + p.Line + ")";
                 if (p.SelfClosing)
@@ -630,7 +654,7 @@ namespace MS2.ModKit.Xml
                     else
                     {
                         var raw = new StringBuilder();
-                        foreach (string f in appends[p]) raw.Append(f);
+                        foreach (Appended f in appends[p]) raw.Append(f.Text);
                         Add(p.ContentEnd, p.ContentEnd, raw.ToString(), what);
                     }
                 }

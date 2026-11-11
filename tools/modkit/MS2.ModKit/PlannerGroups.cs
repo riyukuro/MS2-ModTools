@@ -299,11 +299,7 @@ namespace MS2.ModKit
             if (arch == null) return null;
             if (quietIfMissing && arch.Find(entry) == null) return null;
             EntryState st = run.State(arch, archive, entry);
-            if (st.DeletedBy != null)
-            {
-                run.Plan.Msg(run.Plan.Conflicts, mod, archive, st.Name, g + ": edits an entry that " + Who(st.DeletedBy, mod) + " deletes");
-                return null;
-            }
+            if (st.DeletedBy != null && DeletedEntryStays(run, mod, st, g + ": edits an entry that " + Who(st.DeletedBy, mod) + " deletes")) return null;
             if (st.Base == null) { Err(run, mod, archive, entry, g, "the archive has no such entry", g.Line); return null; }
             if (!EnsureDoc(run.Plan, mod, st)) return null;
             return st;
@@ -315,7 +311,9 @@ namespace MS2.ModKit
             Mod other;
             if (run.Groups.Created.TryGetValue(key, out other))
             {
-                run.Plan.Msg(run.Plan.Conflicts, mod, null, null, g + ": " + Who(other, mod) + " also makes a " + g.Noun + " with this id (" + where + ")");
+                // the groups are planned from the highest priority down, so the one that is there stays
+                if (other == mod) run.Plan.Msg(run.Plan.Conflicts, mod, null, null, g + ": " + Who(other, mod) + " also makes a " + g.Noun + " with this id (" + where + ")");
+                else run.Plan.Conflict(mod, null, null, g + ": " + Who(other, mod) + " also makes a " + g.Noun + " with this id (" + where + ")", other);
                 return false;
             }
             run.Groups.Created[key] = mod;

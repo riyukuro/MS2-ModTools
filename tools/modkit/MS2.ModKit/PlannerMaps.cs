@@ -126,7 +126,10 @@ namespace MS2.ModKit
             }
             if (mr.Targets.Count == 0) plan.Note("no target has " + MapArchivePath + ": the map lines change nothing");
 
-            foreach (Mod m in mods)
+            // from the highest priority down: an entity or a number that two mods want stays with the first one
+            for (int mi = mods.Count - 1; mi >= 0; mi--)
+            {
+                Mod m = mods[mi];
                 foreach (MapOp mop in m.Maps)
                 {
                     foreach (KeyValuePair<Profile, string> t in mr.Targets) PlanMap(run, mr, m, mop, t.Key, t.Value);
@@ -142,6 +145,7 @@ namespace MS2.ModKit
                             plan.Msg(plan.Warnings, m, null, null, "spawn point " + D(op.Number) + " of map " + mop.XBlock + " was put into no map file, so its spawn rows are not written either (mod.xml line " + op.Line + ")");
                     }
                 }
+            }
 
             foreach (MapState ms in mr.Order) FlushAdded(ms);
             foreach (MapState ms in mr.Order) PortalChecks(run, mr, ms);
@@ -219,9 +223,17 @@ namespace MS2.ModKit
             if (arch == null) return null;
             string entry = "xblock/" + mop.XBlock + ".xblock";
             EntryState st = run.State(arch, ar, entry);
-            if (st.DeletedBy != null) { plan.Msg(st.DeletedBy == mod ? plan.Errors : plan.Conflicts, mod, ar, st.Name, "changes a map that " + Who(st.DeletedBy, mod) + " deletes"); return null; }
+            if (st.DeletedBy != null && DeletedEntryStays(run, mod, st, "changes a map that " + Who(st.DeletedBy, mod) + " deletes")) return null;
             if (st.Base == null) { plan.Msg(plan.Warnings, mod, ar, entry, target.Name + " has no such map; its map lines are skipped there (mod.xml line " + mop.Line + ")"); return null; }
-            if (st.BaseMod != null && st.BaseMod != mod) { plan.Msg(plan.Conflicts, mod, ar, st.Name, "changes a map that mod " + st.BaseMod.Id + " replaces as a whole file"); return null; }
+            if (st.BaseMod != null && st.BaseMod != mod)
+            {
+                // the whole file stays unless this mod has the higher priority and the shipped file can come back
+                bool wins = run.Outranks(mod, st.BaseMod) && st.Original != null && st.Doc == null;
+                plan.Conflict(mod, ar, st.Name, "changes a map that mod " + st.BaseMod.Id + " replaces as a whole file", wins ? mod : st.BaseMod);
+                if (!wins) return null;
+                DropEntryChange(plan, st);
+                st.Base = st.Original; st.BaseMod = null;
+            }
             MapState ms;
             if (mr.States.TryGetValue(st, out ms)) return ms;
             if (!EnsureDoc(plan, mod, st)) return null;
@@ -270,7 +282,7 @@ namespace MS2.ModKit
             {
                 if (o == self || o.Removed || (portal ? o.Portal : o.Spawn) != n) continue;
                 if (o.AddedBy != null && o.AddedBy != mod)
-                    plan.Msg(plan.Conflicts, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is also brought by mod " + o.AddedBy.Id + " (mod.xml line " + line + ")");
+                    plan.Conflict(mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is also brought by mod " + o.AddedBy.Id + " (mod.xml line " + line + ")", o.AddedBy);
                 else
                     plan.Msg(plan.Errors, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is already used in this map by entity " + o.Id + "; nothing is added (mod.xml line " + line + ")");
                 return false;
@@ -338,10 +350,16 @@ namespace MS2.ModKit
                 plan.Msg(plan.Warnings, mod, ms.ArchiveRef, st.Name, "has no entity " + op.Id + "; the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (mod.xml line " + op.Line + ")");
                 return;
             }
-            if (me.AddedBy != null) { plan.Msg(me.AddedBy == mod ? plan.Errors : plan.Conflicts, mod, ms.ArchiveRef, st.Name, verb + " entity " + op.Id + " that " + Who(me.AddedBy, mod) + " adds"); return; }
+            if (me.AddedBy != null)
+            {
+                string t = verb + " entity " + op.Id + " that " + Who(me.AddedBy, mod) + " adds";
+                if (me.AddedBy == mod) plan.Msg(plan.Errors, mod, ms.ArchiveRef, st.Name, t); else plan.Conflict(mod, ms.ArchiveRef, st.Name, t, me.AddedBy);
+                return;
+            }
             if (me.Touched != null && (me.Touched != mod || me.Removed || op.Kind == MapOpKind.Remove))
             {
-                plan.Msg(me.Touched == mod ? plan.Errors : plan.Conflicts, mod, ms.ArchiveRef, st.Name, verb + " entity " + op.Id + " that " + Who(me.Touched, mod) + " " + (me.Removed ? "removes" : "changes"));
+                string t = verb + " entity " + op.Id + " that " + Who(me.Touched, mod) + " " + (me.Removed ? "removes" : "changes");
+                if (me.Touched == mod) plan.Msg(plan.Errors, mod, ms.ArchiveRef, st.Name, t); else plan.Conflict(mod, ms.ArchiveRef, st.Name, t, me.Touched);
                 return;
             }
             string skip = " the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (mod.xml line " + op.Line + ")";

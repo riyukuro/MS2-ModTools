@@ -451,20 +451,31 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Errors, Is.Empty, dump);
                 Assert.That(p.Conflicts.Count, Is.EqualTo(3), dump);
                 Assert.That(dump, Does.Contain("C [b] " + C + " " + T + ": pet[id=100] @hp: \"80\" here, \"65\" in mod a"));
-                Assert.That(dump, Does.Contain("deletes the row pet[id=101] that mod a changes"));
-                Assert.That(dump, Does.Contain("adds the row pet[id=900] that mod a also adds"));
+                Assert.That(dump, Does.Contain("deletes the row pet[id=101] that mod a changes; mod b wins (it has the higher priority)"));
+                Assert.That(dump, Does.Contain("adds the row pet[id=900] that mod a also adds; mod b wins"));
+                Assert.That(p.Conflicts.All(c => c.ModId == "b" && c.WinnerId == "b"), dump);
                 Assert.That(dump, Does.Contain("N [b] " + C + " " + T + ": pet[id=100] @name: same value as mod a"));
-                // the later mod wins in the text, and the delete wins over the change inside the row
+                // the later mod has the higher priority: its value, its delete and its new row are in the text
                 string text = Fake.Text(p, C, T);
                 Assert.That(text, Does.Contain("<pet id=\"100\" name=\"Same\" hp=\"80\" speed=\"3\" />"));
                 Assert.That(text, Does.Not.Contain("id=\"101\""));
+                Assert.That(text, Does.Contain("name=\"B\"").And.Not.Contain("name=\"A\""));
                 Assert.That(p.Changes.Count(c => c.Kind == ChangeKind.SetAttr && c.Name == "hp"), Is.EqualTo(1));
+                Assert.That(p.Changes.Count(c => c.Kind == ChangeKind.AddRow), Is.EqualTo(1));
                 XmlDoc.Parse(Encoding.UTF8.GetBytes(text), "result");
 
-                // the other order: the change comes after the delete
+                // the other order: mod a has the higher priority, so its value, its change and its new row stay
                 p = f.Plan(b, a);
-                Assert.That(Fake.Dump(p), Does.Contain("changes the row pet[id=101]/skill[id=7] that mod b deletes"));
-                Assert.That(Fake.Text(p, C, T), Does.Not.Contain("id=\"101\""));
+                dump = Fake.Dump(p);
+                Assert.That(p.Conflicts.Count, Is.EqualTo(3), dump);
+                Assert.That(dump, Does.Contain("changes the row pet[id=101]/skill[id=7] that mod b deletes; mod a wins (it has the higher priority)"));
+                Assert.That(p.Conflicts.All(c => c.ModId == "a" && c.WinnerId == "a"), dump);
+                text = Fake.Text(p, C, T);
+                Assert.That(text, Does.Contain("<pet id=\"100\" name=\"Same\" hp=\"65\" speed=\"3\" />"));
+                Assert.That(text, Does.Contain("id=\"101\"").And.Contain("level=\"3\""));
+                Assert.That(text, Does.Contain("name=\"A\"").And.Not.Contain("name=\"B\""));
+                Assert.That(p.Changes.Count(c => c.Kind == ChangeKind.DeleteRow), Is.EqualTo(0));
+                XmlDoc.Parse(Encoding.UTF8.GetBytes(text), "result");
             }
         }
 
@@ -481,7 +492,12 @@ namespace MS2.ModKit.Tests
                 Mod c = f.Mod("c", "<edit archive=\"" + S + "\" entry=\"pet/100.xml\"><change at=\"environment/basic\"><set name=\"kind\" value=\"4\"/></change></edit>");
                 Mod d = f.Mod("d", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" delete=\"true\"/>");
                 Plan p = f.Plan(a, b);
-                Assert.That(Fake.Dump(p), Does.Contain("C [b] " + S + " pet/100.xml: replaces the entry that mod a also replaces"));
+                Assert.That(Fake.Dump(p), Does.Contain("C [b] " + S + " pet/100.xml: replaces the entry that mod a also replaces; mod b wins (it has the higher priority)"));
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Not.Contain("FromFile"));
+                Assert.That(p.Changes.Count(x => x.Entry == "pet/100.xml"), Is.EqualTo(1), string.Join(" | ", p.Changes.Select(x => x.Kind + " " + x.ModId + " " + x.Archive + " " + x.Entry + " row=" + x.Row).ToArray()));
+                p = f.Plan(b, a);
+                Assert.That(Fake.Dump(p), Does.Contain("C [a] " + S + " pet/100.xml: replaces the entry that mod b also replaces; mod a wins"));
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("FromFile"));
                 p = f.Plan(a, c);
                 Assert.That(Fake.Dump(p), Does.Contain("C [c] " + S + " pet/100.xml: edits an entry that mod a replaces"));
                 Assert.That(Fake.Text(p, S, "pet/100.xml"), Is.EqualTo("<ms2><environment><basic name=\"FromFile\" kind=\"4\"/></environment></ms2>"));
@@ -489,6 +505,19 @@ namespace MS2.ModKit.Tests
                 Assert.That(Fake.Dump(p), Does.Contain("C [c] " + S + " pet/100.xml: edits an entry that mod d deletes"));
                 Assert.That(p.Find(S).Delete, Is.EqualTo(new[] { "pet/100.xml" }));
                 Assert.That(p.Find(S).Put, Is.Empty);
+                Assert.That(p.Conflicts[0].WinnerId, Is.EqualTo("d"));
+                // the edit has the higher priority: the entry stays and is edited
+                p = f.Plan(d, c);
+                Assert.That(Fake.Dump(p), Does.Contain("C [c] " + S + " pet/100.xml: edits an entry that mod d deletes; mod c wins"));
+                Assert.That(p.Find(S).Delete, Is.Empty);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("kind=\"4\""));
+                // and a delete with the higher priority takes an entry another mod replaces
+                p = f.Plan(a, d);
+                Assert.That(Fake.Dump(p), Does.Contain("; mod d wins"));
+                Assert.That(p.Find(S).Delete, Is.EqualTo(new[] { "pet/100.xml" }));
+                p = f.Plan(d, a);
+                Assert.That(Fake.Dump(p), Does.Contain("; mod a wins"));
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("FromFile"));
                 Mod outside = f.Mod("o", "<entry archive=\"" + S + "\" name=\"pet/1.xml\" file=\"../a/data/p.xml\"/>");
                 Assert.That(Fake.Dump(f.Plan(outside)), Does.Contain("outside of the mod folder"));
             }
@@ -559,7 +588,7 @@ namespace MS2.ModKit.Tests
                 Mod a = f.Mod("a", string.Format(Ids, "") + NewPet(901)), b = f.Mod("b", string.Format(Ids, "").Replace("900", "905").Replace("909", "915") + NewPet(901));
                 dump = Fake.Dump(f.Plan(a, b));
                 Assert.That(dump, Does.Contain("C [b] ids space \"pet\": the range 905-915 overlaps 900-909 of mod a"));
-                Assert.That(dump, Does.Contain("new id 901 of space \"pet\" is also added by mod a"));
+                Assert.That(dump, Does.Contain("adds the row pet[id=901] that mod a also adds; mod b wins"));
 
                 Assert.That(IdSpaces.NextFree(f.Data, f.Mod("n", string.Format(Ids, "") + NewPet(900) + NewPet(902).Replace("<add>", "<add in=\"\">")), "pet", 3, null), Is.EqualTo(new long[] { 901, 903, 904 }));
                 Assert.That(IdSpaces.UsedIds(f.Data, new IdPlace { Archive = C, Entry = "table/*.xml", Rows = "pet" }, null).OrderBy(x => x).ToArray(), Is.EqualTo(new long[] { 100, 101, 102 }));

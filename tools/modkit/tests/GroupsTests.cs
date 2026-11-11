@@ -289,6 +289,8 @@ namespace MS2.ModKit.Tests
                 string body = "<shop id=\"900000003\" new=\"true\"><xml><shop categoryID=\"1\" /></xml></shop>";
                 Plan p = f.Plan(body, body);
                 Assert.That(Has(p.Conflicts, "also makes a shop with this id"), Fake.Dump(p));
+                // the mod given later has the higher priority; the message is the other mod's and names the winner
+                Assert.That(p.Conflicts.TrueForAll(x => x.WinnerId == "groups.test1" && x.ModId == "groups.test0" && x.Text.EndsWith("; mod " + x.WinnerId + " wins (it has the higher priority)")), Fake.Dump(p));
                 p = f.Plan("<shop id=\"9001\" new=\"true\"><xml><shop categoryID=\"1\" /></xml></shop>");
                 Assert.That(Has(p.Errors, "already used"), Fake.Dump(p));
             }

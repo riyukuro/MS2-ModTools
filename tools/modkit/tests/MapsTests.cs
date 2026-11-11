@@ -704,21 +704,24 @@ namespace MS2.ModKit.Tests
                 Assert.That(text, Does.Contain("150, 150, 300"));
                 Assert.That(Bytes(f.Plan(b, a), K, FakeMaps.EntryA), Is.EqualTo(Bytes(p, K, FakeMaps.EntryA)));
 
-                // the same entity
+                // the same entity: the mod given later has the higher priority, it is planned first and its change stays
                 string change = "<change id=\"" + FakeMaps.Crate1 + "\" model=\"Crate_A\" position=\"0, 0, 150\"><set name=\"Rotation\" old=\"0, 0, 90\" value=\"0, 0, 180\" /></change>";
                 string remove = "<remove id=\"" + FakeMaps.Crate1 + "\" model=\"Crate_A\" position=\"0, 0, 150\" />";
                 p = f.Plan(f.Mod("c", Map(change)), f.Mod("d", Map(remove)));
-                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("removes entity " + FakeMaps.Crate1 + " that mod c changes")), Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("changes entity " + FakeMaps.Crate1 + " that mod d removes; mod d wins")), Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(p.Conflicts.All(x => x.ModId == "c" && x.WinnerId == "d"), Fake.Dump(p));
+                Assert.That(Encoding.UTF8.GetString(Bytes(p, K, FakeMaps.EntryA)), Does.Not.Contain(FakeMaps.Crate1));
                 p = f.Plan(f.Mod("c2", Map(remove)), f.Mod("d2", Map(change)));
-                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("changes entity " + FakeMaps.Crate1 + " that mod c2 removes")), Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("removes entity " + FakeMaps.Crate1 + " that mod d2 changes; mod d2 wins")), Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(Encoding.UTF8.GetString(Bytes(p, K, FakeMaps.EntryA)), Does.Contain(FakeMaps.Crate1).And.Contain("0, 0, 180"));
                 p = f.Plan(f.Mod("c3", Map(change)), f.Mod("d3", Map(change)));
-                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("changes entity " + FakeMaps.Crate1 + " that mod c3 changes")), Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("changes entity " + FakeMaps.Crate1 + " that mod d3 changes; mod d3 wins")), Is.EqualTo(2), Fake.Dump(p));
 
                 // the same PortalID, the same SpawnPointID
                 p = f.Plan(f.Mod("e", Map(Portal("east", 50001, 90000002, 1))), f.Mod("g", Map(Portal("north", 50001, 90000002, 1))));
-                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("PortalID 50001 is also brought by mod e")), Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("PortalID 50001 is also brought by mod g") && x.Contains("; mod g wins")), Is.EqualTo(3), Fake.Dump(p));
                 p = f.Plan(f.Mod("h", Map(Spawn("s", 140001, "<row tag=\"wolf\" />"))), f.Mod("i", Map(Spawn("t", 140001, "<row tag=\"bear\" />"))));
-                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("SpawnPointID 140001 is also brought by mod h")), Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(Lines(p.Conflicts).Count(x => x.Contains("SpawnPointID 140001 is also brought by mod i") && x.Contains("; mod i wins")), Is.EqualTo(3), Fake.Dump(p));
 
                 // one mod, the same op name in two <map> blocks of one map: the same id (inside one block the mod does not load)
                 p = f.Plan(f.Mod("j", Map(AddCrate) + Map(AddCrate)));
