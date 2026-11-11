@@ -40,7 +40,7 @@ namespace MS2.Tables
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly Dictionary<string, TextBox> featureBoxes = new Dictionary<string, TextBox>();   // data root -> its features field
         readonly CheckBox allowBox = new CheckBox { Text = "Higher mod wins a conflict", Height = 20 };
-        readonly CheckedListBox modsList = new CheckedListBox { Dock = DockStyle.Fill, IntegralHeight = false, CheckOnClick = false };
+        readonly CheckedListBox modsList = new CheckedListBox { Dock = DockStyle.Fill, IntegralHeight = false, CheckOnClick = true };
         readonly Label busyLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
         readonly List<Control> lockable = new List<Control>();   // what is disabled while a job runs
         ModList modList;
@@ -451,7 +451,7 @@ namespace MS2.Tables
         void OnModCheck(object sender, ItemCheckEventArgs e)
         {
             if (filling || modList == null || e.Index < 0 || e.Index >= modList.Items.Count) return;
-            // a press on the name of the selected mod starts a drag, it must not also clear the mod's check
+            // the box takes one click (CheckOnClick); a press on the name selects the mod or starts a drag and leaves the check
             if (pressOnName) { e.NewValue = e.CurrentValue; return; }
             ModListItem it = modList.Items[e.Index];
             bool on = e.NewValue == CheckState.Checked;

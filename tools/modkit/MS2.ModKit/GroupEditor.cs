@@ -243,7 +243,7 @@ namespace MS2.ModKit
                     foreach (PlanMessage m in list)
                     {
                         string where = m.Archive == null ? "" : DataSet.RootOf(m.Archive) + ": ";
-                        string kindText = list == plan.Errors ? "error: " : list == plan.Conflicts ? "conflict: " : list == plan.Warnings ? "warning: " : "";
+                        string kindText = list == plan.Errors ? "error: " : list == plan.Conflicts ? m.ConflictTag : list == plan.Warnings ? "warning: " : "";
                         v.Lines.Add(where + kindText + (m.Text.StartsWith(tag, StringComparison.Ordinal) ? m.Text.Substring(tag.Length) : m.Text));
                     }
             }

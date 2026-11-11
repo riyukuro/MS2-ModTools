@@ -338,27 +338,40 @@ namespace MS2.ModKit
 
         // ---- results as text ----
 
-        public static string Report(Plan p)
+        public static string Report(Plan p) { return Report(p, true); }
+
+        // the priority line and one line per conflict
+        static void Conflicts(StringBuilder sb, Plan p)
+        {
+            if (p.Conflicts.Count > 0 && p.Mods.Count > 1) sb.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append("\r\n");
+            foreach (PlanMessage m in p.Conflicts) sb.Append(m.ConflictLine()).Append("\r\n");
+        }
+
+        static string Report(Plan p, bool conflicts)
         {
             var sb = new StringBuilder();
             sb.Append(p.Mods.Count).Append(" mod(s), ").Append(p.Changes.Count).Append(" change(s), ")
               .Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ")
               .Append(p.Warnings.Count).Append(" warning(s)\r\n");
-            if (p.Conflicts.Count > 0 && p.Mods.Count > 1) sb.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append("\r\n");
+            if (conflicts) Conflicts(sb, p);
             foreach (PlanMessage m in p.Errors) sb.Append("error: ").Append(m).Append("\r\n");
-            foreach (PlanMessage m in p.Conflicts) sb.Append("conflict: ").Append(m).Append("\r\n");
             foreach (PlanMessage m in p.Warnings) sb.Append("warning: ").Append(m).Append("\r\n");
             foreach (PlanMessage m in p.Notes) sb.Append("note: ").Append(m).Append("\r\n");
             foreach (PlanChange c in p.Changes) sb.Append("  ").Append(c).Append("\r\n");
             return sb.ToString();
         }
 
-        /// <summary>The targets of the session's data, one line per target with what the plan does there, then Report(p).</summary>
+        /// <summary>
+        /// What a view shows for a plan: the conflicts with their winners first, so that they are read without
+        /// scrolling, then the targets of the session's data with what the plan does there, then the rest of Report(p).
+        /// </summary>
         public string Describe(Plan p)
         {
-            var sb = new StringBuilder(Targets.Line(Data)).Append("\r\n");
+            var sb = new StringBuilder();
+            Conflicts(sb, p);
+            sb.Append(Targets.Line(Data)).Append("\r\n");
             foreach (string l in Targets.PlanLines(p, Data)) sb.Append("  ").Append(l).Append("\r\n");
-            return sb.Append(Report(p)).ToString();
+            return sb.Append(Report(p, false)).ToString();
         }
 
         /// <summary>The targets of the session's data, what the apply or revert wrote or removed on each, then the plan and the server step.</summary>

@@ -138,7 +138,7 @@ namespace MS2.ModKit.Tests
                     ApplyResult r = lt.Apply(f.Data, new[] { a }, new ApplyOptions { AllowConflicts = allow });
                     Assert.That(r.Applied, Is.False);
                     Assert.That(r.Reason, Does.Contain("did not write"));
-                    Assert.That(EditorSession.Report(r), Does.Contain("conflict: "));
+                    Assert.That(EditorSession.Report(r), Does.Contain("conflict, no winner: "));
                 }
                 Assert.That(File.ReadAllText(pet), Is.EqualTo("someone else's table"));
                 Assert.That(lt.ReadState(), Is.Null, "a refused apply leaves no record");
@@ -213,7 +213,7 @@ namespace MS2.ModKit.Tests
                 Plan p = f.Plan(l.LoadEnabled(null).ToArray());
                 Assert.That(Fake.Text(p, C, Pet), Does.Contain("<pet id=\"100\" name=\"Mossy\" hp=\"1\""));
                 Assert.That(p.Conflicts.Single().WinnerId, Is.EqualTo("b.second"));
-                Assert.That(EditorSession.Report(p), Does.Contain("priority, the highest first: b.second > a.first").And.Contain("; mod b.second wins (it has the higher priority)"));
+                Assert.That(EditorSession.Report(p), Does.Contain("priority, the highest first: b.second > a.first").And.Contain("conflict, b.second wins: [b.second] "));
                 // a drag: the third to the top, and back
                 Assert.That(l.MoveTo(2, 0), Is.EqualTo(0));
                 Assert.That(l.Items.Select(i => i.Id), Is.EqualTo(new[] { "c.third", "b.second", "a.first" }));
@@ -292,7 +292,7 @@ namespace MS2.ModKit.Tests
                     Directory.CreateDirectory(Path.GetDirectoryName(other));
                     File.WriteAllText(other, "not ours");
                     f.ModDir("m.zz", "<entry archive=\"" + C + "\" name=\"pet/100.xml\" copy=\"pet/101.xml\"/>");
-                    Assert.That(EditorSession.Report(s.Plan()), Does.Contain("conflict: client:Xml.m2d pet/100.xml: the file " + other));
+                    Assert.That(EditorSession.Report(s.Plan()), Does.Contain("conflict, no winner: client:Xml.m2d pet/100.xml: the file " + other));
                     Assert.That(s.Apply().Applied, Is.False);
                     Assert.That(File.ReadAllText(other), Is.EqualTo("not ours"));
                     Directory.Delete(Path.Combine(mods, "m.zz"), true);

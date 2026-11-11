@@ -687,6 +687,51 @@ namespace MS2.ModKit.Tests
         // ---- two mods ----
 
         [Test]
+        public void WholeFileAgainstMapEdit()
+        {
+            using (var f = new FakeMaps())
+            {
+                // one mod edits a map, the other brings the whole map file
+                M2dArchive arch = f.Data.Open(K);
+                string shipped = Encoding.UTF8.GetString(arch.Read(arch.Find(FakeMaps.EntryA)));
+                Assert.That(shipped, Does.Contain("0, 0, 90"));
+                byte[] whole = Encoding.UTF8.GetBytes(shipped.Replace("0, 0, 90", "0, 0, 45"));
+                Func<string, Mod> file = id =>
+                {
+                    string d = Path.Combine(f.Dir, "mods", id, "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "a.xblock"), whole);
+                    return f.Mod(id, "<entry archive=\"" + K + "\" name=\"" + FakeMaps.EntryA + "\" file=\"data/a.xblock\"/>");
+                };
+
+                // the whole file has the higher priority: it is written as it is, the edit is left out there
+                Mod edit = f.Mod("edit", Map(AddCrate)), top = file("whole");
+                Plan p = f.Plan(edit, top);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                var c = p.Conflicts.Where(x => x.Archive == K).ToList();
+                Assert.That(c.Count, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(c[0].ModId, Is.EqualTo("edit"));
+                Assert.That(c[0].WinnerId, Is.EqualTo("whole"));
+                Assert.That(c[0].Text, Does.Contain("changes a map that mod whole replaces as a whole file; mod whole wins"));
+                Assert.That(c[0].ConflictLine(), Does.StartWith("conflict, whole wins: [edit] " + K + " " + FakeMaps.EntryA + ": changes a map").And.Not.Contain("; mod whole wins"));
+                Assert.That(Bytes(p, K, FakeMaps.EntryA), Is.EqualTo(whole));
+                // the other targets have no whole file: the edit is made there
+                Assert.That(Encoding.UTF8.GetString(Bytes(p, G, FakeMaps.EntryA)), Does.Contain(MapValues.NewEntityId("edit", FakeMaps.MapA, "crate-1")));
+
+                // the edit has the higher priority: the shipped file comes back and gets the edit
+                Mod low = file("whole2"), high = f.Mod("edit2", Map(AddCrate));
+                p = f.Plan(low, high);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                c = p.Conflicts.Where(x => x.Archive == K).ToList();
+                Assert.That(c.Count, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(c[0].ModId, Is.EqualTo("edit2"));
+                Assert.That(c[0].WinnerId, Is.EqualTo("edit2"));
+                string text = Encoding.UTF8.GetString(Bytes(p, K, FakeMaps.EntryA));
+                Assert.That(text, Does.Contain(MapValues.NewEntityId("edit2", FakeMaps.MapA, "crate-1")).And.Contain("0, 0, 90").And.Not.Contain("0, 0, 45"));
+            }
+        }
+
+        [Test]
         public void TwoModsOnOneMap()
         {
             using (var f = new FakeMaps())

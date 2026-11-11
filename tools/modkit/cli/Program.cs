@@ -388,7 +388,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             if (changes) foreach (PlanChange c in p.Changes) o.Append(c).Append('\n');
             foreach (PlanMessage m in p.Notes) o.Append("note: ").Append(m).Append('\n');
             foreach (PlanMessage m in p.Warnings) o.Append("warning: ").Append(m).Append('\n');
-            foreach (PlanMessage m in p.Conflicts) o.Append("conflict: ").Append(m).Append('\n');
+            foreach (PlanMessage m in p.Conflicts) o.Append(m.ConflictLine()).Append('\n');
             foreach (PlanMessage m in p.Errors) o.Append("error: ").Append(m).Append('\n');
             if (p.Conflicts.Count > 0 && p.Mods.Count > 1) o.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append('\n');
             int entries = 0;

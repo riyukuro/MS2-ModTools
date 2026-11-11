@@ -76,6 +76,22 @@ namespace MS2.ModKit
         /// <summary>Conflicts only: the id of the mod whose change is in the plan; null when the conflict has no winner.</summary>
         public string WinnerId;
 
+        internal const string WinsTail = " wins (it has the higher priority)";
+
+        /// <summary>
+        /// A conflict as one line of a report, the outcome first so that it shows in a narrow box:
+        /// "conflict, b wins: [a] archive entry: what" or "conflict, no winner: ...".
+        /// </summary>
+        public string ConflictLine()
+        {
+            if (WinnerId == null) return ConflictTag + this;
+            string all = ToString(), tail = "; mod " + WinnerId + WinsTail;
+            return ConflictTag + (all.EndsWith(tail, StringComparison.Ordinal) ? all.Substring(0, all.Length - tail.Length) : all);
+        }
+
+        /// <summary>"conflict, b wins: " or "conflict, no winner: "</summary>
+        public string ConflictTag { get { return WinnerId == null ? "conflict, no winner: " : "conflict, " + WinnerId + " wins: "; } }
+
         public override string ToString()
         {
             var sb = new StringBuilder();
@@ -150,7 +166,7 @@ namespace MS2.ModKit
         internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner)
         {
             int n = Conflicts.Count;
-            Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + " wins (it has the higher priority)");
+            Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + PlanMessage.WinsTail);
             if (Conflicts.Count > n) Conflicts[n].WinnerId = winner.Id;
         }
     }

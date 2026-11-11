@@ -65,9 +65,9 @@ and `validate` with the third example mod, which is made to collide with the oth
 ```
 warning: [example.rival-pets] id 905 of space "pet" is added in 1 of 2 places; nothing is added in server:Xml.m2d pet/{id}.xml
 warning: [example.rival-pets] client:Xml.m2d table/pet.xml: attribute glow is never set on ms2/pet in the shipped table/pet.xml
-conflict: [example.rival-pets] client:Xml.m2d table/pet.xml: pet[id=100] @hp: "80" here, "65" in mod example.bigger-pets; mod example.rival-pets wins (it has the higher priority)
-conflict: [example.rival-pets] client:Xml.m2d table/pet.xml: deletes the row pet[id=101] that mod example.bigger-pets changes; mod example.rival-pets wins (it has the higher priority)
-conflict: [example.rival-pets] ids space "pet": the range 905-915 overlaps 900-909 of mod example.new-pet
+conflict, example.rival-pets wins: [example.rival-pets] client:Xml.m2d table/pet.xml: pet[id=100] @hp: "80" here, "65" in mod example.bigger-pets
+conflict, example.rival-pets wins: [example.rival-pets] client:Xml.m2d table/pet.xml: deletes the row pet[id=101] that mod example.bigger-pets changes
+conflict, no winner: [example.rival-pets] ids space "pet": the range 905-915 overlaps 900-909 of mod example.new-pet
 error: [example.rival-pets] client:Xml.m2d table/pet.xml: new id 905 of space "pet" is already used in the original data (server:Xml.m2d pet/{id}.xml)
 ```
 
@@ -179,7 +179,7 @@ modkit status --game <game folder>
   with the highest first: the named mods are above all others, the others keep their order below them. An id
   that none of the given mods has is a usage error. Without the option the list is read from the setting
   `MS2_MOD_PRIORITY` (environment, then `modtools.toml`), which may also name mods that are not given this time.
-  Every conflict line ends with the winner (`; mod X wins (it has the higher priority)`), a line
+  Every conflict line begins with the outcome (`conflict, X wins:` or `conflict, no winner:`), a line
   `priority, the highest first: c > a > b` follows the conflicts, and `--json` has `priority` and a `winner` per
   conflict. What the higher mod sets is what the plan holds: its value, its delete, its new row or its entry; the
   lower mod's part of that conflict is left out, and the rest of the lower mod still applies. Three kinds of
@@ -309,7 +309,9 @@ Using it:
    place with the mouse. A mod folder that is new goes to the end of the list; the mod being edited, when it is
    not saved yet, is above all. **Higher mod wins a conflict** under the list decides what a conflict does: off,
    Apply writes nothing while mods conflict; on, Apply goes on and the higher mod's change is written. Either way
-   Plan names the winner of every conflict and shows the order. The box is kept in the Toolbench settings and
+   Plan shows the order and the conflicts first, every conflict line beginning with its winner
+   (`conflict, X wins:`). A click on a mod's box
+   checks or unchecks it; a click on its name selects it. The box is kept in the Toolbench settings and
    holds for the other MS2 views too. **Load mod** (or a double-click) loads the selected mod into the
    grid. The mod being edited is marked and always takes part, checked or not. The checks and the order are kept in
    `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them. (A list saved by an

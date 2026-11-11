@@ -260,7 +260,7 @@ namespace MS2.ModKit.Tests
 
                     // a conflicting second mod in the folder: the plan says so and apply writes nothing
                     f.ModDir("t.zz", "<edit archive=\"client:Xml.m2d\" entry=\"table/pet.xml\"><change at=\"pet[id=100]\"><set name=\"hp\" value=\"1\"/></change></edit>");
-                    Assert.That(EditorSession.Report(s.Plan()), Does.Contain("conflict: "));
+                    Assert.That(EditorSession.Report(s.Plan()), Does.Contain("conflict, "));
                     Assert.That(s.Apply().Applied, Is.False);
                     Directory.Delete(Path.Combine(mods, "t.zz"), true);
 
