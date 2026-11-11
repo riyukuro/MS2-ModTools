@@ -75,5 +75,44 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Notes.Any(n => n.Text.Contains("the client loader reads it (game/pets/petloader.cpp:5)")), dump);
             }
         }
+
+        [Test]
+        public void ANoteSaysWhatTheClientDoesWithTheValue()
+        {
+            using (var f = new Fake())
+            {
+                var set = new SchemaSet();
+                set.Build(f.Data, C, null);
+                File.WriteAllText(Path.Combine(f.Dir, "notes.xml"), "<notes><attr archive=\"" + C + "\" table=\"" + T + "\" element=\"ms2/pet\" name=\"glow\" source=\"client\" ref=\"game/pets/petloader.cpp:5\" use=\"int, how bright the pet is\"/></notes>");
+                set.LoadNotes(Path.Combine(f.Dir, "notes.xml"));
+                Mod m = f.Mod("s", "<edit archive=\"" + C + "\" entry=\"" + T + "\"><change at=\"pet[id=100]\"><set name=\"glow\" value=\"1\"/></change></edit>");
+                Plan p = Planner.Build(f.Data, new[] { m }, new PlanOptions { Schemas = set });
+                Assert.That(p.Notes.Any(n => n.Text.EndsWith("the client loader reads it (game/pets/petloader.cpp:5): int, how bright the pet is")), Fake.Dump(p));
+            }
+        }
+
+        // The notes file of the repo: every line loads, cites a file and a line, says what the value is used for, and is there once.
+        [Test]
+        public void TheShippedNotesAreWellFormed()
+        {
+            string dir = TestContext.CurrentContext.TestDirectory, path = null;
+            for (int i = 0; i < 8 && dir != null && path == null; i++, dir = Path.GetDirectoryName(dir))
+                if (File.Exists(Path.Combine(dir, "schema-notes.xml"))) path = Path.Combine(dir, "schema-notes.xml");
+            Assert.That(path, Is.Not.Null, "schema-notes.xml not found above the test folder");
+            var set = new SchemaSet();
+            set.LoadNotes(path);
+            var seen = new HashSet<string>();
+            foreach (SchemaNote n in set.Notes)
+            {
+                string id = n.Archive + " " + n.Table + " " + n.Element + " @" + n.Attr;
+                Assert.That(seen.Add(id + " " + n.Source), id + " is there twice");
+                Assert.That(n.Element, Does.StartWith("ms2/"), id);
+                if (n.Source != "client") continue;
+                Assert.That(n.Archive, Is.Not.EqualTo("*"), id);
+                Assert.That(n.Ref, Does.Match("^[a-z0-9_/]+\\.(cpp|h|inl):[0-9]+$"), id);
+                Assert.That(n.Use, Is.Not.Empty, id);
+                Assert.That(n.Use.Any(char.IsDigit), Is.False, id + ": a use text holds no number, so no game value");
+            }
+        }
     }
 }

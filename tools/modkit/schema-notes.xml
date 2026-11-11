@@ -3,15 +3,93 @@
      One <attr> per attribute that is valid although no shipped row sets it. Names only: no values from the game data.
 
        <attr archive="client:Xml.m2d" table="table/example.xml" element="ms2/row" name="attribute"
-             source="client" ref="where the loader reads it"/>
+             source="client" ref="ms2/commonfiles/example.cpp:120"
+             use="whole number kept with the row"/>
 
      archive   the archive, or leave it out for every archive
-     table     the table name as "modkit schema show" prints it (npc/#.xml for npc/21000001.xml)
+     table     the table name as "modkit schema show" prints it (npcdata/#.xml for npcdata/90000001.xml)
      element   the element path from the root element
      source    "client": the client's loader reads the attribute, ref cites the source file
                "maple2": only the Maple2 server code says so; reported as unverified
      Order of trust: shipped data, then the client loader, then Maple2.
 
-     No entry yet: add one when a mod needs an attribute that the data never sets and its reader has been checked. -->
+     ref       for "client": file:line of the read in the recovered client source (modkit schema cite finds candidates)
+     use       what the reader does with the value, in a few words of our own: no code text, no value from the game data
+
+     Below: the main loader of each table an editor covers (items, npcs, fields, quests, skills), every attribute it
+     reads on an element of the Korean client's table that no shipped row sets there. Other readers of the same
+     tables are not covered yet. -->
 <notes>
+  <!-- npcdata/#.xml -->
+  <attr archive="client:Xml.m2d" table="npcdata/#.xml" element="ms2/npc/environment/interact" name="interactCastingAnimation"
+        source="client" ref="ms2/commonfiles/npcdata.cpp:1599"
+        use="text, an animation name; when it is set, the interact state plays it during the cast"/>
+  <attr archive="client:Xml.m2d" table="npcdata/#.xml" element="ms2/npc/environment/corpse" name="corpseEffect"
+        source="client" ref="ms2/commonfiles/npcdata.cpp:1719"
+        use="text, an effect name kept with the corpse settings; the dead state reads it"/>
+
+  <!-- itemdata/#.xml -->
+  <attr archive="client:Xml.m2d" table="itemdata/#.xml" element="ms2/item/environment/limit" name="vipLevel"
+        source="client" ref="ms2/commonfiles/itemdatastruct.cpp:584"
+        use="whole number; above zero the item counts as a premium item of that level"/>
+  <attr archive="client:Xml.m2d" table="itemdata/#.xml" element="ms2/item/environment/function" name="param3"
+        source="client" ref="ms2/commonfiles/itemdatastruct.cpp:1764"
+        use="whole number, the third numeric argument kept with the item function"/>
+
+  <!-- table/fielddata.xml -->
+  <attr archive="client:Xml.m2d" table="table/fielddata.xml" element="ms2/fieldData/environment/property" name="requireQuest"
+        source="client" ref="ms2/commonfiles/fielddata.cpp:703"
+        use="a quest id; a field object asks whether that quest is rewarded and shows a notice with the quest name when it is not"/>
+  <attr archive="client:Xml.m2d" table="table/fielddata.xml" element="ms2/fieldData/environment/property" name="setItemRestrainID"
+        source="client" ref="ms2/commonfiles/fielddata.cpp:718"
+        use="whole number kept with the field; a getter of the field data returns it"/>
+  <attr archive="client:Xml.m2d" table="table/fielddata.xml" element="ms2/fieldData/environment/drop" name="dropRank"
+        source="client" ref="ms2/commonfiles/fielddata.cpp:726"
+        use="whole number kept with the field beside the map level; no reader of it was found in the client"/>
+  <attr archive="client:Xml.m2d" table="table/fielddata.xml" element="ms2/fieldData/environment/drop" name="globalDropBoxID"
+        source="client" ref="ms2/commonfiles/fielddata.cpp:727"
+        use="list of whole numbers kept with the field; no reader of it was found in the client"/>
+
+  <!-- quest/#.xml -->
+  <attr archive="client:Xml.m2d" table="quest/#.xml" element="ms2/environment/quest/require" name="achievementGrade"
+        source="client" ref="ms2/commonfiles/questdata.cpp:1328"
+        use="whole number; when it is not zero the required achievement is checked at that grade"/>
+  <attr archive="client:Xml.m2d" table="quest/#.xml" element="ms2/environment/quest/require" name="startTime"
+        source="client" ref="ms2/commonfiles/questdata.cpp:1368"
+        use="text; the client reads it and keeps nothing of it"/>
+  <attr archive="client:Xml.m2d" table="quest/#.xml" element="ms2/environment/quest/require" name="endTime"
+        source="client" ref="ms2/commonfiles/questdata.cpp:1369"
+        use="text; the client reads it and keeps nothing of it"/>
+  <attr archive="client:Xml.m2d" table="quest/#.xml" element="ms2/environment/quest/completeReward" name="karma"
+        source="client" ref="ms2/commonfiles/questdata.cpp:1423"
+        use="whole number kept with the completion rewards; the reward calculation reads it"/>
+  <attr archive="client:Xml.m2d" table="quest/#.xml" element="ms2/environment/quest/mentoringMission" name="mentoringSeason"
+        source="client" ref="ms2/commonfiles/questdata.cpp:1468"
+        use="whole number kept with the mentoring mission settings"/>
+
+  <!-- skilldata/#.xml -->
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/basic/sensor" name="targetHasBuffOverlapCount"
+        source="client" ref="ms2/commonfiles/skillleveldata.cpp:191"
+        use="whole number kept with the sensor beside the buff id the target must have"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/basic/magicControl" name="maxDistance"
+        source="client" ref="ms2/commonfiles/skillleveldata.cpp:662"
+        use="decimal number kept with the magic control settings beside the move speed and the duration"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/level/motion/attack/arrow" name="effectInvoke"
+        source="client" ref="ms2/commonfiles/skillattackdata.cpp:118"
+        use="text, an effect name kept with the arrow beside its other effects"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/level/motion/attack/damage" name="hand"
+        source="client" ref="ms2/commonfiles/skillattackdata.cpp:257"
+        use="whole number kept with the damage settings"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/level/motion/attack/damage" name="damagedVibrateRatio"
+        source="client" ref="ms2/commonfiles/skillattackdata.cpp:261"
+        use="decimal number kept with the damage settings; when it is not given the ratio is one"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/level/motion/attack/actionSkill" name="activeByIntervalTick"
+        source="client" ref="ms2/commonfiles/skillleveldata.cpp:308"
+        use="whole number kept with the triggered skill"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/level/motion/attack/actionSkill" name="chain"
+        source="client" ref="ms2/commonfiles/skillleveldata.cpp:310"
+        use="whole number kept with the triggered skill; zero when it is not given"/>
+  <attr archive="client:Xml.m2d" table="skilldata/#.xml" element="ms2/skill/level/motion/attack/actionSkill" name="chainDistance"
+        source="client" ref="ms2/commonfiles/skillleveldata.cpp:311"
+        use="decimal number kept with the triggered skill; a built-in distance is used when it is not given"/>
 </notes>

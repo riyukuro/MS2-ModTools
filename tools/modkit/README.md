@@ -233,12 +233,14 @@ accepts.
 ```xml
 <notes>
   <attr archive="client:Xml.m2d" table="table/pet.xml" element="ms2/pet" name="glow"
-        source="client" ref="src/ms2/client/.../SomeLoader.cpp"/>
+        source="client" ref="ms2/commonfiles/petloader.cpp:120"
+        use="whole number kept with the pet; the pet window reads it"/>
 </notes>
 ```
 
-`source="client"` means the client's loader reads the attribute (with the source path, as a citation, in `ref`);
-then the "never set" warning becomes a note. `source="maple2"` means only the Maple2 server code says so: it is shown
+`source="client"` means the client's loader reads the attribute (`ref` cites the file and line of the read,
+`use` says in our own words what the loader does with the value; neither copies code or data);
+then the "never set" warning becomes a note that shows both. `source="maple2"` means only the Maple2 server code says so: it is shown
 as unverified and the warning stays. The order of trust is shipped data, then the client loader, then Maple2.
 
 `modkit schema cite <archive> <table> <element> <attr> --src DIR` helps to write such a line. It lists the lines of

@@ -155,6 +155,7 @@ namespace MS2.ModKit
         public string Table, Element, Attr;
         public string Source;       // "client" (the loader in src/ms2/client reads it) or "maple2" (unverified)
         public string Ref = "";     // where: a source path or a class name
+        public string Use = "";     // what the reader does with the value, in a few words; may be empty
     }
 
     public sealed class SchemaSet
@@ -435,7 +436,7 @@ namespace MS2.ModKit
                 var n = new SchemaNote
                 {
                     Archive = e.Attr("archive") ?? "*", Table = e.Attr("table"), Element = e.Attr("element"), Attr = e.Attr("name"),
-                    Source = e.Attr("source"), Ref = e.Attr("ref") ?? "",
+                    Source = e.Attr("source"), Ref = e.Attr("ref") ?? "", Use = e.Attr("use") ?? "",
                 };
                 if (n.Table == null || n.Element == null || n.Attr == null) throw new ModKitException(path + " line " + e.Line + ": <attr> needs table, element and name");
                 if (n.Source != "client" && n.Source != "maple2") throw new ModKitException(path + " line " + e.Line + ": source must be \"client\" or \"maple2\"");
@@ -498,7 +499,7 @@ namespace MS2.ModKit
                 {
                     SchemaNote note = FindNote(p.Archive, tn, p.ElementPath, p.Attr);
                     if (note != null && note.Source == "client")
-                        plan.Msg(plan.Notes, p.Mod, p.Archive, p.Entry, "attribute " + p.Attr + " of " + p.ElementPath + " is not in the shipped " + tn + "; the client loader reads it (" + note.Ref + ")");
+                        plan.Msg(plan.Notes, p.Mod, p.Archive, p.Entry, "attribute " + p.Attr + " of " + p.ElementPath + " is not in the shipped " + tn + "; the client loader reads it (" + note.Ref + ")" + (note.Use == "" ? "" : ": " + note.Use));
                     else if (note != null)
                         plan.Msg(plan.Warnings, p.Mod, p.Archive, p.Entry, "attribute " + p.Attr + " of " + p.ElementPath + " is not in the shipped " + tn + "; known from Maple2 only, unverified (" + note.Ref + ")");
                     else
