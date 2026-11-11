@@ -16,5 +16,7 @@
     <PackageReference Include="NUnit3TestAdapter" Version="4.5.0" />
     <PackageReference Include="Maple2.File.Parser.Tadeucci" Version="2.3.7" />
     <ProjectReference Include="../MS2.ModKit/MS2.ModKit.csproj" />
+    <!-- the command line program, started in-process by CliMapTests -->
+    <ProjectReference Include="../cli/modkit.csproj" />
   </ItemGroup>
 </Project>
