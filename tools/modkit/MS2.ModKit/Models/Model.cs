@@ -25,6 +25,8 @@ namespace MS2.ModKit.Models
         public float R = 1, G = 1, B = 1, Alpha = 1;
         public bool Blend, AlphaTest;
         public int AlphaThreshold;
+        /// <summary>True when the vertices were placed by the mesh's bones (the mesh stands where its skeleton stands).</summary>
+        public bool Skinned;
 
         public int VertexCount { get { return Positions.Length / 3; } }
         public int TriangleCount { get { return Triangles.Length / 3; } }
@@ -46,6 +48,31 @@ namespace MS2.ModKit.Models
         {
             Parts.AddRange(other.Parts);
             Notes.AddRange(other.Notes);
+            Measure();
+        }
+
+        /// <summary>
+        /// Moves the parts that are not skinned by a 3x4 matrix (see Affine): an item stored in the space of the bone
+        /// it hangs on is put where that bone stands. Skinned parts already stand where their skeleton stands.
+        /// </summary>
+        public void Place(float[] m)
+        {
+            if (m == null || m.Length < 12) return;
+            foreach (ModelPart p in Parts)
+            {
+                if (p.Skinned) continue;
+                for (int i = 0; i + 2 < p.Positions.Length; i += 3)
+                    Affine.Point(m, p.Positions[i], p.Positions[i + 1], p.Positions[i + 2], out p.Positions[i], out p.Positions[i + 1], out p.Positions[i + 2]);
+                if (p.Normals == null) continue;
+                for (int i = 0; i + 2 < p.Normals.Length; i += 3)
+                {
+                    float x, y, z;
+                    Affine.Dir(m, p.Normals[i], p.Normals[i + 1], p.Normals[i + 2], out x, out y, out z);
+                    float len = (float)Math.Sqrt(x * x + y * y + z * z);
+                    if (len < 1e-12f || float.IsNaN(len)) continue;
+                    p.Normals[i] = x / len; p.Normals[i + 1] = y / len; p.Normals[i + 2] = z / len;
+                }
+            }
             Measure();
         }
 
@@ -90,6 +117,37 @@ namespace MS2.ModKit.Models
 
         public static Model Build(NifFile file)
         {
+            Walk w = WalkScene(file);
+            foreach (KeyValuePair<int, State> m in w.Meshes)
+            {
+                try { AddMesh(w, m.Key, m.Value); }
+                catch (NifException e) { w.Model.Notes.Add("mesh " + ((NifMesh)file.Parsed(m.Key)).Av.Name + " left out: " + e.Message); }
+            }
+            w.Model.Notes.AddRange(file.Notes);
+            w.Model.Measure();
+            return w.Model;
+        }
+
+        /// <summary>
+        /// The nodes of a model file by name with where they stand in the file's space (a 3x4 matrix, see Affine).
+        /// A skeleton file gives its bones this way. The first node of a name wins; names are compared without case.
+        /// </summary>
+        public static Dictionary<string, float[]> Nodes(NifFile file)
+        {
+            Walk w = WalkScene(file);
+            var nodes = new Dictionary<string, float[]>(StringComparer.OrdinalIgnoreCase);
+            for (int i = 0; i < file.Blocks.Count; i++)
+            {
+                var node = file.Parsed(i) as NifNode;
+                float[] world;
+                if (node == null || string.IsNullOrEmpty(node.Av.Name) || !w.World.TryGetValue(i, out world)) continue;
+                if (!nodes.ContainsKey(node.Av.Name)) nodes[node.Av.Name] = world;
+            }
+            return nodes;
+        }
+
+        static Walk WalkScene(NifFile file)
+        {
             var w = new Walk { File = file };
             int n = file.Blocks.Count;
             var isChild = new bool[n];
@@ -102,14 +160,7 @@ namespace MS2.ModKit.Models
             for (int i = 0; i < n; i++)
                 if (!isChild[i] && (file.Parsed(i) is NifNode || file.Parsed(i) is NifMesh))
                     Visit(w, i, Affine.Identity, new State(), true, 0);
-            foreach (KeyValuePair<int, State> m in w.Meshes)
-            {
-                try { AddMesh(w, m.Key, m.Value); }
-                catch (NifException e) { w.Model.Notes.Add("mesh " + ((NifMesh)file.Parsed(m.Key)).Av.Name + " left out: " + e.Message); }
-            }
-            w.Model.Notes.AddRange(file.Notes);
-            w.Model.Measure();
-            return w.Model;
+            return w;
         }
 
         static State Apply(NifFile f, State s, NifAv av)
@@ -250,6 +301,7 @@ namespace MS2.ModKit.Models
                         }
                         if (used > 1e-6f) { ox /= used; oy /= used; oz /= used; done = true; }
                     }
+                    if (done) part.Skinned = true;
                     if (!done)
                     {
                         Affine.Point(world, x, y, z, out ox, out oy, out oz);

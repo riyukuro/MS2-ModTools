@@ -48,47 +48,60 @@ namespace MS2.ModKit.Models
         /// <summary>The entry of the client file that lists the slot models of an item id.</summary>
         public static string ItemModelEntry(long id) { return "itemmodel/" + (id / 100000).ToString(CultureInfo.InvariantCulture) + ".xml"; }
 
-        // The first asset of each slot: a slot with one asset per gender shows the first.
-        static void SlotAssets(XmlElem slots, List<string> into)
+        /// <summary>The skeleton file of a gender (0 male, 1 female) as a game path: worn items hang on its nodes.</summary>
+        public static string SkeletonPath(int gender)
+        {
+            return "Data/" + ModelFolder + (gender == 1 ? "Character/female/f_body.nif" : "Character/male/m_body.nif");
+        }
+
+        static int GenderOf(string v)
+        {
+            if (v == null) return -1;
+            v = v.Trim();
+            return v == "0" ? 0 : v == "1" ? 1 : -1;
+        }
+
+        static void SlotAssets(XmlElem slots, List<ItemAsset> into, ref int slotNo)
         {
             foreach (XmlElem slot in slots.Children)
             {
                 if (slot.Name != "slot") continue;
+                slotNo++;
                 foreach (XmlElem asset in slot.Children)
                 {
                     if (asset.Name != "asset") continue;
                     string v = asset.Attr("name");
                     if (!IsModelPath(v)) continue;
-                    if (!into.Contains(v)) into.Add(v);
-                    break;
+                    into.Add(new ItemAsset { Path = v, Slot = slotNo, Gender = GenderOf(asset.Attr("gender")), SelfNode = asset.Attr("selfnode"), TargetNode = asset.Attr("targetnode") });
                 }
             }
         }
 
         /// <summary>
-        /// The model files of an item as game paths, with the draft's edits: the first asset of each slot of the item's
-        /// own file, else of the client's item model list; without slots, the model the item is placed or dropped as.
+        /// Every model file an item names, with the draft's edits: the assets of each slot of the item's own file, else
+        /// of the client's item model list; without slots, the model the item is placed or dropped as.
         /// </summary>
-        public static List<string> ItemAssets(EntityDraft d)
+        public static List<ItemAsset> AllItemAssets(EntityDraft d)
         {
-            var list = new List<string>();
+            var list = new List<ItemAsset>();
             if (d == null) return list;
-            var seenSlot = new List<XmlElem>();
+            var slots = new List<XmlElem>();
             foreach (EntitySection s in d.Sections)
             {
                 XmlElem e = s.Elem;
                 if (e == null || e.Name != "asset" || e.Parent == null || e.Parent.Name != "slot") continue;
-                if (seenSlot.Contains(e.Parent)) continue;
                 string v = d.Get(s, "name");
                 if (!IsModelPath(v)) continue;
-                seenSlot.Add(e.Parent);
-                if (!list.Contains(v)) list.Add(v);
+                int slot = slots.IndexOf(e.Parent);
+                if (slot < 0) { slot = slots.Count; slots.Add(e.Parent); }
+                list.Add(new ItemAsset { Path = v, Slot = slot, Gender = GenderOf(d.Get(s, "gender")), SelfNode = d.Get(s, "selfnode"), TargetNode = d.Get(s, "targetnode") });
             }
+            int slotNo = -1;
             if (list.Count == 0)
             {
                 // a slot's assets that are not sections of their own: read the shipped elements
                 foreach (EntityPart p in d.Parts)
-                    if (p.Root != null) FindSlots(p.Root, list, 0);
+                    if (p.Root != null) FindSlots(p.Root, list, 0, ref slotNo);
             }
             if (list.Count == 0) ClientItemModel(d, list);
             if (list.Count == 0)
@@ -100,7 +113,7 @@ namespace MS2.ModKit.Models
                     {
                         if (s.Elem == null || s.Elem.Name != field[0]) continue;
                         string v = d.Get(s, field[1]);
-                        if (IsModelPath(v)) { list.Add(v); break; }
+                        if (IsModelPath(v)) { list.Add(new ItemAsset { Path = v }); break; }
                     }
                     if (list.Count > 0) break;
                 }
@@ -108,17 +121,62 @@ namespace MS2.ModKit.Models
             return list;
         }
 
-        static void FindSlots(XmlElem e, List<string> into, int depth)
+        /// <summary>
+        /// One asset per slot for a gender (0 male, 1 female): the slot's asset of that gender, else its asset
+        /// without a gender, else its first. A file two slots name is listed once.
+        /// </summary>
+        public static List<ItemAsset> Pick(IList<ItemAsset> all, int gender)
+        {
+            var list = new List<ItemAsset>();
+            if (all == null) return list;
+            var done = new List<int>();
+            foreach (ItemAsset first in all)
+            {
+                if (done.Contains(first.Slot)) continue;
+                done.Add(first.Slot);
+                ItemAsset best = null, plain = null;
+                foreach (ItemAsset a in all)
+                {
+                    if (a.Slot != first.Slot) continue;
+                    if (a.Gender == gender && best == null) best = a;
+                    if (a.Gender < 0 && plain == null) plain = a;
+                }
+                ItemAsset pick = best ?? plain ?? first;
+                bool listed = false;
+                foreach (ItemAsset a in list) if (a.Path == pick.Path) listed = true;
+                if (!listed) list.Add(pick);
+            }
+            return list;
+        }
+
+        /// <summary>True when the two genders get different files: the item has a model for each.</summary>
+        public static bool HasGenders(IList<ItemAsset> all)
+        {
+            List<ItemAsset> m = Pick(all, 0), f = Pick(all, 1);
+            if (m.Count != f.Count) return true;
+            for (int i = 0; i < m.Count; i++) if (m[i].Path != f[i].Path) return true;
+            return false;
+        }
+
+        /// <summary>The model files of an item as game paths, with the draft's edits: one per slot, the male one where a slot has two.</summary>
+        public static List<string> ItemAssets(EntityDraft d)
+        {
+            var list = new List<string>();
+            foreach (ItemAsset a in Pick(AllItemAssets(d), 0)) list.Add(a.Path);
+            return list;
+        }
+
+        static void FindSlots(XmlElem e, List<ItemAsset> into, int depth, ref int slotNo)
         {
             if (depth > 6) return;
             foreach (XmlElem c in e.Children)
             {
-                if (c.Name == "slots") SlotAssets(c, into);
-                else FindSlots(c, into, depth + 1);
+                if (c.Name == "slots") SlotAssets(c, into, ref slotNo);
+                else FindSlots(c, into, depth + 1, ref slotNo);
             }
         }
 
-        static void ClientItemModel(EntityDraft d, List<string> into)
+        static void ClientItemModel(EntityDraft d, List<ItemAsset> into)
         {
             DataSet data = d.Editor.Data;
             string entry = ItemModelEntry(d.Id);
@@ -152,7 +210,10 @@ namespace MS2.ModKit.Models
                 }
                 XmlElem found;
                 if (((Dictionary<string, XmlElem>)o).TryGetValue(d.Id.ToString(CultureInfo.InvariantCulture), out found))
-                    FindSlots(found, into, 0);
+                {
+                    int slotNo = -1;
+                    FindSlots(found, into, 0, ref slotNo);
+                }
                 if (into.Count > 0) return;
             }
         }
@@ -175,6 +236,19 @@ namespace MS2.ModKit.Models
             try { return NpcKfmFile(d.GetField(NpcModelField)); }
             catch (ModKitException) { return null; }
         }
+    }
+
+    /// <summary>One model file of an item slot and how the item says it is worn.</summary>
+    public sealed class ItemAsset
+    {
+        /// <summary>The game path of the .nif.</summary>
+        public string Path;
+        /// <summary>The number of the slot among the item's slots.</summary>
+        public int Slot;
+        /// <summary>0 male, 1 female, -1 when the asset names none.</summary>
+        public int Gender = -1;
+        /// <summary>The node of the file and the node of the character it hangs on; null when not named.</summary>
+        public string SelfNode, TargetNode;
     }
 
     /// <summary>The .kfm file of an animated model: only the name of its .nif is read.</summary>
@@ -224,6 +298,7 @@ namespace MS2.ModKit.Models
         readonly Dictionary<string, M2dArchive> open = new Dictionary<string, M2dArchive>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<M2dArchive, Dictionary<string, M2dEntry>> byName = new Dictionary<M2dArchive, Dictionary<string, M2dEntry>>();
         readonly Dictionary<string, Texture> textures = new Dictionary<string, Texture>(StringComparer.OrdinalIgnoreCase);
+        readonly Dictionary<int, Dictionary<string, float[]>> skeletons = new Dictionary<int, Dictionary<string, float[]>>();
         bool disposed;
 
         public ModelSource(DataSet data)
@@ -374,22 +449,73 @@ namespace MS2.ModKit.Models
             return null;
         }
 
+        /// <summary>
+        /// Where the nodes of a gender's character skeleton stand (0 male, 1 female), by node name; null when the data
+        /// has no skeleton file or it does not read.
+        /// </summary>
+        public Dictionary<string, float[]> Skeleton(int gender)
+        {
+            gender = gender == 1 ? 1 : 0;
+            lock (gate)
+            {
+                Dictionary<string, float[]> nodes;
+                if (skeletons.TryGetValue(gender, out nodes)) return nodes;
+            }
+            Dictionary<string, float[]> read = null;
+            try
+            {
+                byte[] bytes = ReadGamePath(ModelNames.SkeletonPath(gender));
+                if (bytes != null) read = ModelBuilder.Nodes(NifFile.Read(bytes));
+            }
+            catch (ModKitException) { }
+            catch (IOException) { }
+            lock (gate) { if (!disposed) skeletons[gender] = read; }
+            return read;
+        }
+
+        // Where the character node an asset hangs on stands, or null: the asset is then drawn as its file stores it.
+        float[] TargetOf(ItemAsset a, int gender)
+        {
+            if (a == null || string.IsNullOrEmpty(a.TargetNode)) return null;
+            Dictionary<string, float[]> nodes = Skeleton(a.Gender >= 0 ? a.Gender : gender);
+            float[] m;
+            return nodes != null && nodes.TryGetValue(a.TargetNode.Trim(), out m) ? m : null;
+        }
+
         /// <summary>Reads and joins the model files; null with the reason when there is nothing to draw.</summary>
         public Model Load(IList<string> gamePaths, out string why)
         {
+            var assets = new List<ItemAsset>();
+            if (gamePaths != null) foreach (string p in gamePaths) assets.Add(new ItemAsset { Path = p });
+            return Load(assets, 0, out why);
+        }
+
+        /// <summary>
+        /// Reads and joins the model files of an item. A file that is not skinned and names a character node is put
+        /// where that node stands in the gender's skeleton (a cap stored in the head bone's space stands upright);
+        /// a skinned file already stands where the skeleton stands.
+        /// </summary>
+        public Model Load(IList<ItemAsset> assets, int gender, out string why)
+        {
             why = null;
-            if (gamePaths == null || gamePaths.Count == 0) { why = "no model"; return null; }
+            if (assets == null || assets.Count == 0) { why = "no model"; return null; }
             if (!Available) { why = "cannot show: the data has no model archives"; return null; }
             var model = new Model();
             string firstWhy = null;
-            foreach (string path in gamePaths)
+            foreach (ItemAsset asset in assets)
             {
+                string path = asset.Path;
                 string reason = null;
                 try
                 {
                     byte[] bytes = ReadGamePath(path);
                     if (bytes == null) reason = "no file " + FileName(path);
-                    else model.Add(ModelBuilder.Build(bytes));
+                    else
+                    {
+                        Model one = ModelBuilder.Build(bytes);
+                        one.Place(TargetOf(asset, gender));
+                        model.Add(one);
+                    }
                 }
                 catch (ModKitException e) { reason = FileName(path) + ": " + e.Message; }
                 catch (IOException e) { reason = FileName(path) + ": " + e.Message; }
@@ -405,14 +531,22 @@ namespace MS2.ModKit.Models
         /// <summary>The still picture of the model files. Never throws for bad data: the picture carries a message instead.</summary>
         public ModelPicture Picture(IList<string> gamePaths, int width, int height, RenderOptions options)
         {
+            var assets = new List<ItemAsset>();
+            if (gamePaths != null) foreach (string p in gamePaths) assets.Add(new ItemAsset { Path = p });
+            return Picture(assets, 0, width, height, options);
+        }
+
+        /// <summary>The still picture of an item's model files as the gender wears them (0 male, 1 female). Never throws for bad data.</summary>
+        public ModelPicture Picture(IList<ItemAsset> assets, int gender, int width, int height, RenderOptions options)
+        {
             var pic = new ModelPicture { Width = width, Height = height };
             try
             {
                 string why;
-                Model model = Load(gamePaths, out why);
+                Model model = Load(assets, gender, out why);
                 if (model == null) { pic.Message = why; return pic; }
                 string archive = null, entry;
-                foreach (string p in gamePaths) if (ModelNames.Split(p, out archive, out entry)) break;
+                foreach (ItemAsset p in assets) if (ModelNames.Split(p.Path, out archive, out entry)) break;
                 var missing = new List<string>();
                 string own = archive;
                 pic.Argb = ModelRenderer.Render(model, width, height, delegate (string name)
@@ -451,6 +585,7 @@ namespace MS2.ModKit.Models
                 open.Clear();
                 byName.Clear();
                 textures.Clear();
+                skeletons.Clear();
             }
         }
     }
