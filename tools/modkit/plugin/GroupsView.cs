@@ -238,7 +238,7 @@ namespace MS2.Tables
             g.SelectionMode = DataGridViewSelectionMode.CellSelect;
             g.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             g.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-            g.BackgroundColor = SystemColors.AppWorkspace;
+            g.BackgroundColor = SystemColors.Window;      // the room under the last row reads as the table, not as an empty block
             g.DefaultCellStyle.BackColor = SystemColors.Window;
             g.DefaultCellStyle.ForeColor = SystemColors.WindowText;
         }

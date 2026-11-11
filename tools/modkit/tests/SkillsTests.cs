@@ -99,7 +99,8 @@ namespace MS2.ModKit.Tests
             return Head + "<ms2>\n\t<basic>\n\t\t<ui icon=\"" + Icon + "\" />\n" + state + "\t</basic>\n" + lv1 + lv2 + "</ms2>\n";
         }
 
-        public const string GmsEffect = Head + "<ms2>\n\t<level>\n\t\t<BasicProperty level=\"1\" durationTick=\"20000\" intervalTick=\"1000\" />\n\t</level>\n</ms2>\n";
+        public const string GmsEffect = Head + "<ms2>\n\t<level>\n\t\t<BasicProperty level=\"1\" durationTick=\"20000\" intervalTick=\"1000\" />\n\t\t<UIProperty icon=\"" + EffectIcon + "\" />\n\t</level>\n</ms2>\n";
+        public const string EffectIcon = "./Data/Resource/Image/Skill/icon/fakebleed.png";
 
         public const string KmsJob = Head + "<ms2>\n" +
             "\t<job jobGroupID=\"90\" subJob1=\"900\" subJob2=\"901\">\n" +
@@ -148,6 +149,7 @@ namespace MS2.ModKit.Tests
             M2dWriter.Create(Path.Combine(k, "Resource", "Image.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
                 new KeyValuePair<string, byte[]>(Icons.ImageEntry(Icon), icon),
+                new KeyValuePair<string, byte[]>(Icons.ImageEntry(EffectIcon), icon),
             });
             foreach (string d in new[] { g, s })
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>

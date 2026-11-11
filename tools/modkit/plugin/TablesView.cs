@@ -145,7 +145,7 @@ namespace MS2.Tables
             grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-            grid.BackgroundColor = SystemColors.AppWorkspace;
+            grid.BackgroundColor = SystemColors.Window;      // the room under the last row reads as the table, not as an empty block
             grid.DefaultCellStyle.BackColor = SystemColors.Window;
             grid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
             grid.CellValueNeeded += OnCellValueNeeded;

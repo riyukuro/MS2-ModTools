@@ -1003,7 +1003,8 @@ namespace MS2.ModKit
 
         static void CollectIcons(XmlElem e, List<string> l)
         {
-            if (e.Name.Equals("ui", StringComparison.OrdinalIgnoreCase))
+            // skills and the kms effect bundles: <ui icon>; the per-id effect files (gms-client, server): <UIProperty icon>
+            if (e.Name.Equals("ui", StringComparison.OrdinalIgnoreCase) || e.Name.Equals("UIProperty", StringComparison.OrdinalIgnoreCase))
             {
                 string i = e.Attr("icon");
                 if (!string.IsNullOrEmpty(i) && !l.Contains(i)) l.Add(i);

@@ -23,6 +23,17 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void TheIconOfAnEffect_ComesFromItsUIPropertyRow()
+        {
+            using (var f = new FakeSkills())
+            {
+                var ed = new SkillEditor(f.Data, FakeSkills.ModOf(""));
+                Assert.That(ed.Open(SkillKind.Effect, 71000001).Icon, Is.EqualTo(FakeSkills.EffectIcon));
+                Assert.That(ed.IconEntry(SkillKind.Effect, 71000001), Is.EqualTo("Skill/icon/fakebleed.png"));
+            }
+        }
+
+        [Test]
         public void FindAndOpenShowEachSideInNeutralUnits()
         {
             using (var f = new FakeSkills())
