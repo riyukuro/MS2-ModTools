@@ -57,7 +57,8 @@ namespace MS2.Tables
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 80 };
         readonly TextBox searchBox = new TextBox { Width = 200 };
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
-        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 250, IntegralHeight = false };
+        readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 260, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 36 };
+        readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();     // id -> image entry (null: none), of the listed rows
         readonly ComboBox namesBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
         readonly Label skillLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly ComboBox levelBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 60 };
@@ -170,6 +171,7 @@ namespace MS2.Tables
             grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
+            grid.BackgroundColor = allGrid.BackgroundColor = SystemColors.Window;      // the room under the last row reads as the table, not as an empty block
             grid.DefaultCellStyle.BackColor = SystemColors.Window;
             grid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
             grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "field", ReadOnly = true, Width = 220, SortMode = DataGridViewColumnSortMode.NotSortable }));
@@ -225,7 +227,7 @@ namespace MS2.Tables
             var head = new Panel { Dock = DockStyle.Top, Height = 104 };
             head.Controls.Add(bars);
             head.Controls.Add(iconPad);
-            tips.SetToolTip(iconBox, "The skill's icon (ui@icon), read from Resource/Image.m2d of your data; a box with a cross: no data folder has that image");
+            tips.SetToolTip(iconBox, "The skill's icon (ui@icon), read from Resource/Image.m2d of your data; an empty box: no data folder has that image");
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(allPanel);
@@ -269,6 +271,7 @@ namespace MS2.Tables
                 e.Handled = e.SuppressKeyPress = true;
                 Guard(delegate { Find(); });
             };
+            hitList.DrawItem += OnDrawHit;
             hitList.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { OpenSelected(); }); };
             kindBox.SelectedIndexChanged += delegate
             {
@@ -285,8 +288,6 @@ namespace MS2.Tables
                 nameLanguage = namesBox.SelectedIndex <= 0 ? null : (string)namesBox.SelectedItem;
                 Guard(delegate { Find(); if (shownId != 0) Open(shownId); });
             };
-            BackColorChanged += delegate { Darken(); };
-            HandleCreated += delegate { Darken(); };
             levelBox.SelectedIndexChanged += delegate
             {
                 if (filling || levelBox.SelectedItem == null) return;
@@ -303,23 +304,18 @@ namespace MS2.Tables
         public override void Initialize()
         {
             base.Initialize();
-            Darken();
             Guard(delegate { FillLanguages(); Find(); });
         }
 
-        /// <summary>The grids' empty area in the view's own (dark) colour instead of a light grey block.</summary>
-        void Darken()
-        {
-            Color c = BackColor;
-            for (Control p = this; p != null && c.A == 0; p = p.Parent) c = p.BackColor;
-            grid.BackgroundColor = allGrid.BackgroundColor = c;
-        }
-
-        /// <summary>The per-level grid as high as its rows, at most 3/5 of the room (the all-levels table gets the rest).</summary>
+        /// <summary>
+        /// The per-level grid as high as its rows, at most 3/5 of the room or, when the all-levels table has few levels,
+        /// all the room that table does not need (the all-levels table gets the rest).
+        /// </summary>
         void FitGrid(int room)
         {
             int want = grid.ColumnHeadersHeight + Math.Max(rows.Count, 4) * grid.RowTemplate.Height + 3;
-            int max = Math.Max(grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 3, room * 3 / 5);
+            int allNeed = allGrid.ColumnHeadersHeight + (Math.Max(levelBox.Items.Count, 1) + 1) * allGrid.RowTemplate.Height + SystemInformation.HorizontalScrollBarHeight + 3;
+            int max = Math.Max(grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 3, Math.Max(room * 3 / 5, room - allNeed));
             want = Math.Min(want, max);
             if (grid.Height != want) grid.Height = want;
         }
@@ -465,6 +461,7 @@ namespace MS2.Tables
 
         void OnHostChanged()
         {
+            iconOf.Clear();
             grid.CancelEdit();
             long id = shownId;
             try
@@ -551,6 +548,45 @@ namespace MS2.Tables
                 (string.IsNullOrEmpty(ed.NamesUsed) ? "" : "; names: " + ed.NamesUsed);
         }
 
+        // ---- icons ----
+
+        IconCache Cache()
+        {
+            if (host == null) return null;
+            try { return IconCache.For(host.SharedSession().Data); }
+            catch (ModKitException) { return null; }
+            catch (System.IO.IOException) { return null; }
+        }
+
+        string IconEntryOf(long id)
+        {
+            string entry;
+            if (iconOf.TryGetValue(id, out entry)) return entry;
+            entry = null;
+            try { entry = Editor().IconEntry(Kind, id); }
+            catch (ModKitException) { }
+            catch (System.IO.IOException) { }
+            iconOf[id] = entry;
+            return entry;
+        }
+
+        // a row of the list: the icon (a blank box when there is none), then the text
+        void OnDrawHit(object sender, DrawItemEventArgs e)
+        {
+            e.DrawBackground();
+            if (e.Index < 0 || e.Index >= hitList.Items.Count) return;
+            var h = hitList.Items[e.Index] as Hit;
+            if (h == null) return;
+            int size = e.Bounds.Height - 4;
+            var box = new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 2, size, size);
+            IconCache cache = Cache();
+            string entry = cache != null ? IconEntryOf(h.Id) : null;
+            IconCache.Draw(e.Graphics, box, cache != null ? cache.Get(entry, hitList) : null);
+            var text = new Rectangle(box.Right + 6, e.Bounds.Y, e.Bounds.Width - box.Width - 10, e.Bounds.Height);
+            TextRenderer.DrawText(e.Graphics, h.ToString(), e.Font, text, e.ForeColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+            e.DrawFocusRectangle();
+        }
+
         void OpenSelected()
         {
             var h = hitList.SelectedItem as Hit;
@@ -607,15 +643,8 @@ namespace MS2.Tables
                 string name = op != null && op.Name != null ? op.Name : i != null ? i.Name : null;
                 skillLabel.Text = shownId + (name != null ? "  " + name : "") + (op != null && op.IsClone ? "  (clone of " + op.Clone + ")" : "");
             }
-            IconCache cache = null;
             string entry = i == null ? null : Icons.ImageEntry(i.Icon);
-            if (host != null && entry != null)
-            {
-                try { cache = IconCache.For(host.SharedSession().Data); }
-                catch (ModKitException) { }
-                catch (System.IO.IOException) { }
-            }
-            iconBox.Show(cache, entry);
+            iconBox.Show(entry != null ? Cache() : null, entry);
             FillRows();
         }
 

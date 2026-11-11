@@ -129,10 +129,10 @@ namespace MS2.Tables
         }
 
         /// <summary>
-        /// Draws the image scaled into the box (keeping its shape), or the placeholder: a light box with a border, and a
-        /// cross in it when the image is known to be missing.
+        /// Draws the image scaled into the box (keeping its shape), or a blank: a light box with a border (no icon named,
+        /// the image missing, or not read yet).
         /// </summary>
-        public static void Draw(Graphics g, Rectangle box, Image img, bool missing)
+        public static void Draw(Graphics g, Rectangle box, Image img)
         {
             if (img != null)
             {
@@ -145,16 +145,7 @@ namespace MS2.Tables
                 return;
             }
             using (var fill = new SolidBrush(Color.FromArgb(236, 236, 236))) g.FillRectangle(fill, box);
-            using (var pen = new Pen(Color.FromArgb(170, 170, 170)))
-            {
-                g.DrawRectangle(pen, box.X, box.Y, box.Width - 1, box.Height - 1);
-                if (missing)
-                {
-                    int m = Math.Max(3, box.Width / 4);
-                    g.DrawLine(pen, box.X + m, box.Y + m, box.Right - 1 - m, box.Bottom - 1 - m);
-                    g.DrawLine(pen, box.Right - 1 - m, box.Y + m, box.X + m, box.Bottom - 1 - m);
-                }
-            }
+            using (var pen = new Pen(Color.FromArgb(200, 200, 200))) g.DrawRectangle(pen, box.X, box.Y, box.Width - 1, box.Height - 1);
         }
     }
 
@@ -183,8 +174,7 @@ namespace MS2.Tables
         {
             e.Graphics.Clear(BackColor);
             Image img = cache != null ? cache.Get(entry, this) : null;
-            bool missing = entry == null || cache == null || cache.IsMissing(entry);
-            IconCache.Draw(e.Graphics, new Rectangle(0, 0, Width, Height), img, entry != null && missing);
+            IconCache.Draw(e.Graphics, new Rectangle(0, 0, Width, Height), img);
         }
     }
 }

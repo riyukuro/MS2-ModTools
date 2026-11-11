@@ -113,7 +113,7 @@ namespace MS2.Tables
             grid.SelectionMode = DataGridViewSelectionMode.CellSelect;
             grid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             grid.AutoSizeRowsMode = DataGridViewAutoSizeRowsMode.None;
-            grid.BackgroundColor = SystemColors.AppWorkspace;
+            grid.BackgroundColor = SystemColors.Window;      // the room under the last row reads as the table, not as an empty block
             grid.DefaultCellStyle.BackColor = SystemColors.Window;
             grid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
             grid.Columns.Add(ViewLayout.FitColumn(new DataGridViewTextBoxColumn { HeaderText = "field", ReadOnly = true, Width = 330, SortMode = DataGridViewColumnSortMode.NotSortable }));
@@ -138,7 +138,7 @@ namespace MS2.Tables
             var head = new Panel { Dock = DockStyle.Top, Height = 104 };
             head.Controls.Add(bars);
             head.Controls.Add(iconPad);
-            tips.SetToolTip(iconBox, "The item's icon (property@slotIcon), read from Resource/Image.m2d of your client or server data; a box with a cross: no data folder has that image");
+            tips.SetToolTip(iconBox, "The item's icon (property@slotIcon), read from Resource/Image.m2d of your client or server data; an empty box: no data folder has that image");
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
@@ -153,7 +153,7 @@ namespace MS2.Tables
                 try
                 {
                 int icon = right.ClientSize.Height < 480 ? 64 : 96;
-                if (iconBox.Width != icon) { iconBox.Width = icon; iconPad.Width = icon + iconPad.Padding.Horizontal; }
+                if (iconBox.Width != icon || iconPad.Width != icon + iconPad.Padding.Horizontal) { iconPad.Width = icon + iconPad.Padding.Horizontal; iconBox.Width = icon; }
                 int h = itemBar.Height + textBar.Height + descriptionBar.Height;
                 int want = Math.Max(icon + iconPad.Padding.Vertical, h);
                 int room = right.ClientSize.Height - (grid.ColumnHeadersHeight + 4 * grid.RowTemplate.Height + 4);
@@ -476,8 +476,7 @@ namespace MS2.Tables
             var box = new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 2, size, size);
             IconCache cache = Cache();
             string entry = cache != null ? IconEntryOf(h.Id) : null;
-            Image img = cache != null ? cache.Get(entry, hitList) : null;
-            IconCache.Draw(e.Graphics, box, img, entry == null || (cache != null && cache.IsMissing(entry)));
+            IconCache.Draw(e.Graphics, box, cache != null ? cache.Get(entry, hitList) : null);
             var text = new Rectangle(box.Right + 6, e.Bounds.Y, e.Bounds.Width - box.Width - 10, e.Bounds.Height);
             TextRenderer.DrawText(e.Graphics, h.ToString(), e.Font, text, e.ForeColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             e.DrawFocusRectangle();

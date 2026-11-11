@@ -141,7 +141,7 @@ namespace MS2.Tables
             var head = new Panel { Dock = DockStyle.Top, Height = 104 };
             head.Controls.Add(bars);
             head.Controls.Add(portraitPad);
-            tips.SetToolTip(portraitBox, "The npc's portrait (environment@portrait), read from Resource/Image.m2d of your client or server data; a box with a cross: no data folder has that image");
+            tips.SetToolTip(portraitBox, "The npc's portrait (environment@portrait), read from Resource/Image.m2d of your client or server data; an empty box: no data folder has that image");
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);

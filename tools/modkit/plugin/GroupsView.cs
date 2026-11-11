@@ -651,7 +651,7 @@ namespace MS2.Tables
             int size = e.CellBounds.Height - 4;
             var box = new Rectangle(e.CellBounds.X + 2, e.CellBounds.Y + 2, size, size);
             Image img = cache != null ? cache.Get(entry, rowGrid) : null;
-            IconCache.Draw(e.Graphics, box, img, entry == null || cache.IsMissing(entry));
+            IconCache.Draw(e.Graphics, box, img);
             e.Handled = true;
         }
 
