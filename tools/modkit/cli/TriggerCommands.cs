@@ -90,10 +90,8 @@ namespace MS2.ModKit.Cli
             if (ex == null)
             {
                 if (data == null) throw new UsageException("--xblock on a folder needs --exported ARCHIVE|DIR (the map files: flat/ and xblock/)");
-                string norm = DataSet.NormalizeRef(archive);
-                int colon = norm.IndexOf(':');
-                ex = (colon > 0 ? norm.Substring(0, colon) : norm) + ":" + Planner.MapArchivePath;
-                if (!data.Exists(ex)) throw new ModKitException("--xblock: no " + ex + "; give --exported ARCHIVE|DIR");
+                ex = Triggers.ExportedOf(data, archive);
+                if (ex == null) throw new ModKitException("--xblock: no data root has " + Planner.MapArchivePath + "; give --exported ARCHIVE|DIR");
                 return Said(TriggerXBlocks.Cached(data.Open(ex), cache));
             }
             if (Directory.Exists(ex) || File.Exists(ex)) return Said(TriggerXBlocks.Cached(ex, cache));

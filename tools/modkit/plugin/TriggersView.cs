@@ -57,6 +57,12 @@ namespace MS2.Tables
         List<TriggerFinding> findings = new List<TriggerFinding>();
         // the importers of the packs are found once, as a job of the Tables view; until then a script is linted without them
         TriggerPacks importersJob;
+        // the objects of the map files (Resource/Exported.m2d beside the trigger archive), read once per data set by a
+        // job, through the index cache in the workspace's cache/; until then a script is linted without them
+        DataSet objectsData;
+        TriggerXBlocks objects;
+        string objectsNote;
+        readonly CheckBox strictBox = new CheckBox { Text = "strict", AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
         List<TriggerFolder> folders = new List<TriggerFolder>();
 
         readonly ComboBox attrBox = new ComboBox { Width = 120 };
@@ -139,6 +145,9 @@ namespace MS2.Tables
             };
             FlowLayoutPanel findingBar = Bar();
             findingBar.Controls.Add(Btn("Go to", "Selects the node of the chosen problem in the tree", delegate { GoToFinding(); }));
+            findingBar.Controls.Add(strictBox);
+            tips.SetToolTip(strictBox, "What the Maple2 server (WIP) does not run correctly yet is an error, not a warning (lint.py --strict)");
+            strictBox.CheckedChanged += delegate { if (!filling && script != null) Guard(delegate { Relint(); }); };
             findingBar.Controls.Add(findingsLabel);
             var findingPanel = new Panel { Dock = DockStyle.Bottom, Height = 170 };
             findingPanel.Controls.Add(findingList);
@@ -439,7 +448,7 @@ namespace MS2.Tables
             treeNodes.Clear();
             string format = null;
             TriggerPacks p = s == null ? null : Packs();
-            findings = s == null ? new List<TriggerFinding>() : TriggerLint.Shipped.Lint(s.Entry, s.Bytes, p, false, out format);
+            findings = s == null ? new List<TriggerFinding>() : TriggerLint.Shipped.Lint(s.Entry, s.Bytes, p, LintOptions(s), out format);
             tree.BeginUpdate();
             try
             {
@@ -466,6 +475,69 @@ namespace MS2.Tables
                 RefreshWarnBox();
             }
             FindImportersLater(p, format);
+            if (s != null) ReadObjectsLater();
+        }
+
+        TriggerLintOptions LintOptions(TriggerScript s)
+        {
+            var o = new TriggerLintOptions { ScanImporters = false, Strict = strictBox.Checked };
+            if (objects != null && objectsData == Session().Data)
+            {
+                o.XBlock = s.XBlock;
+                o.Objects = objects.Get(s.XBlock);
+            }
+            return o;
+        }
+
+        /// <summary>The map files' objects: read once per data set by a job, and the script linted again with them.</summary>
+        void ReadObjectsLater()
+        {
+            DataSet data = Session().Data;
+            if (objectsData == data || archive == null || host == null || host.Busy) return;
+            string ex = Triggers.ExportedOf(data, archive);
+            objectsData = data;
+            objects = null;
+            if (ex == null) { objectsNote = "no data root has " + Planner.MapArchivePath + ": the object ids are not checked"; FillFindings(); return; }
+            string ws = Session().WorkspaceDir;
+            string cacheDir = ws == null ? null : System.IO.Path.Combine(ws, "cache");
+            TriggerXBlocks got = null;
+            string note = null;
+            objectsNote = "reading the objects of the map files";
+            FillFindings();
+            bool started = host.RunOutside("reading the objects of the map files (" + ex + ")", delegate
+            {
+                ReadObjects(data, ex, cacheDir, out got, out note);
+            }, delegate
+            {
+                if (objectsData != data) return;
+                objects = got;
+                objectsNote = note;
+                if (script != null) Relint();
+                host.SayOutside(note);
+            });
+            if (!started) { objectsData = null; objectsNote = null; }
+        }
+
+        static void ReadObjects(DataSet data, string ex, string cacheDir, out TriggerXBlocks got, out string note)
+        {
+            got = null;
+            try
+            {
+                MS2.ModKit.M2d.M2dArchive a = data.Open(ex);
+                string why = null;
+                try { got = TriggerXBlocks.Cached(a, cacheDir); }
+                catch (ModKitException ex2) { got = TriggerXBlocks.OfArchive(a); why = ex2.Message + "; read without the cache. "; }
+                note = why + (got.FromCache ? "the map files' objects are read from the index cache " + got.CacheFile
+                    : got.CacheFile != null ? "the map files' objects are read from " + ex + " and kept in the index cache " + got.CacheFile
+                    : "the map files' objects are read from " + ex + (cacheDir == null ? " (no workspace folder, so no index cache)" : ""))
+                    + "; the lint checks the object ids of the scripts";
+            }
+            catch (Exception e)
+            {
+                if (!(e is ModKitException) && !(e is System.IO.IOException) && !(e is System.IO.InvalidDataException) && !(e is FormatException)) throw;
+                got = null;
+                note = "the map files' objects could not be read (" + e.Message + "): the object ids are not checked";
+            }
         }
 
         TreeNode Node(TriggerNode n)
@@ -540,8 +612,9 @@ namespace MS2.Tables
                 }
             }
             finally { findingList.EndUpdate(); }
-            findingsLabel.Text = script == null ? "" : findings.Count == 0 ? "lint: no problem"
-                : "lint: " + errors + " error(s), " + warnings + " warning(s), " + allowed + " known issue(s)";
+            findingsLabel.Text = script == null ? "" : (findings.Count == 0 ? "lint: no problem"
+                : "lint: " + errors + " error(s), " + warnings + " warning(s), " + allowed + " known issue(s)")
+                + (objects != null ? ", object ids checked" : objectsNote != null ? " (" + objectsNote + ")" : "");
             FitFindings();
         }
 

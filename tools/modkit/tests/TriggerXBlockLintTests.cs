@@ -333,6 +333,29 @@ namespace MS2.ModKit.Tests
             finally { Directory.Delete(root, true); }
         }
 
+        [Test]
+        public void TheMapFilesComeFromARootThatHasThem()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string c = Path.Combine(root, "client"), sv = Path.Combine(root, "server");
+                Directory.CreateDirectory(Path.Combine(c, "Resource"));
+                Directory.CreateDirectory(sv);
+                using (var data = new DataSet(c, sv))
+                {
+                    Assert.That(Triggers.ExportedOf(data, "server:Xml.m2d"), Is.Null, "no root has the map files");
+                    File.WriteAllBytes(Path.Combine(c, "Resource", "Exported.m2d"), new byte[0]);
+                    Assert.That(Triggers.ExportedOf(data, "server:Xml.m2d"), Is.EqualTo("client:Resource/Exported.m2d"), "the server's scripts take the client's map files");
+                    Directory.CreateDirectory(Path.Combine(sv, "Resource"));
+                    File.WriteAllBytes(Path.Combine(sv, "Resource", "Exported.m2d"), new byte[0]);
+                    Assert.That(Triggers.ExportedOf(data, "server:Xml.m2d"), Is.EqualTo("server:Resource/Exported.m2d"), "the archive's own root first");
+                    Assert.That(Triggers.ExportedOf(data, "client:Xml.m2d"), Is.EqualTo("client:Resource/Exported.m2d"));
+                }
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
         static int Cli(out string stdout, out string stderr, params string[] argv)
         {
             MethodInfo main = Assembly.Load("modkit").EntryPoint;

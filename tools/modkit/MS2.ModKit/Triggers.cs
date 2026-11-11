@@ -218,6 +218,27 @@ namespace MS2.ModKit
             return null;
         }
 
+        /// <summary>
+        /// The map files of a trigger archive (Resource/Exported.m2d): the one of the archive's root, else the client's,
+        /// the global client's, the server's; null when no root has one.
+        /// </summary>
+        public static string ExportedOf(DataSet data, string archive)
+        {
+            var roots = new List<string>();
+            if (archive != null) roots.Add(DataSet.RootOf(DataSet.NormalizeRef(archive)));
+            foreach (string ar in new[] { EntityEditor.ClientXml, EntityEditor.GmsXml, EntityEditor.ServerXml })
+            {
+                string r = DataSet.RootOf(ar);
+                if (!roots.Contains(r)) roots.Add(r);
+            }
+            foreach (string r in roots)
+            {
+                string ex = r + ":" + Planner.MapArchivePath;
+                if (data.Exists(ex)) return ex;
+            }
+            return null;
+        }
+
         /// <summary>The Xml archives of the data set, the given one first.</summary>
         static List<string> Order(DataSet data, string first)
         {
