@@ -106,6 +106,14 @@ namespace MS2.ModKit
                 return true;
             }
 
+            // the client reads these as 32-bit whole numbers
+            long Num32(XmlElem e, string name)
+            {
+                long v = Num(e, name);
+                if (v > int.MaxValue) throw Bad(e, name + "=\"" + e.Attr(name) + "\" is too large: the game reads it as a 32-bit number (at most " + int.MaxValue.ToString(CultureInfo.InvariantCulture) + ")");
+                return v;
+            }
+
             internal MapOp ReadMap(XmlElem e)
             {
                 Only(e, "xblock", "id");
@@ -155,7 +163,11 @@ namespace MS2.ModKit
                         if (names.ContainsKey(op.Name)) throw Bad(c, "the name \"" + op.Name + "\" is used twice in this <map>; the id of the new entity comes from it");
                         names[op.Name] = true;
                         op.EntityName = Need(c, "entity-name");
-                        if (c.Attr("iterations") != null) op.Iterations = (int)Num(c, "iterations");
+                        if (c.Attr("iterations") != null)
+                        {
+                            op.Iterations = (int)Num32(c, "iterations");
+                            if (op.Iterations < 1) throw Bad(c, "iterations=\"" + c.Attr("iterations") + "\" counts from 1");
+                        }
                         foreach (XmlElem p in c.Children)
                         {
                             if (p.Name == "row" && op.Kind == MapOpKind.Spawn)

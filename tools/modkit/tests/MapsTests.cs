@@ -555,6 +555,10 @@ namespace MS2.ModKit.Tests
                 Assert.Throws<ModKitException>(() => f.Mod("c", Map(Spawn("s", 140000, "<row mapCode=\"1\" tag=\"wolf\" />"))));
                 Assert.Throws<ModKitException>(() => f.Mod("d", Map("<portal name=\"p\" model=\"Portal_A\" entity-name=\"p\" id=\"50000\" to-map=\"90000002\" to-portal=\"1\"><property name=\"PortalID\" value=\"3\" /></portal>")));
                 Assert.Throws<ModKitException>(() => f.Mod("e", Map("<add model=\"Crate_A\" entity-name=\"x\" />")));
+                // iterations: counts from 1 and fits 32 bits (4294967297 would wrap to 1)
+                foreach (string it in new[] { "0", "4294967297", "2147483648", "-1" })
+                    Assert.Throws<ModKitException>(() => f.Mod("it" + it.Length, Map(AddCrate.Replace("entity-name=", "iterations=\"" + it + "\" entity-name="))), it);
+                Assert.That(f.Mod("it-ok", Map(AddCrate.Replace("entity-name=", "iterations=\"2147483647\" entity-name="))).Maps[0].Ops[0].Iterations, Is.EqualTo(int.MaxValue));
 
                 // a mod written out again reads back as the same ops
                 Mod m = f.Mod("g", Map(AllOps) + MapB(WayBack));
