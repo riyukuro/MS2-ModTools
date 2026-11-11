@@ -241,6 +241,11 @@ accepts.
 then the "never set" warning becomes a note. `source="maple2"` means only the Maple2 server code says so: it is shown
 as unverified and the warning stays. The order of trust is shipped data, then the client loader, then Maple2.
 
+`modkit schema cite <archive> <table> <element> <attr> --src DIR` helps to write such a line. It lists the lines of
+a source tree that hold the attribute name as a string, the files that also name the table first (`table`), the
+rest after them (`other`), and prints a draft `<attr>` line for the first `table` hit. It only searches text: read the
+cited line before you add the draft, because the same attribute name is read for many tables.
+
 ## Using the library
 
 ```csharp

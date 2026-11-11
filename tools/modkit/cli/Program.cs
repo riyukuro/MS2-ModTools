@@ -24,6 +24,9 @@ namespace MS2.ModKit.Cli
   modkit rows <archive> <entry> [selector]     selectors of the rows (or of the children of one row)
   modkit schema build [archive...]             derive the table schemas from your data into the local cache
   modkit schema show <archive> [table]         tables of an archive, or the elements and attributes of one
+  modkit schema cite <archive> <table> <element> <attr> --src DIR
+                                               where your source tree of the client reads an attribute: the lines
+                                               to check, and a draft line for schema-notes.xml
   modkit validate <mod>...                     check mods against the data: errors, conflicts, warnings
   modkit diff <mod>...                         the same and every row change, nothing is written
   modkit apply -w <workspace> <mod>...         write modded copies of the touched archives into the workspace
@@ -94,7 +97,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
         }
 
         static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply",
-            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource", "--priority" };
+            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource", "--priority", "--src" };
         static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all", "--all-presets", "--no-asset-files" };
 
         static int Main(string[] argv)
@@ -135,6 +138,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             a.Pos.RemoveAt(0);
             if (cmd == "pack") return Pack(a);
             if (cmd.StartsWith("map-")) return MapCmd(cmd, a);
+            if (cmd == "schema" && a.Pos.Count > 0 && a.Pos[0] == "cite") return Cite(a);
             RepoSettings set = RepoSettings.Load(AppContext.BaseDirectory, Directory.GetCurrentDirectory());
             using (var data = new DataSet())
             {
@@ -331,9 +335,23 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             return 0;
         }
 
+        // needs no game data: it only reads the source tree named by --src
+        static int Cite(Args a)
+        {
+            string src = a.Get("--src");
+            if (src == null || a.Pos.Count < 5) throw new UsageException("schema cite <archive> <table> <element> <attr> --src DIR");
+            string car = DataSet.NormalizeRef(a.Pos[1]), ctable = a.Pos[2], cel = a.Pos[3], cattr = a.Pos[4];
+            List<CiteHit> hits = SchemaCite.Find(src, ctable, cattr, 40);
+            if (hits.Count == 0) { Console.WriteLine("no line of " + src + " holds \"" + cattr + "\""); return 1; }
+            foreach (CiteHit h in hits) Console.WriteLine((h.NamesTable ? "table  " : "other  ") + h.Where + ": " + h.Text);
+            if (!hits[0].NamesTable) Console.WriteLine("no file names " + SchemaCite.TableWord(ctable) + " and the attribute: no draft; the lines above may be of other tables");
+            else Console.WriteLine("draft for schema-notes.xml, after you have read that line:\n  " + SchemaCite.NoteLine(car, ctable, cel, cattr, hits[0]));
+            return 0;
+        }
+
         static int Schema(Ctx x)
         {
-            string sub = x.Need(0, "build or show");
+            string sub = x.Need(0, "build, show or cite");
             if (sub == "build")
             {
                 var names = new List<string>();
@@ -352,7 +370,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 }
                 return 0;
             }
-            if (sub != "show") throw new UsageException("schema build or schema show");
+            if (sub != "show") throw new UsageException("schema build, schema show or schema cite");
             string arc = DataSet.NormalizeRef(x.Need(1, "<archive>"));
             ArchiveSchema a = x.Schemas().Archive(arc);
             if (a == null) throw new ModKitException("no schema is cached for " + arc + " in " + x.SchemaDir + "; run: modkit schema build " + arc);
