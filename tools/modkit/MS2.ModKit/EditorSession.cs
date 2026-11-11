@@ -82,12 +82,19 @@ namespace MS2.ModKit
         public string SaveMod()
         {
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
-            if (Mod.IsEmpty) throw new ModKitException("mod " + Mod.Id + " holds no change yet; there is nothing to save");
+            // a mod emptied after it was saved (everything taken out of it) is saved empty over its own folder
+            if (Mod.IsEmpty && !SavedHere()) throw new ModKitException("mod " + Mod.Id + " holds no change yet; there is nothing to save");
             string dir = ModFolder.DirOf(ModsDir, Mod.Id);
             if ((Mod.Dir == null || !SamePath(Mod.Dir, dir)) && File.Exists(Path.Combine(dir, "mod.xml")))
                 throw new ModKitException(dir + " already holds a mod; give this one another id");
             Mod.Save(dir);
             return dir;
+        }
+
+        /// <summary>The mod being edited was loaded from, or saved to, its folder under the mods folder.</summary>
+        public bool SavedHere()
+        {
+            return ModsDir != null && Mod.Dir != null && SamePath(Mod.Dir, ModFolder.DirOf(ModsDir, Mod.Id));
         }
 
         static bool SamePath(string a, string b)
@@ -294,7 +301,8 @@ namespace MS2.ModKit
         public ApplyResult Apply() { return Apply(null); }
 
         /// <summary>
-        /// Saves the mod being edited (if it holds anything) and writes what the enabled mods change.
+        /// Saves the mod being edited (if it holds anything, or if it was emptied after it was saved) and writes what
+        /// the enabled mods change. With no mod left, an earlier apply is undone: the copies and loose files go.
         /// Target Workspace: patched copies of every touched archive go into the workspace.
         /// Target LooseFiles: the client's entries go into the game folder as plain files, the archives of the
         /// other roots into the workspace. What the other target left behind from an earlier apply is removed.
@@ -327,9 +335,14 @@ namespace MS2.ModKit
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
             if (Target == ApplyTarget.Workspace && WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
             LooseTarget loose = Target == ApplyTarget.LooseFiles ? Loose() : null;
-            if (!Mod.IsEmpty) SaveMod();
+            if (!Mod.IsEmpty || SavedHere()) SaveMod();
             List<Mod> mods = ActiveMods();
-            if (mods.Count == 0) throw new ModKitException("no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
+            // no mod takes part: an earlier apply is undone by applying nothing (as the plan shows), else there is
+            // nothing to do
+            if (mods.Count == 0 && !AppliedBefore(loose))
+                throw new ModKitException(Mod.IsEmpty && SavedHere()
+                    ? "mod " + Mod.Id + " is saved empty and no other mod is enabled in " + ModsDir + "; there is nothing to apply"
+                    : "no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
             var options = new ApplyOptions { Schemas = Schemas(), Progress = progress, Maps = Maps, NoSync = NoSync, AllowConflicts = AllowConflicts };
 
             if (loose == null)
@@ -359,6 +372,17 @@ namespace MS2.ModKit
                 plan.Msg(plan.Warnings, null, null, null, "the workspace folder is not set: the archives of the server and the global client were not written");
             return res;
         }
+
+        // an earlier apply that left something to take away (an apply of no mod leaves an empty state behind)
+        bool AppliedBefore(LooseTarget loose)
+        {
+            if (WorkspaceDir != null && Holds(new Workspace(WorkspaceDir).ReadState())) return true;
+            if (loose != null) return Holds(loose.ReadState());
+            return !string.IsNullOrEmpty(GameDir) && Directory.Exists(Path.Combine(GameDir, "Data")) && Holds(new LooseTarget(GameDir).ReadState());
+        }
+
+        static bool Holds(WorkspaceState st) { return st != null && (st.Mods.Count > 0 || st.Archives.Count > 0); }
+        static bool Holds(LooseState st) { return st != null && (st.Mods.Count > 0 || st.Files.Count > 0 || st.Dirs.Count > 0); }
 
         static void Merge(ApplyResult into, ApplyResult from)
         {
