@@ -272,6 +272,7 @@ namespace MS2.Tables
                 entryList.Items.Clear();
                 TablesSettings s = TablesSettings.Load();
                 session = new EditorSession(s.ClientData, s.GmsData, s.ServerData, s.ModsDir, s.Workspace);
+                foreach (Profile p in session.Data.Profiles) session.Data.SetFeatures(p, Environment.GetEnvironmentVariable(p.FeaturesVar));
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
                 session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;

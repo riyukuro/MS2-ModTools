@@ -65,6 +65,7 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, Dictionary<long, bool>> Npcs = new Dictionary<string, Dictionary<long, bool>>();
             internal readonly Dictionary<string, Dictionary<long, bool>> MapIds = new Dictionary<string, Dictionary<long, bool>>();
             internal readonly Dictionary<string, MapTable> Tables = new Dictionary<string, MapTable>();
+            internal readonly Dictionary<string, FeatureSet> Features = new Dictionary<string, FeatureSet>(StringComparer.Ordinal);
             internal readonly Dictionary<string, List<MapEnt>> Others = new Dictionary<string, List<MapEnt>>();
             internal readonly Dictionary<string, bool> Changed = new Dictionary<string, bool>();
         }

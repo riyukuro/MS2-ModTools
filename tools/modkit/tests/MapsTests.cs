@@ -84,6 +84,7 @@ namespace MS2.ModKit.Tests
             list.Add(E(EntryB, XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/" + MapLoose + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/" + MapTwo + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
+            list.Add(E("xblock/90000005_cd.xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("texture/made_up.bin", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }));
             M2dWriter.Create(Path.Combine(Path.Combine(dir, "Resource"), "Exported.m2d"), gms ? PackVersion.MS2F : PackVersion.NS2F, M2dFlag.AesZlib, list);
         }
@@ -106,7 +107,11 @@ namespace MS2.ModKit.Tests
         public const string TagRowOther = "<region mapCode=\"90000003\" spawnPointID=\"1\" difficulty=\"1\" tag=\"crow\" coolTime=\"20\" population=\"2\" />";
         public const string TagTable = Head + "<ms2>\n\t" + TagRow + "\n\t" + TagRowOther + "\n</ms2>\n";
 
-        public FakeMaps(bool serverLinksToKms = false)
+        // made-up feature tables: server type Live is at level 10 for KR and 5 for NA; feature MadeUp switches on at 8 / 7
+        public const string FeatureSetting = Head + "<ms2>\n\t<setting type=\"Dev\" KR=\"99\" NA=\"99\" />\n\t<setting type=\"Live\" KR=\"10\" NA=\"5\" />\n</ms2>\n";
+        public const string Feature = Head + "<ms2>\n\t<feature name=\"MadeUp\" KR=\"8\" NA=\"7\" />\n\t<feature name=\"Other\" KR=\"8\" NA=\"0\" />\n</ms2>\n";
+
+        public FakeMaps(bool serverLinksToKms = false, bool features = false)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-maps-" + Guid.NewGuid().ToString("N"));
             KmsDir = Path.Combine(Dir, "orig", "kms");
@@ -122,12 +127,14 @@ namespace MS2.ModKit.Tests
                 Directory.CreateSymbolicLink(Path.Combine(ServerDir, "Resource"), Path.Combine(Dir, "alias", "kms", "Resource"));
             }
             else Exported(ServerDir, false);
-            M2dWriter.Create(Path.Combine(KmsDir, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
+            var kms = new List<KeyValuePair<string, byte[]>>
             {
                 E("table/fielddata.xml", Head + "<ms2>\n" + Row("fieldData id=\"90000001\"", "fieldData", "90000001_AB") + Row("fieldData id=\"90000002\"", "fieldData", "90000002_AB") + TwoFiles("fieldData id=\"90000005\"", "fieldData") + "</ms2>\n"),
                 E("npcdata/990.xml", Head + "<ms2>\n\t<npc id=\"99000001\" />\n</ms2>\n"),
                 E(TagEntry, TagTable),      // the Korean client ships the table too; the made-up global client does not
-            });
+            };
+            if (features) { kms.Add(E(FeatureSet.SettingTable, FeatureSetting)); kms.Add(E(FeatureSet.FeatureTable, Feature)); }
+            M2dWriter.Create(Path.Combine(KmsDir, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, kms);
             var perId = new List<KeyValuePair<string, byte[]>>
             {
                 E("map/90000001.xml", Head + Row("ms2", "ms2", "90000001_AB")),
@@ -135,6 +142,7 @@ namespace MS2.ModKit.Tests
                 E("map/90000005.xml", Head + TwoFiles("ms2", "ms2")),
                 E("npc/9/90/99000001.xml", Head + "<ms2 />\n"),
             };
+            if (features) { perId.Add(E(FeatureSet.SettingTable, FeatureSetting)); perId.Add(E(FeatureSet.FeatureTable, Feature)); }
             M2dWriter.Create(Path.Combine(GmsDir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, perId);
             perId.Add(E(TagEntry, TagTable));
             M2dWriter.Create(Path.Combine(ServerDir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, perId);
@@ -325,6 +333,87 @@ namespace MS2.ModKit.Tests
                 Assert.That(n.Length, Is.EqualTo(3), Fake.Dump(p));
                 Assert.That(n.All(x => x.Contains("90000005_AB (no feature), 90000005_CD (feature MadeUp)")), Is.True, Fake.Dump(p));
             }
+        }
+
+        [Test]
+        public void WithKnownFeaturesTheFileTheGameLoadsGivesNoMessageAndAnotherOneAWarning()
+        {
+            using (var f = new FakeMaps(features: true))
+            {
+                // KR/Live is at level 10, MadeUp is on there: the Korean client loads 90000005_CD. NA/Live is at 5, MadeUp
+                // is off: the global client and the server load 90000005_AB, the file the mod changes.
+                Plan p = f.Plan(f.Mod("a", MapOf(FakeMaps.MapTwo, "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Lines(p.Notes).Where(x => x.Contains("more than one map file")), Is.Empty, Fake.Dump(p));
+                string[] w = Lines(p.Warnings).Where(x => x.Contains("map table")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(w[0], Does.Contain("with this target's features (locale KR, server type Live, level 10) the game loads 90000005_CD for map 90000005, not this map file"));
+                Assert.That(w[0], Does.Contain(" " + K + " "));
+                // still changed
+                Assert.That(Encoding.UTF8.GetString(Bytes(p, K, "xblock/" + FakeMaps.MapTwo + ".xblock")), Does.Contain("Crate_A_900"));
+
+                // the other file: the warning moves to the two targets that load 90000005_AB
+                p = f.Plan(f.Mod("b", MapOf("90000005_cd", "", AddCrate)));
+                w = Lines(p.Warnings).Where(x => x.Contains("map table")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(w.All(x => x.Contains("(locale NA, server type Live, level 5) the game loads 90000005_AB for map 90000005")), Is.True, Fake.Dump(p));
+                Assert.That(w.Any(x => x.Contains(" " + K + " ")), Is.False, Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void TheFeaturesSettingOfATargetChangesWhichFileCounts()
+        {
+            using (var f = new FakeMaps(features: true))
+            {
+                // the server runs as type Dev (level 99): MadeUp is on, it loads 90000005_CD
+                f.Data.SetFeatures(Profile.Server, "/Dev");
+                // a locale the tables have no level for: the features of the global client are not known
+                f.Data.SetFeatures(Profile.GmsClient, "ZZ");
+                Plan p = f.Plan(f.Mod("a", MapOf(FakeMaps.MapTwo, "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string[] w = Lines(p.Warnings).Where(x => x.Contains("map table")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains("(locale NA, server type Dev, level 99) the game loads 90000005_CD") && x.Contains(" " + S + " ")), Is.EqualTo(1), Fake.Dump(p));
+                string[] n = Lines(p.Notes).Where(x => x.Contains("map 90000005 has more than one map file in the map table")).ToArray();
+                Assert.That(n.Length, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(n[0], Does.Contain(" " + G + " "));
+                Assert.That(() => f.Data.SetFeatures(Profile.Server, "NA/Live/x"), Throws.InstanceOf<ModKitException>());
+            }
+        }
+
+        [Test]
+        public void FeatureSetPicksRowsAsTheGameDoes()
+        {
+            byte[] setting = Encoding.UTF8.GetBytes(FakeMaps.FeatureSetting), feature = Encoding.UTF8.GetBytes(FakeMaps.Feature);
+            FeatureSet kr = FeatureSet.Read(setting, feature, "KR", "live");       // the type compares without case
+            Assert.That(kr.Level, Is.EqualTo(10));
+            Assert.That(kr.IsOn(""), Is.True);
+            Assert.That(kr.IsOn("MadeUp"), Is.True);
+            Assert.That(kr.IsOn("NotInTheTable"), Is.False);
+            FeatureSet na = FeatureSet.Read(setting, feature, "NA", "Live");
+            Assert.That(na.IsOn("MadeUp"), Is.False);       // level 7 over 5
+            Assert.That(na.IsOn("Other"), Is.False);        // level 0 = not in the table for this locale
+            Assert.That(FeatureSet.Read(setting, feature, "NA", "Dev").IsOn("MadeUp"), Is.True);
+            // unknown: no table, no row of the type, no level for the locale
+            Assert.That(FeatureSet.Read(null, feature, "KR", "Live"), Is.Null);
+            Assert.That(FeatureSet.Read(setting, feature, "KR", "Stage"), Is.Null);
+            Assert.That(FeatureSet.Read(setting, feature, "ZZ", "Live"), Is.Null);
+
+            // a row of another locale is out; a row of this locale or of none stays
+            Assert.That(kr.Allows("", "NA"), Is.False);
+            Assert.That(kr.Allows("", "KR"), Is.True);
+            Assert.That(kr.Allows("MadeUp", ""), Is.True);
+            // the higher feature level wins, from either side
+            Assert.That(kr.SecondWins("", "", "MadeUp", ""), Is.True);
+            Assert.That(kr.SecondWins("MadeUp", "", "", ""), Is.False);
+            // equal levels: the name that sorts later
+            Assert.That(kr.SecondWins("MadeUp", "", "Other", ""), Is.True);
+            Assert.That(kr.SecondWins("Other", "", "MadeUp", ""), Is.False);
+            // the same feature: the row of this locale wins over the row without one; the same twice: the first stays
+            Assert.That(kr.SecondWins("MadeUp", "", "MadeUp", "KR"), Is.True);
+            Assert.That(kr.SecondWins("MadeUp", "KR", "MadeUp", ""), Is.False);
+            Assert.That(kr.SecondWins("MadeUp", "", "MadeUp", ""), Is.False);
         }
 
         [Test]
@@ -710,7 +799,7 @@ namespace MS2.ModKit.Tests
                             else if (e.Name == FakeMaps.EntryB) Assert.That(made.Read(e.Name), Is.Not.EqualTo(orig.Read(e)));
                             else { Assert.That(made.ReadRaw(made.Find(e.Name)), Is.EqualTo(orig.ReadRaw(e)), e.Name); same++; }
                         }
-                        Assert.That(same, Is.EqualTo(6));       // three models, two maps no mod names, the other file: stored bytes untouched
+                        Assert.That(same, Is.EqualTo(7));       // three models, three maps no mod names, the other file: stored bytes untouched
                     }
 
                 // a second apply of the same mod writes the same files

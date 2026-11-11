@@ -4,7 +4,9 @@
 // decide which one is loaded.
 //
 // A mod that changes a map file no row names changes nothing in the game: a warning, with the file(s) the table
-// names for the map id when there is such a row. A mod that changes one of several files of a map gets a note.
+// names for the map id when there is such a row. A mod that changes one of several files of a map: nothing when it
+// is the file the target loads under its features (Features.cs), a warning naming the loaded file when it is
+// another one, and a note when the target's features cannot be known.
 // The table is read after the plan's own changes to it, so a mod that brings a new map with its row is not warned.
 using System;
 using System.Collections.Generic;
@@ -21,7 +23,7 @@ namespace MS2.ModKit
         sealed class MapFileUse
         {
             internal long MapId;
-            internal string File, Feature;      // File as the table writes it
+            internal string File, Feature, Locale;      // File as the table writes it
         }
 
         sealed class MapTable
@@ -39,7 +41,7 @@ namespace MS2.ModKit
                     {
                         string file = x.Name == "xblock" ? x.Attr("name") : null;
                         if (string.IsNullOrEmpty(file)) continue;
-                        var use = new MapFileUse { MapId = mapId, File = file, Feature = env.Attr("feature") ?? "" };
+                        var use = new MapFileUse { MapId = mapId, File = file, Feature = env.Attr("feature") ?? "", Locale = env.Attr("locale") ?? "" };
                         List<MapFileUse> l;
                         string key = file.ToLowerInvariant();
                         if (!ByFile.TryGetValue(key, out l)) ByFile[key] = l = new List<MapFileUse>();
@@ -123,12 +125,50 @@ namespace MS2.ModKit
             return table;
         }
 
+        // an entry of a target's Xml.m2d as the plan has it so far; null when there is none
+        static byte[] PlannedEntry(Run run, string ar, M2dArchive arch, string name)
+        {
+            M2dEntry e = arch.Find(name);
+            if (e != null) return PlannedBytes(run, ar, arch, e);
+            EntryState st;
+            return run.States.TryGetValue(ar + "\n" + name, out st) ? PlannedBytes(st) : null;
+        }
+
+        /// <summary>The features of a target after the plan so far; null when they cannot be known.</summary>
+        static FeatureSet FeaturesOf(Run run, MapRun mr, Profile target)
+        {
+            FeatureSet set;
+            if (mr.Features.TryGetValue(target.Root, out set)) return set;
+            mr.Features[target.Root] = null;
+            string ar = target.Root + ":Xml.m2d";
+            if (!run.Data.Exists(ar)) return null;
+            M2dArchive arch;
+            try { arch = run.Data.Open(ar); } catch (ModKitException) { return null; }
+            string locale, type;
+            run.Data.FeatureOption(target, out locale, out type);
+            set = FeatureSet.Read(PlannedEntry(run, ar, arch, FeatureSet.SettingTable), PlannedEntry(run, ar, arch, FeatureSet.FeatureTable), locale, type);
+            mr.Features[target.Root] = set;
+            return set;
+        }
+
+        // the row of a map the game takes under a feature set; null when it takes none
+        static MapFileUse LoadedFile(FeatureSet set, List<MapFileUse> ofMap)
+        {
+            MapFileUse best = null;
+            foreach (MapFileUse u in ofMap)
+            {
+                if (!set.Allows(u.Feature, u.Locale)) continue;
+                if (best == null || set.SecondWins(best.Feature, best.Locale, u.Feature, u.Locale)) best = u;
+            }
+            return best;
+        }
+
         static string FilesText(List<MapFileUse> uses)
         {
             var parts = new List<string>();
             foreach (MapFileUse u in uses)
             {
-                string p = u.File + (u.Feature.Length > 0 ? " (feature " + u.Feature + ")" : " (no feature)");
+                string p = u.File + (u.Feature.Length > 0 ? " (feature " + u.Feature : " (no feature") + (u.Locale.Length > 0 ? ", locale " + u.Locale : "") + ")";
                 if (!parts.Contains(p)) parts.Add(p);
             }
             return string.Join(", ", parts.ToArray());
@@ -159,7 +199,16 @@ namespace MS2.ModKit
                 List<MapFileUse> ofMap = table.ByMap[u.MapId];
                 bool other = false;
                 foreach (MapFileUse o in ofMap) if (!string.Equals(o.File, u.File, StringComparison.OrdinalIgnoreCase)) other = true;
-                if (other)
+                if (!other) continue;
+                FeatureSet set = FeaturesOf(run, mr, ms.Target);
+                if (set != null)
+                {
+                    MapFileUse loaded = LoadedFile(set, ofMap);
+                    if (loaded != null && string.Equals(loaded.File, u.File, StringComparison.OrdinalIgnoreCase)) continue;
+                    plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, "with this target's features (" + set.Text + ") the game loads "
+                        + (loaded != null ? loaded.File : "no map file") + " for map " + D(u.MapId) + ", not this map file; the map table names " + FilesText(ofMap) + at);
+                }
+                else
                     plan.Msg(plan.Notes, mod, ms.ArchiveRef, ms.St.Name, "map " + D(u.MapId) + " has more than one map file in the map table: " + FilesText(ofMap) + ". The features that are on decide which one the game loads; this mod changes only this one" + at);
             }
         }

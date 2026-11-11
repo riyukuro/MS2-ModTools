@@ -36,6 +36,10 @@ namespace MS2.ModKit
         public readonly string[] Languages;
         /// <summary>The environment variable and the setting that name the data folder.</summary>
         public readonly string EnvVar;
+        /// <summary>The locale name the game of this profile runs with ("KR", "NA"); the feature tables are keyed by it.</summary>
+        public string Locale { get { return Region.ToUpperInvariant(); } }
+        /// <summary>The setting that overrides locale and server type for the features: "LOCALE/TYPE" (see Features.cs).</summary>
+        public string FeaturesVar { get { return EnvVar.Replace("_DATA", "_FEATURES"); } }
         public readonly string Title;
 
         Profile(string name, string root, Dictionary<string, EntityLayout> layouts, bool server, string region, string[] languages, string env, string title)

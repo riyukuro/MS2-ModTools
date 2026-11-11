@@ -141,6 +141,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 if (!string.IsNullOrEmpty(c)) data.AddTarget(Profile.KmsClient, c);
                 if (!string.IsNullOrEmpty(g)) data.AddTarget(Profile.GmsClient, g);
                 if (!string.IsNullOrEmpty(s)) data.AddTarget(Profile.Server, s);
+                foreach (Profile p in data.Profiles) data.SetFeatures(p, set.Value(p.FeaturesVar));
                 if (data.Roots.Count == 0)
                     throw new ModKitException("no data root: set MS2_CLIENT_DATA, MS2_GMS_CLIENT_DATA and/or MS2_SERVER_DATA (environment or modtools.toml), or pass --client / --gms / --server");
                 var ctx = new Ctx { A = a, Data = data, Set = set, Json = a.Has("--json"), Quiet = a.Has("-q") || Console.IsErrorRedirected };
@@ -656,6 +657,14 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             if (!string.IsNullOrEmpty(v)) return v;
             if (!file.TryGetValue(name, out v) || v.Length == 0) return null;
             return System.IO.Path.IsPathRooted(v) ? v : System.IO.Path.Combine(Repo, v);
+        }
+
+        /// <summary>A setting that is not a path: environment first, then modtools.toml; null when not set.</summary>
+        public string Value(string name)
+        {
+            string v = Environment.GetEnvironmentVariable(name);
+            if (!string.IsNullOrEmpty(v)) return v;
+            return file.TryGetValue(name, out v) && v.Length > 0 ? v : null;
         }
 
         public string OutDir { get { return Path("MS2_OUT") ?? System.IO.Path.Combine(Repo ?? Directory.GetCurrentDirectory(), "out"); } }

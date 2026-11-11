@@ -63,6 +63,28 @@ namespace MS2.ModKit
 
         public ICollection<string> Roots { get { return roots.Keys; } }
 
+        readonly Dictionary<string, string[]> features = new Dictionary<string, string[]>(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Overrides the locale and/or the server type a profile's features are worked out for: "LOCALE/TYPE", for
+        /// example "NA/Live", "KR" or "/Dev". Null or "" keeps the profile's own (its locale, type "Live").
+        /// </summary>
+        public void SetFeatures(Profile profile, string localeAndType)
+        {
+            string locale, type;
+            FeatureSet.ParseOption(localeAndType, out locale, out type);
+            features[profile.Root] = new[] { locale, type };
+        }
+
+        /// <summary>The locale and the server type the features of a profile are worked out for.</summary>
+        public void FeatureOption(Profile profile, out string locale, out string serverType)
+        {
+            string[] o;
+            features.TryGetValue(profile.Root, out o);
+            locale = o != null && o[0] != null ? o[0] : profile.Locale;
+            serverType = o != null && o[1] != null ? o[1] : FeatureSet.DefaultServerType;
+        }
+
         public string RootFolder(string name)
         {
             string f;
