@@ -259,5 +259,99 @@ namespace MS2.ModKit.Tests
                 Assert.That(EditorSession.Report(p), Does.Contain("does not resolve"));
             }
         }
+    
+        [Test]
+        public void Save_TakesOutTheFileOfARevertedScript_AndKeepsTheAuthorsFiles()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                Mod m = s.NewMod("t.orphan");
+                var ed = new TriggerEditor(s.Data, m);
+                TriggerScript t = ed.Current(S, Door);
+                ed.SetAttr(t, t.State("Wait").Children[1], "arg1", "102");
+                ed.NewScript(S, "fake_meadow", "bell", "Ring");
+                string dir = s.SaveMod();
+                string door = Path.Combine(dir, "files", "server", "trigger", "fake_meadow", "door.xml");
+                string bell = Path.Combine(dir, "files", "server", "trigger", "fake_meadow", "bell.xml");
+                string notes = Path.Combine(dir, "notes.txt");
+                File.WriteAllText(notes, "the author's");
+                Assert.That(File.Exists(door) && File.Exists(bell), Is.True);
+                Assert.That(m.Removed, Is.Empty);
+
+                ed.Revert(S, Door);
+                s.SaveMod();
+                Assert.That(File.Exists(door), Is.False, "no op names it");
+                Assert.That(File.Exists(bell), Is.True);
+                Assert.That(File.Exists(notes), Is.True, "outside of files/");
+                Assert.That(m.Removed, Is.EqualTo(new[] { "files/server/trigger/fake_meadow/door.xml" }));
+                Assert.That(Mod.Load(dir).Ops.Count, Is.EqualTo(1));
+            }
+        }
+
+        [Test]
+        public void SavedUnderANewId_TheModCarriesItsFiles()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                Mod m = s.NewMod("t.one");
+                var ed = new TriggerEditor(s.Data, m);
+                TriggerScript t = ed.NewScript(S, "fake_meadow", "bell", "Ring");
+                string one = s.SaveMod();
+                m.Id = "t.two";
+                string two = s.SaveMod();
+                Assert.That(two, Is.Not.EqualTo(one));
+                string rel = Path.Combine("files", "server", "trigger", "fake_meadow", "bell.xml");
+                Assert.That(File.ReadAllBytes(Path.Combine(two, rel)), Is.EqualTo(t.Bytes));
+                Assert.That(File.Exists(Path.Combine(one, rel)), Is.True, "the old folder is left as it was");
+                Assert.That(new TriggerEditor(s.Data, Mod.Load(two)).Current(S, "trigger/fake_meadow/bell.xml").Bytes, Is.EqualTo(t.Bytes));
+            }
+        }
+
+        [Test]
+        public void APendingFile_BeatsTheSavedOne()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                Mod m = s.NewMod("t.pending");
+                var ed = new TriggerEditor(s.Data, m);
+                TriggerScript t = ed.Current(S, Door);
+                t = ed.SetAttr(t, t.State("Wait").Children[1], "arg1", "102");
+                s.SaveMod();
+                t = ed.SetAttr(t, t.State("Wait").Children[1], "arg1", "103");
+                Assert.That(m.Files.Count, Is.EqualTo(1));
+                Plan p = s.Plan();
+                Assert.That(p.HasErrors, Is.False, EditorSession.Report(p));
+                ApplyResult r = s.Apply();
+                Assert.That(r.Applied, Is.True, EditorSession.Report(r));
+                using (M2dArchive a = M2dArchive.Open(Path.Combine(f.Dir, "ws", "server", "Xml.m2d")))
+                    Assert.That(Encoding.UTF8.GetString(a.Read(a.Find(Door))), Does.Contain("arg1=\"103\"").And.Not.Contain("arg1=\"102\""));
+            }
+        }
+
+        [Test]
+        public void AFileOutsideOfTheModFolder_IsRefused_AndAnEditMovesItUnderFiles()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                File.WriteAllText(Path.Combine(f.Dir, "outside.xml"), FakeIdTables.Door);
+                Mod m = ModFolder(f.Dir, "t.out", "<entry archive=\"" + S + "\" name=\"" + Door + "\" file=\"../../outside.xml\" />");
+                s.Adopt(m);
+                var ed = new TriggerEditor(s.Data, m);
+                var ex = Assert.Throws<ModKitException>(() => ed.Current(S, Door));
+                Assert.That(ex.Message, Does.Contain("outside of the mod folder"));
+                Assert.That(EditorSession.Report(s.Plan()), Does.Contain("outside of the mod folder"));
+
+                // an edit stores the bytes under files/ (the op moves there), and Save writes them inside the folder
+                ed.Store(S, Door, Encoding.UTF8.GetBytes(FakeIdTables.Door.Replace("arg1=\"101\"", "arg1=\"102\"")));
+                Assert.That(ed.OpOf(S, Door).File, Is.EqualTo("files/server/" + Door));
+                string dir = s.SaveMod();
+                Assert.That(File.Exists(Path.Combine(dir, "files", "server", "trigger", "fake_meadow", "door.xml")), Is.True);
+                Assert.That(File.ReadAllText(Path.Combine(f.Dir, "outside.xml")), Is.EqualTo(FakeIdTables.Door));
+            }
+        }
     }
 }

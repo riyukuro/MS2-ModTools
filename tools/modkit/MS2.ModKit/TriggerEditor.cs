@@ -63,7 +63,8 @@ namespace MS2.ModKit
                 byte[] b;
                 if (Mod.Files.TryGetValue(op.File.Replace('\\', '/'), out b)) return b;
                 if (Mod.Dir == null) throw new ModKitException("mod " + Mod.Id + ": file=\"" + op.File + "\" and the mod has no folder");
-                string full = Path.Combine(Mod.Dir, op.File.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
+                string full = Mod.PathIn(Mod.Dir, op.File);
+                if (full == null) throw new ModKitException("mod " + Mod.Id + ": file=\"" + op.File + "\" is outside of the mod folder");
                 if (!File.Exists(full)) throw new ModKitException("mod " + Mod.Id + ": file=\"" + op.File + "\": no such file in the mod folder");
                 return File.ReadAllBytes(full);
             }
@@ -120,7 +121,12 @@ namespace MS2.ModKit
                 Mod.Ops.Add(op);
             }
             op.Copy = null; op.Delete = false;
-            if (op.File == null) op.File = FileOf(archive, op.Name);
+            // a file="" outside of the mod folder (a hand-written mod.xml) is not written there: the edit goes to files/
+            if (op.File == null || Mod.PathIn(Mod.Dir ?? ".", op.File) == null)
+            {
+                if (op.File != null) Mod.Files.Remove(op.File.Replace('\\', '/'));
+                op.File = FileOf(archive, op.Name);
+            }
             Mod.Files[op.File.Replace('\\', '/')] = bytes;
             return TriggerScript.Parse(archive, op.Name, bytes);
         }

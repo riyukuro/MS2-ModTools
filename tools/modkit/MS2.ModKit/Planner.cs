@@ -659,9 +659,8 @@ namespace MS2.ModKit
             else if (op.File != null)
             {
                 if (mod.Dir == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": the mod has no folder"); return; }
-                string full = Path.GetFullPath(Path.Combine(mod.Dir, op.File.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar)));
-                string dir = Path.GetFullPath(mod.Dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-                if (!full.StartsWith(dir, StringComparison.Ordinal)) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\" is outside of the mod folder"); return; }
+                string full = Mod.PathIn(mod.Dir, op.File);
+                if (full == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\" is outside of the mod folder"); return; }
                 if (!File.Exists(full)) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": no such file in the mod folder (mod.xml line " + op.Line + ")"); return; }
                 bytes = File.ReadAllBytes(full);
                 from = "file " + op.File;

@@ -373,6 +373,24 @@ namespace MS2.ModKit
             return sb.ToString();
         }
 
+        /// <summary>
+        /// The full path of a file="" of the mod in the folder dir; null when it points outside of the folder
+        /// (an absolute path or "..").
+        /// </summary>
+        public static string PathIn(string dir, string file)
+        {
+            if (dir == null || file == null) return null;
+            string root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            string full;
+            try { full = Path.GetFullPath(Path.Combine(dir, file.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar))); }
+            catch (ArgumentException) { return null; }
+            catch (NotSupportedException) { return null; }
+            return full.StartsWith(root, StringComparison.Ordinal) && full.Length > root.Length ? full : null;
+        }
+
+        /// <summary>The folder of the files the editors write (files/&lt;root&gt;/&lt;entry&gt;).</summary>
+        public const string FilesFolder = "files";
+
         public void Save(string dir)
         {
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
@@ -383,8 +401,8 @@ namespace MS2.ModKit
                 {
                     var en = o as EntryOp;
                     if (en == null || en.File == null || Files.ContainsKey(en.File.Replace('\\', '/'))) continue;
-                    string old = Path.Combine(Dir, en.File.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
-                    if (File.Exists(old)) Files[en.File.Replace('\\', '/')] = File.ReadAllBytes(old);
+                    string old = PathIn(Dir, en.File);
+                    if (old != null && File.Exists(old)) Files[en.File.Replace('\\', '/')] = File.ReadAllBytes(old);
                 }
             foreach (KeyValuePair<string, byte[]> f in Files)
             {
@@ -393,9 +411,47 @@ namespace MS2.ModKit
                 Directory.CreateDirectory(Path.GetDirectoryName(p));
                 File.WriteAllBytes(p, f.Value);
             }
+            RemoveOrphans(dir);
             File.WriteAllBytes(Path.Combine(dir, "mod.xml"), new UTF8Encoding(false).GetBytes(ToXml()));
             Dir = Path.GetFullPath(dir);
             Files.Clear();      // on disk now; the planner and the editors read them from the folder
+        }
+    
+        /// <summary>The files under files/ that the last Save took out: no entry op names them any more (reverted scripts).</summary>
+        public readonly List<string> Removed = new List<string>();
+
+        /// <summary>
+        /// Takes out the files under the folder's files/ that no entry op of the mod names (a script reverted or
+        /// edited back to the shipped bytes leaves its saved file behind otherwise, and it would ship with the mod),
+        /// then the folders left empty. Files elsewhere in the mod folder are the author's and stay.
+        /// </summary>
+        void RemoveOrphans(string dir)
+        {
+            Removed.Clear();
+            string files = Path.Combine(dir, FilesFolder);
+            if (!Directory.Exists(files)) return;
+            var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (ModOp o in Ops)
+            {
+                var en = o as EntryOp;
+                if (en == null || en.File == null) continue;
+                string p = PathIn(dir, en.File);
+                if (p != null) named.Add(p);
+            }
+            string root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            foreach (string f in Directory.GetFiles(files, "*", SearchOption.AllDirectories))
+            {
+                string full = Path.GetFullPath(f);
+                if (named.Contains(full)) continue;
+                File.Delete(full);
+                Removed.Add(full.Substring(root.Length).Replace(Path.DirectorySeparatorChar, '/'));
+            }
+            Removed.Sort(StringComparer.Ordinal);
+            string[] dirs = Directory.GetDirectories(files, "*", SearchOption.AllDirectories);
+            Array.Sort(dirs, delegate(string x, string y) { return y.Length.CompareTo(x.Length); });
+            foreach (string d in dirs)
+                if (Directory.GetFileSystemEntries(d).Length == 0) Directory.Delete(d);
+            if (Directory.GetFileSystemEntries(files).Length == 0) Directory.Delete(files);
         }
     }
 }

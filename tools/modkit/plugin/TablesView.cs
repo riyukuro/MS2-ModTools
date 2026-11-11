@@ -705,7 +705,8 @@ namespace MS2.Tables
             string dir = Session().SaveMod();
             MarkSaved();
             FillMods();
-            Say("saved " + Path.Combine(dir, "mod.xml"));
+            List<string> gone = Session().Mod.Removed;
+            Say("saved " + Path.Combine(dir, "mod.xml") + (gone.Count == 0 ? "" : "; took out " + gone.Count + " file(s) no entry names any more: " + string.Join(", ", gone.ToArray())));
         }
 
         void LoadMod()
