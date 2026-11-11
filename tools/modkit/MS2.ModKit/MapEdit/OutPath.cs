@@ -12,7 +12,8 @@ namespace MS2.ModKit.MapEdit
         /// <summary>Why a relative name is not safe to write, or null when it is. Both '/' and '\' separate parts on
         /// every system. Refused: an empty name, a name that starts with a separator, any ':' (a drive letter, or a
         /// second stream of a file), a ".." part (also written with trailing dots or spaces, which Windows drops),
-        /// and control characters.</summary>
+        /// control characters, and the characters Windows does not take in a file name (&lt; &gt; " | ? *): they are
+        /// refused on every system, so that the output is the same everywhere.</summary>
         public static string Why(string rel)
         {
             if (string.IsNullOrEmpty(rel)) return "empty name";
@@ -22,6 +23,7 @@ namespace MS2.ModKit.MapEdit
             {
                 if (c == ':') return "drive letter or ':' in the name";
                 if (c < 0x20) return "control character in the name";
+                if (c == '<' || c == '>' || c == '"' || c == '|' || c == '?' || c == '*') return "character that Windows does not take in a file name";
             }
             foreach (string part in Parts(rel))
             {

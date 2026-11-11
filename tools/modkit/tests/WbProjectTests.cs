@@ -556,16 +556,30 @@ namespace MS2.ModKit.Tests
         {
             string root = Path.Combine(dir, "proj");
             WriteInput(dir, root);
-            Put("Exported/flat/library/tool/odd.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Odd&amp;&lt;&quot;Name\" id=\"1\">\n\t<property type=\"Float32\" name=\"Weight\" id=\"452724692\" source=\"x\">\n\t\t<set value=\"4\"/>\n\t</property>\n</model>\n");
+            Put("Exported/flat/library/tool/odd.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Odd&amp;&apos;Name\" id=\"1\">\n\t<property type=\"Float32\" name=\"Weight\" id=\"452724692\" source=\"x\">\n\t\t<set value=\"4\"/>\n\t</property>\n</model>\n");
             WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
             WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
             string proj = File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj"));
             Assert.AreEqual(0, r.Refused.Count);
-            StringAssert.Contains("Odd&amp;&lt;&quot;Name.model\"", proj);
+            StringAssert.Contains("Odd&amp;", proj);
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Library/tool/Odd&'Name.model")));
             // the file is found again under its unescaped name: only the made-up input's own missing file is listed
             Assert.AreEqual("Library/tool/tool.emtproj: Gone.model", string.Join("|", WbProject.Missing(root, new List<string>()).ToArray()));
             var x = new System.Xml.XmlDocument();
             x.LoadXml(proj.TrimStart('\uFEFF'));
+        }
+
+        [Test]
+        public void FlatNameThatWindowsCannotStoreIsRefusedOnEverySystem()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            Put("Exported/flat/library/tool/odd.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Odd&lt;&quot;Name\" id=\"1\">\n</model>\n");
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            Assert.AreEqual(1, r.Refused.Count);
+            StringAssert.Contains("Windows does not take", r.Refused[0]);
+            StringAssert.DoesNotContain("Odd", File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj")));
         }
 
         [Test]
