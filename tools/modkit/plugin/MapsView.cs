@@ -699,7 +699,7 @@ namespace MS2.Tables
             long number = 0;
             host.RunOutside("reading the models of " + file, delegate
             {
-                models = ed.ModelsWith(file, portal ? "PortalID" : "SpawnPointID");
+                models = portal ? ed.ModelsWith(file, "PortalID", "portal") : ed.ModelsWith(file, "SpawnPointID", "spawnpoint");
                 number = ed.NextNumber(mod, file, portal);
             }, delegate
             {
@@ -731,8 +731,8 @@ namespace MS2.Tables
                     tips.SetToolTip(c, tip);
                 };
                 row("Name", nameBox, "The name of the op in the mod and of the new entity; its id comes from the mod id, the map file and this name");
-                row("Model", modelBox, models.Count > 0 ? "The " + what + " models the map file's entities use, most used first (or type another of the model listing)"
-                    : "No entity of this map file uses a " + what + " model: type one of the model listing");
+                row("Model", modelBox, models.Count > 0 ? "The " + what + " models the map file's entities use, most used first; when none does, the listing's models named like one (or type another of the model listing)"
+                    : "No " + what + " model found: type one of the model listing");
                 row("Position", posBox, "x, y, z (the chosen entity's position to start from); empty: the model's default");
                 if (portal)
                 {
@@ -773,7 +773,7 @@ namespace MS2.Tables
                 entity = null;
                 newOp = made;
                 Edited("added " + what + " " + made.Name + " (" + (portal ? "PortalID " : "SpawnPointID ") + made.Number.ToString(CultureInfo.InvariantCulture) + ") to " + file
-                    + (portal ? "" : "; give it a server row (" + MapEditor.ServerRow + ", e.g. tag=... population=... coolTime=...) so that something spawns"));
+                    + (portal ? "" : "; give it a server row (property " + MapEditor.ServerRow + ", e.g. tag=... population=... coolTime=...) so that something spawns"));
             }
         }
 

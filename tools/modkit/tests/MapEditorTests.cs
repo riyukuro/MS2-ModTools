@@ -232,6 +232,20 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AMapFileWithoutPortalsOffersTheListingsPortalModels()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                Assert.That(ed.ModelsWith(FakeMaps.MapA, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }), "the map file's own");
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID"), Is.Empty, "only a crate, no hint");
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }));
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "spawnpoint"), Is.EqualTo(new[] { "SpawnPoint_A" }));
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "portal"), Is.Empty, "named like one but without the property");
+            }
+        }
+
+        [Test]
         public void EveryChangeOfAnEntityCounts()
         {
             using (var f = new FakeMaps())

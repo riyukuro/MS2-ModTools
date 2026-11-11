@@ -120,6 +120,21 @@ namespace MS2.ModKit
 
         FlatModel ReadModel(string name)
         {
+            ListFlats();
+            M2dEntry f;
+            if (!flats.TryGetValue(name, out f)) return null;
+            FlatModel m = ParseFlat(f);
+            return m != null && m.Name == name ? m : null;
+        }
+
+        FlatModel ParseFlat(M2dEntry f)
+        {
+            try { return FlatIndex.ParseFlat(arch.Read(f), f.Name); }
+            catch (ModKitException) { return null; }
+        }
+
+        void ListFlats()
+        {
             if (flats == null)
             {
                 flats = new Dictionary<string, M2dEntry>(StringComparer.OrdinalIgnoreCase);
@@ -132,14 +147,6 @@ namespace MS2.ModKit
                     if (!flats.ContainsKey(file)) flats[file] = e;
                 }
             }
-            M2dEntry f;
-            if (!flats.TryGetValue(name, out f)) return null;
-            try
-            {
-                FlatModel m = FlatIndex.ParseFlat(arch.Read(f), f.Name);
-                return m.Name == name ? m : null;
-            }
-            catch (ModKitException) { return null; }
         }
 
         // ---- the mod's ops ----
@@ -358,8 +365,11 @@ namespace MS2.ModKit
             return p != null && p.Scalar ? p.Items[0].Value : "";
         }
 
-        /// <summary>The models of the map file's shipped entities whose model has the property (most used first).</summary>
-        public List<string> ModelsWith(string xblock, string prop)
+        /// <summary>
+        /// The models of the map file's shipped entities whose model has the property (most used first). When none has it and a
+        /// hint is given: the models of the listing whose file name holds the hint and that have the property (at most 40).
+        /// </summary>
+        public List<string> ModelsWith(string xblock, string prop, string hint = null)
         {
             var count = new Dictionary<string, int>(StringComparer.Ordinal);
             List<XEntity> l = Shipped(xblock);
@@ -374,6 +384,19 @@ namespace MS2.ModKit
                 }
             var res = new List<string>(count.Keys);
             res.Sort(delegate (string a, string b) { int d = count[b].CompareTo(count[a]); return d != 0 ? d : string.CompareOrdinal(a, b); });
+            if (res.Count > 0 || hint == null) return res;
+            // no entity of the map file uses one: the models of the listing named like one (e.g. "portal") that have the property
+            ListFlats();
+            var names = new List<string>(flats.Keys);
+            names.Sort(StringComparer.OrdinalIgnoreCase);
+            foreach (string n in names)
+            {
+                if (n.IndexOf(hint, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                FlatModel pm = ParseFlat(flats[n]);
+                FlatModel fm = pm == null ? null : Model(pm.Name);     // with its mixins
+                if (fm != null && fm.Prop(prop) != null) res.Add(fm.Name);
+                if (res.Count >= 40) break;
+            }
             return res;
         }
 
