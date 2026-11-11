@@ -62,6 +62,18 @@ namespace MS2.ModKit.MapEdit
             { "tool", "tool\\tool.emtproj" },
         };
 
+        /// <summary>The project file of a model library below the library root (backslashes), null when unknown.</summary>
+        public static string LibraryProject(string lib)
+        {
+            for (int i = 0; i < LibProject.GetLength(0); i++) if (LibProject[i, 0] == lib) return LibProject[i, 1];
+            return null;
+        }
+
+        public static IList<string> Libraries
+        {
+            get { var r = new List<string>(); for (int i = 0; i < LibProject.GetLength(0); i++) r.Add(LibProject[i, 0]); return r; }
+        }
+
         /// <summary>("presets", "presets thing") -> "Presets_Thing"; a library keeps its name.</summary>
         public static string CategoryLabel(string[] cat)
         {

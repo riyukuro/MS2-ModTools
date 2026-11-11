@@ -18,6 +18,9 @@ namespace MS2.ModKit.Cli
                 case "map-from-block": return MapFromBlock(a);
                 case "map-normalize": return MapNormalize(a);
                 case "map-diff": return MapDiffCmd(a);
+                case "map-models": return MapModels(a);
+                case "map-solution": return MapSolution(a);
+                case "map-project": return MapProject(a);
                 default: throw new UsageException("unknown command " + cmd);
             }
         }
@@ -97,6 +100,59 @@ namespace MS2.ModKit.Cli
                 }
                 File.WriteAllText(a.Get("--report"), sb.ToString(), new UTF8Encoding(false));
             }
+            return 0;
+        }
+
+        static Dictionary<string, string> KnownIds(Args a)
+        {
+            string k = a.Get("--known-ids");
+            return k == null ? null : ReadStringMap(k);
+        }
+
+        // the model and preset files of a whole game, into a folder that already holds the model library
+        static int MapModels(Args a)
+        {
+            const string usage = "map-models <project folder> --flats <Exported.m2d or folder with flat/> [--known-ids FILE]";
+            if (a.Pos.Count != 1) throw new UsageException(usage);
+            string src = a.Get("--flats");
+            if (src == null) throw new UsageException("missing --flats\n" + usage);
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(src));
+            WbBuildResult r = WbProject.BuildModels(Path.GetFullPath(a.Pos[0]), flats, KnownIds(a), null);
+            foreach (string l in r.Log) Console.Error.WriteLine(l);
+            foreach (KeyValuePair<string, int> s in r.Stats) Console.WriteLine(s.Key + " " + s.Value);
+            Console.WriteLine("warnings " + r.Warnings.Count);
+            return 0;
+        }
+
+        static int MapSolution(Args a)
+        {
+            if (a.Pos.Count < 1 || a.Pos.Count > 2) throw new UsageException("map-solution <project folder> [NAME.gsl]");
+            string root = Path.GetFullPath(a.Pos[0]).TrimEnd(Path.DirectorySeparatorChar);
+            string name = a.Pos.Count > 1 ? a.Pos[1] : Path.GetFileName(root) + ".gsl";
+            File.WriteAllBytes(Path.Combine(root, name), new UTF8Encoding(false).GetBytes(WbProject.SolutionText(root, name)));
+            Console.WriteLine(Path.Combine(root, name));
+            return 0;
+        }
+
+        // one folder the map editor can open, for the chosen maps
+        static int MapProject(Args a)
+        {
+            const string usage = "map-project <map.xblock>... -o DIR --flats <Exported.m2d or folder with flat/> --library <Library.m2d or folder> [--known-ids FILE] [--assets <asset-web-metadata.m2d or folder>] [--all-presets] [--layers none|category] [--folders none|category]";
+            if (a.Pos.Count == 0) throw new UsageException(usage);
+            string src = a.Get("--flats");
+            if (src == null) throw new UsageException("missing --flats\n" + usage);
+            var o = new WbProjectOptions
+            {
+                Root = OutDir(a),
+                LibrarySource = a.Get("--library"),
+                KnownIds = KnownIds(a),
+                AllPresets = a.Has("--all-presets"),
+                LayersByCategory = Choice(a, "--layers", "none", "none", "category") == "category",
+                FoldersByCategory = Choice(a, "--folders", "none", "none", "category") == "category"
+            };
+            foreach (string f in a.Pos) o.Maps.Add(new KeyValuePair<string, byte[]>(Path.GetFileNameWithoutExtension(f), File.ReadAllBytes(f)));
+            if (a.Has("--assets")) o.AssetPaths = WbProject.ReadAssetPaths(a.Get("--assets"));
+            foreach (string l in WbProject.Build(o, WbProject.ReadFlatFiles(src))) Console.WriteLine(l);
             return 0;
         }
 

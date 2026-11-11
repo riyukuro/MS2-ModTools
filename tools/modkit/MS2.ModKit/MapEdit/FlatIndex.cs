@@ -226,6 +226,8 @@ namespace MS2.ModKit.MapEdit
         {
             var o = Json.Parse(text, label) as JsonObj;
             if (o == null) throw new ModKitException(label + ": not a list of name and value");
+            object inner;
+            if (o.Map.TryGetValue("models", out inner) && inner is JsonObj) o = (JsonObj)inner;     // the known-ids file keeps its list under "models"
             var res = new List<KeyValuePair<string, string>>();
             foreach (string k in o.Keys) res.Add(new KeyValuePair<string, string>(k, S(o.Map[k])));
             return res;

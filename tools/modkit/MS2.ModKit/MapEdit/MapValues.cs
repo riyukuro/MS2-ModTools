@@ -37,6 +37,9 @@ namespace MS2.ModKit.MapEdit
 
         public static string ByteToFloatText(int b) { return ByteText[b]; }
 
+        /// <summary>The byte a colour part text stands for when it is one of the 256 shipped texts, else -1.</summary>
+        public static int ByteOfFloatText(string t) { int b; return TextByte.TryGetValue(t, out b) ? b : -1; }
+
         static List<string> Tokens(string value)
         {
             var res = new List<string>();
@@ -141,7 +144,12 @@ namespace MS2.ModKit.MapEdit
         /// <summary>The name-based id (version 5, URL namespace) of a text, dashed.</summary>
         public static string UrlUuid5(string name)
         {
-            byte[] ns = { 0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8 };
+            return Uuid5(new byte[] { 0x6b, 0xa7, 0xb8, 0x11, 0x9d, 0xad, 0x11, 0xd1, 0x80, 0xb4, 0x00, 0xc0, 0x4f, 0xd4, 0x30, 0xc8 }, name);
+        }
+
+        /// <summary>The name-based id (version 5) of a text in a namespace of 16 bytes, dashed.</summary>
+        public static string Uuid5(byte[] ns, string name)
+        {
             byte[] nm = new UTF8Encoding(false).GetBytes(name);
             var all = new byte[ns.Length + nm.Length];
             Buffer.BlockCopy(ns, 0, all, 0, ns.Length);
