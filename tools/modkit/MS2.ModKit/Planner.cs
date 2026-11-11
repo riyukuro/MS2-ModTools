@@ -196,6 +196,9 @@ namespace MS2.ModKit
         /// <param name="why">the reason where it is not the priority: " wins (...)"</param>
         internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other = null, string why = null)
         {
+            // a shop or skill line that meets another mod, as the winner too: the edit lines of every mod are planned
+            // before these lines, so a lower mod's line may stand between two lines of this mod
+            if (Lines == mod) UnderLines[mod] = true;
             int n = Conflicts.Count;
             Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + (why ?? PlanMessage.WinsTail));
             if (Conflicts.Count == n) return;
@@ -216,6 +219,16 @@ namespace MS2.ModKit
 
 
         internal static string UnderKey(string archive, string entry) { return archive + "\n" + entry.Replace('\\', '/').ToLowerInvariant(); }
+
+        /// <summary>The mod whose shop, drop box, skill or job skill lines are planned now; null outside of them.</summary>
+        internal Mod Lines;
+
+        /// <summary>
+        /// The mods with a shop, drop box, skill or job skill line that meets a line of another mod: a conflict
+        /// with it (lost or won), a row or an entry that the other mod has deleted. Such lines name no entry of
+        /// their own, so they are kept per mod.
+        /// </summary>
+        internal readonly Dictionary<Mod, bool> UnderLines = new Dictionary<Mod, bool>();
 
         internal void IsUnder(Mod mod, string archive, string entry)
         {
@@ -372,7 +385,12 @@ namespace MS2.ModKit
                 string real = e != null ? e.Name : name;
                 string key = archive + "\n" + real.ToLowerInvariant();
                 EntryState st;
-                if (States.TryGetValue(key, out st)) return st;
+                if (States.TryGetValue(key, out st))
+                {
+                    // a shop or skill line that finds its entry deleted by another mod is skipped there
+                    if (Plan.Lines != null && st.DeletedBy != null && st.DeletedBy != Plan.Lines) Plan.UnderLines[Plan.Lines] = true;
+                    return st;
+                }
                 st = new EntryState { Archive = archive, Name = real, Existed = e != null };
                 if (e != null)
                 {
@@ -433,7 +451,9 @@ namespace MS2.ModKit
                 foreach (GroupOp g in m.Groups)
                 {
                     ProgressUtil.Report(options.Progress, "plan", m.Id, ++done, total);
-                    DoGroup(run, m, g);
+                    plan.Lines = m;
+                    try { DoGroup(run, m, g); }
+                    finally { plan.Lines = null; }
                 }
             }
             // and the skill lines, so that three mods on one skill follow the priority as the edit lines do
@@ -443,7 +463,9 @@ namespace MS2.ModKit
                 if (m.Skills.Count + m.JobSkills.Count > 0)
                 {
                     ProgressUtil.Report(options.Progress, "plan", m.Id, done += m.Skills.Count + m.JobSkills.Count, total);
-                    DoSkills(run, m);
+                    plan.Lines = m;
+                    try { DoSkills(run, m); }
+                    finally { plan.Lines = null; }
                 }
             }
             // the mirrored lines in the same order as the direct ones, so a conflict reads the same on both sides
@@ -508,7 +530,14 @@ namespace MS2.ModKit
             foreach (Mod m in plan.Mods)
             {
                 Dictionary<string, bool> under;
-                if (!plan.Under.TryGetValue(m, out under)) continue;
+                // the shop, drop box, skill and job skill lines name no entry: all of them are planned again, with
+                // every entry line of the mod for the entries they were left out in
+                bool kinds = plan.UnderLines.ContainsKey(m);
+                if (!plan.Under.TryGetValue(m, out under))
+                {
+                    if (!kinds) continue;
+                    under = new Dictionary<string, bool>();
+                }
                 // one line alone contradicts nothing, and neither does one line for the mod's own file: only the
                 // entries with two row lines of the mod, two entry lines, or a row line and a delete are planned again
                 var lines = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -533,9 +562,10 @@ namespace MS2.ModKit
                 foreach (KeyValuePair<string, ModOp> o in ops) 
                 {
                     int n = lines[o.Key], w = whole[o.Key];
-                    if (n > 1 || w > 1 || (n > 0 && deleted.ContainsKey(o.Key))) part.Ops.Add(o.Value);
+                    if (kinds || n > 1 || w > 1 || (n > 0 && deleted.ContainsKey(o.Key))) part.Ops.Add(o.Value);
                 }
-                if (part.Ops.Count == 0) continue;
+                if (kinds) { part.Groups.AddRange(m.Groups); part.Skills.AddRange(m.Skills); part.JobSkills.AddRange(m.JobSkills); }
+                if (part.IsEmpty) continue;
                 Plan alone;
                 try { alone = Build(data, new[] { part }, new PlanOptions { Maps = options.Maps, NoSync = options.NoSync, Alone = true, Shipped = plan.Shipped }); }
                 catch (ModKitException) { continue; }
@@ -937,7 +967,12 @@ namespace MS2.ModKit
             if (target == st.Doc.Root) throw new ModKitException("the root element cannot be deleted; delete the entry instead");
             string row = RowPath.Canonical(target);
             Mod del = DeletedBy(st, target);
-            if (del != null) { plan.Msg(plan.Notes, mod, st.Archive, st.Name, "row " + row + " is already deleted by " + Who(del, mod)); return; }
+            if (del != null)
+            {
+                if (del != mod && plan.Lines == mod) plan.UnderLines[mod] = true;
+                plan.Msg(plan.Notes, mod, st.Archive, st.Name, "row " + row + " is already deleted by " + Who(del, mod));
+                return;
+            }
             var drop = new List<string>();
             bool kept = false;
             foreach (KeyValuePair<string, Claim> c in st.Claims)
