@@ -919,6 +919,20 @@ the place of `flat2model.py` and `tools/toolbench/mkgsl.py`. The file of known m
 `tools/mapedit/knownguids.py`, which reads your own copy of the SDK and has no C# counterpart; without it a model the library does
 not ship gets an id derived from its name.
 
+### Editing the map in World Builder
+
+Open the solution file of the project, open the map's block file, edit, and save with Save All.
+- **Move, turn, change a value:** pick the entity in the view or in the Entity View list and type into the Entity Editor
+  (Placeable holds Position and Rotation), or drag its gizmo.
+- **Delete:** the Delete entry of the entity's context menu.
+- **Add:** in the Palette View open a library with a double click (or use its Search tab) and drag a model from
+  Contents into the view. The new entity is named after its model with a number (`Chair0`) and is selected; set its
+  values in the Entity Editor. Under Wine this needs the launcher fix described in
+  [tools/toolbench](../toolbench/README.md).
+- **A second copy of an entity:** Cut, Copy and Paste of the Edit menu stay grey for entities on every system; that
+  menu only serves text boxes. World Builder's own way is to hold Shift while dragging the entity's gizmo, which
+  leaves a copy behind. When that is hard to do, drag the same model from the palette again and type the values.
+
 ### From an edited map to a mod
 
 A mod never carries a whole map file; it carries the edits. When you have the shipped map file and an edited copy

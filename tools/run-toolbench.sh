@@ -82,7 +82,7 @@ setup() {
     # CLR4 shim + configs (see tools/toolbench/ToolbenchLauncher.cs)
     cp "$R/tools/toolbench/ToolbenchLauncher.cs" "$T/Shipping/"
     (cd "$T/Shipping" && wine 'C:\windows\Microsoft.NET\Framework\v4.0.30319\csc.exe' /nologo /platform:x86 \
-        /target:winexe /out:ToolbenchLauncher.exe ToolbenchLauncher.cs)
+        /target:winexe '/r:WPF\WindowsBase.dll' /out:ToolbenchLauncher.exe ToolbenchLauncher.cs)
     # The process image decides the address space: mark the shim LARGEADDRESSAWARE like ToolbenchWindowed.exe
     # (Gamebryo's LargeAddressAwarePostBuild.bat); without it a real MS2 map (15k entities) dies with OutOfMemory at 2 GB.
     python3 - "$T/Shipping/ToolbenchLauncher.exe" <<'EOF'

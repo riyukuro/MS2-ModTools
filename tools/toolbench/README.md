@@ -8,7 +8,7 @@ C# shim. The script's header lists its options.
 registers fonts and builds the shim. Your SDK folder is not written to. Needs: wine, winetricks, Xvfb, xdotool, ImageMagick,
 fontconfig, and `pefile` for python3.
 
-Three fixes beyond the prerequisites, all in the script:
+Four fixes beyond the prerequisites, all in the script:
 
 1. **CLR4 retarget + shim.** No .NET 3.5 is usable in Wine, so the `.exe.config` files are retargeted to CLR4 (`.orig` kept). On
    CLR4 a resource lookup recurses until stack overflow; `ToolbenchLauncher.cs` sets the invariant culture and starts
@@ -17,6 +17,10 @@ Three fixes beyond the prerequisites, all in the script:
    `arial.ttf`, run `winetricks corefonts`.
 3. **Large address aware.** The shim is the process image, so it needs the flag, or a real map (15k entities) runs out of memory
    at 2 GB.
+4. **Palette.** On CLR4 leaving any list of the Palette View (open a library, search, pick a folder) ended Toolbench with a
+   NullReferenceException; the shim passes over that one exception (the reason is in `ToolbenchLauncher.cs`). The error
+   `Unable to find "WPFToolkit.aero..."` in the Output View is harmless: CLR4 asks for a theme assembly the SDK never had.
+   A setup made before this fix needs the shim built again (run the setup again).
 
 Things that are easy to get wrong:
 
