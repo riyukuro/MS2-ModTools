@@ -675,6 +675,42 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void TalkTexts_OneEntryPerFeature_AndTheSourceText()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                List<QuestTalkText> t = ed.TalkTexts(701200, "en");
+                Assert.That(t.ConvertAll(x => x.Feature + "|" + x.Text + "|" + x.Source + "|" + x.Rows + "|" + x.Own + "|" + x.Differs),
+                    Is.EqualTo(new[] { "|Bring clay|Bring clay|2|False|False", "F1|Bring fine clay|Bring fine clay|2|False|False" }));
+                Assert.That(ed.TalkTexts(701101, "zz"), Is.Empty);
+                ed.Clone(701, 705);
+                ed.OwnTalkTexts(705);
+                // one feature's rows, in one language
+                Assert.That(ed.SetTalkText(705, 705003, "en", "Bring fine sand", "F1"), Is.EqualTo(2));
+                Assert.That(ed.SetTalkText(705, 705003, "zz", "Bring sand (zz)", ""), Is.EqualTo(2));
+                Assert.That(ed.SetTalkText(705, 705003, "en", "x", "F9"), Is.EqualTo(0));
+                f.Reload();
+                ed = f.Editor();
+                Assert.That(ed.TalkTexts(705003, "en").ConvertAll(x => x.Feature + "|" + x.Text + "|" + x.Source + "|" + x.Rows + "|" + x.Own),
+                    Is.EqualTo(new[] { "|Bring clay|Bring clay|2|True", "F1|Bring fine sand|Bring fine clay|2|True" }));
+                Assert.That(ed.TalkTexts(705003, "zz").ConvertAll(x => x.Feature + "|" + x.Text + "|" + x.Source),
+                    Is.EqualTo(new[] { "|Bring sand (zz)|Bring clay (zz)", "F1|Bring fine clay (zz)|Bring fine clay (zz)" }));
+                Plan p = f.Plan();
+                string o = FakeQuests.Out(p, S, "string/en/scriptquest_a.xml");
+                Assert.That(o, Does.Contain("<key id=\"705003\" npc=\"61\" name=\"Bring clay\" />").And.Contain("<key id=\"705003\" npc=\"61\" feature=\"F1\" name=\"Bring fine sand\" />"));
+                // rows that differ over the targets are flagged
+                ed.SetTalkText(705, 705001, "en", "Good day");
+                foreach (ModOp op in f.Mod.Ops)
+                {
+                    var e = op as EditOp;
+                    if (e != null && e.Archive == K && e.Entry == "string/en/scriptquest_final.xml") e.Rows[0].Attrs.RemoveAll(a => a.Name == "name");
+                }
+                Assert.That(ed.TalkTexts(705001, "en")[0].Differs, Is.True);
+            }
+        }
+
+        [Test]
         public void Session_AppliesAndRevertsOwnTalkTexts()
         {
             using (var f = new FakeQuests(true, true, true))
