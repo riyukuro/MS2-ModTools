@@ -256,8 +256,9 @@ namespace MS2.ModKit.Cli
             if (a.Pos.Count == 0) throw new UsageException("map-normalize <map.xblock>... -o DIR [--original FILE or DIR] [--order ms2|keep] [--dialect tab|toolbench|auto]");
             string outDir = OutDir(a);
             string order = Choice(a, "--order", "ms2", "ms2", "keep");
-            string dialect = Choice(a, "--dialect", "tab", "tab", "toolbench", "auto");
             string original = a.Get("--original");
+            // with the shipped file at hand its layout is the one to write
+            string dialect = Choice(a, "--dialect", original != null ? "auto" : "tab", "tab", "toolbench", "auto");
             foreach (string f in a.Pos)
             {
                 string name = Path.GetFileName(f), orig = null;

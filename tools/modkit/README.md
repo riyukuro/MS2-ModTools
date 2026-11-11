@@ -867,7 +867,7 @@ commands print ends its lines with a line feed too. The Python scripts gave the 
 modkit map-index <Exported.m2d or folder> index.json                # the model listing, once per game version
 modkit map-to-block <map.xblock or folder> -o blocks --index index.json    # game map -> editor map
 modkit map-from-block blocks/<map>.block -o exported --index index.json    # editor map -> game map
-modkit map-normalize exported/<map>.xblock -o final --original <shipped map>   # put it in the shipped file's order
+modkit map-normalize exported/<map>.xblock -o final --original <shipped map>   # put it in the shipped file's order and layout
 ```
 
 ### A map editor project for chosen maps
