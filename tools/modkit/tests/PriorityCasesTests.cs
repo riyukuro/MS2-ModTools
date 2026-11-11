@@ -454,6 +454,68 @@ namespace MS2.ModKit.Tests
                 }
         }
 
+        static System.Collections.Generic.IEnumerable<string[]> Orders(string[] names)
+        {
+            if (names.Length == 1) { yield return names; yield break; }
+            for (int i = 0; i < names.Length; i++)
+                foreach (string[] rest in Orders(names.Where((x, k) => k != i).ToArray()))
+                    yield return new[] { names[i] }.Concat(rest).ToArray();
+        }
+
+        [Test]
+        public void AFileADeleteASecondFileAndAnEditInEveryOrder()
+        {
+            // "own": a file for the entry and an edit of a row only that file has; "del": deletes the entry;
+            // "f2": another file for it; "edit": an edit of a shipped row. The highest of the four is written,
+            // the line about own's edit names it, and it wins every part of the other three
+            int n = 0;
+            foreach (string[] order in Orders(new[] { "own", "del", "f2", "edit" }))
+                using (var f = new Fake())
+                {
+                    n++;
+                    string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
+                    string d = Path.Combine(f.ModDir("own", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" file=\"data/p.xml\"/>" + Set(S, "pet/100.xml", "environment/own[id=1]", "v", "2")), "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(filed));
+                    var mods = new System.Collections.Generic.Dictionary<string, Mod>
+                    {
+                        { "own", Mod.Load(Path.GetDirectoryName(d)) },
+                        { "del", f.Mod("del", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" delete=\"true\"/>") },
+                        { "f2", FileMod(f, "f2", "pet/100.xml", Fake.PetFile(100, "Second")) },
+                        { "edit", f.Mod("edit", Set(S, "pet/100.xml", "environment/basic", "kind", "4")) },
+                    };
+                    Plan p = f.Plan(order.Select(x => mods[x]).ToArray());
+                    string top = order[3], dump = string.Join(" < ", order) + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Undecided, Is.EqualTo(0), dump);
+                    // the written text
+                    if (top == "del")
+                    {
+                        Assert.That(p.Changes.Any(x => x.Kind == ChangeKind.DeleteEntry), dump);
+                        Assert.That(p.Find(S).Put.Any(x => x.Key == "pet/100.xml"), Is.False, dump);
+                    }
+                    else
+                    {
+                        string text = Fake.Text(p, S, "pet/100.xml");
+                        if (top == "edit") Assert.That(text, Does.Contain("name=\"Mossy\" kind=\"4\"").And.Not.Contain("<own").And.Not.Contain("Second"), dump);
+                        else if (top == "f2") Assert.That(text, Does.Contain("name=\"Second\"").And.Not.Contain("<own").And.Not.Contain("kind=\"4\""), dump);
+                        else Assert.That(text, Does.Contain("<own id=\"1\" v=\"2\"/>").And.Contain("name=\"Filed\"").And.Not.Contain("kind=\"4\""), dump);
+                        Assert.That(p.Changes.Any(x => x.Kind == ChangeKind.DeleteEntry), Is.False, dump);
+                    }
+                    Assert.That(p.Changes.Any(x => x.ModId == "own"), Is.EqualTo(top == "own"), dump);
+                    // the winner named in the line about own's edit
+                    if (top != "own")
+                    {
+                        PlanMessage line = p.Conflicts.Single(x => x.ModId == "own" && x.LoserId == "own" && x.Text.Contains("edit"));
+                        Assert.That(line.WinnerId, Is.EqualTo(top), dump);
+                        foreach (string other in order) if (other != top) Assert.That(line.Text, Does.Not.Contain("mod " + other + " wins"), dump);
+                    }
+                    // what is left out: all of it for the mod that is written
+                    Assert.That(p.LeftOut(), Is.EquivalentTo(order.Where(x => x != top).Select(x => top + " wins " + (x == "own" ? "2 parts" : "1 part") + " of " + x)), dump);
+                }
+            Assert.That(n, Is.EqualTo(24));
+        }
+
         [Test]
         public void AnEditOfAnAddedEntryThatAThirdModDeletes()
         {
