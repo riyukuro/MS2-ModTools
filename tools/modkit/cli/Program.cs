@@ -55,7 +55,8 @@ namespace MS2.ModKit.Cli
   <archive> is <root>:<path>, for example client:Xml.m2d, gms-client:Xml.m2d, server:Xml.m2d, server:Server.m2d.
   The roots are the targets: client (the Korean client, also written kms-client), gms-client (the global
   client, also gms) and server. One mod is applied to every target the data set has (see Profiles in the README).
-  <mod> is a folder with a mod.xml (or the mod.xml itself). Later mods win where two set the same thing.
+  <mod> is a folder with a mod.xml (or the mod.xml itself). Where two mods set the same thing the mod of the
+  higher priority wins: the later one, or the order of --priority.
 
 options
   --client DIR (or --kms DIR)    the Korean client's data folder (default: MS2_CLIENT_DATA, then modtools.toml)
@@ -63,8 +64,11 @@ options
   --server DIR                   the server's data folder (default: MS2_SERVER_DATA, then modtools.toml)
   --schema DIR                   schema cache (default: <MS2_OUT>/modkit/schema)
   --notes FILE                   schema notes (default: tools/modkit/schema-notes.xml)
-  --allow-conflicts              apply although mods conflict (a file in the game folder that this tool did
-                                 not write is never overwritten)
+  --allow-conflicts              apply although mods conflict: the mod of the higher priority wins, and the
+                                 conflict line names it (a file in the game folder that this tool did not
+                                 write is never overwritten)
+  --priority ID,ID,...           mod ids, the highest priority first; mods not named come below them, a later
+                                 one above an earlier one (default: MS2_MOD_PRIORITY, then modtools.toml)
   --verify-all                   apply: compare every untouched entry with the original after writing
   --also-copy ARCHIVE            apply: copy this archive into the workspace even if nothing touches it
   --no-sync                      do not write the other side of a field the mods change on one side (see
@@ -90,7 +94,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
         }
 
         static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply",
-            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource" };
+            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource", "--priority" };
         static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all", "--all-presets", "--no-asset-files" };
 
         static int Main(string[] argv)
@@ -219,6 +223,14 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 var mods = new List<Mod>();
                 for (int i = from; i < A.Pos.Count; i++) mods.Add(Mod.Load(A.Pos[i]));
                 if (mods.Count == 0) throw new UsageException("missing <mod>");
+                // the priority list: of the option (an id no mod has is a mistake) or of the setting (may name mods that are not given this time)
+                var unknown = new List<string>();
+                if (A.Has("--priority"))
+                {
+                    mods = ModOrder.Arrange(mods, ModOrder.Parse(A.Get("--priority")), unknown);
+                    if (unknown.Count > 0) throw new UsageException("--priority names " + string.Join(", ", unknown.ToArray()) + ", which is not the id of a mod given here");
+                }
+                else mods = ModOrder.Arrange(mods, ModOrder.Parse(Set.Value(ModOrder.Setting)), null);
                 return mods;
             }
 
@@ -378,6 +390,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (PlanMessage m in p.Warnings) o.Append("warning: ").Append(m).Append('\n');
             foreach (PlanMessage m in p.Conflicts) o.Append("conflict: ").Append(m).Append('\n');
             foreach (PlanMessage m in p.Errors) o.Append("error: ").Append(m).Append('\n');
+            if (p.Conflicts.Count > 0 && p.Mods.Count > 1) o.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append('\n');
             int entries = 0;
             foreach (PlanArchive a in p.Archives) entries += a.Put.Count + a.Delete.Count;
             o.Append(p.Mods.Count).Append(" mod(s): ").Append(p.Changes.Count).Append(" change(s) in ").Append(entries).Append(" entr").Append(entries == 1 ? "y" : "ies").Append(" of ")
@@ -396,8 +409,9 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             return new
             {
                 mods = p.Mods.Select(m => new { id = m.Id, name = m.Name, version = m.Version, dir = m.Dir }).ToArray(),
+                priority = p.Mods.Select(m => m.Id).Reverse().ToArray(),      // the highest first
                 changes = p.Changes.Select(c => new { kind = c.Kind.ToString(), mod = c.ModId, target = TargetOf(c.Archive), synced = c.Synced, mirrored = c.Mirrored, archive = c.Archive, entry = c.Entry, row = c.Row, name = c.Name, old = c.OldValue, @new = c.NewValue }).ToArray(),
-                errors = Msgs(p.Errors), conflicts = Msgs(p.Conflicts), warnings = Msgs(p.Warnings), notes = Msgs(p.Notes),
+                errors = Msgs(p.Errors), conflicts = p.Conflicts.Select(m => new { mod = m.ModId, archive = m.Archive, entry = m.Entry, text = m.Text, winner = m.WinnerId }).ToArray(), warnings = Msgs(p.Warnings), notes = Msgs(p.Notes),
                 archives = p.Archives.Select(a => new { archive = a.Archive, put = a.Put.Select(k => k.Key).ToArray(), delete = a.Delete.ToArray() }).ToArray(),
             };
         }

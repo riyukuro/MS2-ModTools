@@ -39,6 +39,7 @@ namespace MS2.Tables
         readonly TextBox modIdBox = new TextBox { Width = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly Dictionary<string, TextBox> featureBoxes = new Dictionary<string, TextBox>();   // data root -> its features field
+        readonly CheckBox allowBox = new CheckBox { Text = "Higher mod wins a conflict", Height = 20 };
         readonly CheckedListBox modsList = new CheckedListBox { Dock = DockStyle.Fill, IntegralHeight = false, CheckOnClick = false };
         readonly Label busyLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
         readonly List<Control> lockable = new List<Control>();   // what is disabled while a job runs
@@ -110,15 +111,18 @@ namespace MS2.Tables
             modBar.Controls.Add(Btn("Revert", "Removes what Apply wrote: the loose files in the game folder and the patched copies in the workspace folder", delegate { DoRevert(); }));
             modBar.Controls.Add(busyLabel);
 
-            // the mods of the mods folder: a check per mod, the order they are applied in
+            // the mods of the mods folder: a check per mod; the order is the priority, the top one wins a conflict
             FlowLayoutPanel modsBar = Bar(DockStyle.Bottom);
-            modsBar.Controls.Add(Btn("Up", "Moves the selected mod one place up; mods are applied from the top down", delegate { MoveMod(-1); }));
-            modsBar.Controls.Add(Btn("Down", "Moves the selected mod one place down", delegate { MoveMod(1); }));
+            modsBar.Controls.Add(Btn("Up", "Gives the selected mod a higher priority (one place up). Where two mods set the same thing, the higher one wins. A mod can also be dragged to its place", delegate { MoveMod(-1); }));
+            modsBar.Controls.Add(Btn("Down", "Gives the selected mod a lower priority (one place down)", delegate { MoveMod(1); }));
             modsBar.Controls.Add(Btn("Load mod", "Loads the selected mod into the grid, to edit it", delegate { LoadMod(); }));
             var modsPanel = new Panel { Dock = DockStyle.Left, Width = 250 };
             modsPanel.Controls.Add(modsList);
             modsPanel.Controls.Add(modsBar);
-            modsPanel.Controls.Add(Caption("Mods (checked = applied, top first)"));
+            allowBox.Dock = DockStyle.Bottom;
+            tips.SetToolTip(allowBox, "Off: Apply writes nothing while two mods conflict. On: Apply goes on, and where two mods set the same thing the one higher in this list wins; Plan and Apply name the winner of every conflict");
+            modsPanel.Controls.Add(allowBox);
+            modsPanel.Controls.Add(Caption("Mods (checked = applied; 1 = highest priority)"));
 
             var texts = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
             texts.Panel1.Controls.Add(pendingBox);
@@ -166,6 +170,15 @@ namespace MS2.Tables
                 if (TargetChanged != null) TargetChanged();
             };
             modsList.ItemCheck += OnModCheck;
+            modsList.MouseDown += OnModMouseDown;
+            modsList.MouseMove += OnModMouseMove;
+            modsList.MouseUp += delegate { dragFrom = -1; modsList.Cursor = Cursors.Default; };
+            allowBox.CheckedChanged += delegate
+            {
+                if (filling) return;
+                if (session != null) session.AllowConflicts = allowBox.Checked;
+                Guard(delegate { TablesSettings.SaveAllowConflicts(allowBox.Checked); });
+            };
             modsList.DoubleClick += delegate { Guard(delegate { LoadMod(); }); };
             archiveBox.SelectedIndexChanged += delegate { if (!filling) FillEntries(); };
             filterBox.TextChanged += delegate { FillEntries(); };
@@ -292,6 +305,10 @@ namespace MS2.Tables
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
                 session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;
+                filling = true;
+                allowBox.Checked = TablesSettings.LoadAllowConflicts();
+                filling = false;
+                session.AllowConflicts = allowBox.Checked;
                 if (keep != null && !keep.IsEmpty) session.Adopt(keep);
                 else MarkSaved();
                 filling = true;
@@ -424,7 +441,7 @@ namespace MS2.Tables
                 foreach (ModListItem it in modList.Items)
                 {
                     bool editing = it.Error == null && it.Id == session.Mod.Id;
-                    modsList.Items.Add(it + (editing ? "  [editing, always applied]" : ""), it.Enabled);
+                    modsList.Items.Add((modsList.Items.Count + 1) + ". " + it + (editing ? "  [editing, always applied]" : ""), it.Enabled);
                     if (it.Folder == selected) modsList.SelectedIndex = modsList.Items.Count - 1;
                 }
             }
@@ -449,10 +466,34 @@ namespace MS2.Tables
         void MoveMod(int delta)
         {
             SelectedMod();
-            int to = modList.Move(modsList.SelectedIndex, delta);
+            MoveModTo(modsList.SelectedIndex, modsList.SelectedIndex + delta);
+        }
+
+        void MoveModTo(int from, int to)
+        {
+            to = modList.MoveTo(from, to);
             modList.Save();
             FillMods();
             modsList.SelectedIndex = to;
+        }
+
+        // dragging a mod: it moves as soon as the pointer is over another row, and the order is saved at once
+        int dragFrom = -1;
+
+        void OnModMouseDown(object sender, MouseEventArgs e)
+        {
+            // not on the check box at the left, a click there only checks
+            dragFrom = e.Button == MouseButtons.Left && e.X > 16 && modList != null ? modsList.IndexFromPoint(e.Location) : -1;
+        }
+
+        void OnModMouseMove(object sender, MouseEventArgs e)
+        {
+            if (dragFrom < 0 || e.Button != MouseButtons.Left || modList == null || dragFrom >= modList.Items.Count) return;
+            int over = modsList.IndexFromPoint(e.Location);
+            if (over < 0 || over == dragFrom || over >= modList.Items.Count) return;
+            modsList.Cursor = Cursors.SizeNS;
+            int from = dragFrom, to = over;
+            if (Guard(delegate { MoveModTo(from, to); })) dragFrom = to; else dragFrom = -1;
         }
 
         // ---- the table ----

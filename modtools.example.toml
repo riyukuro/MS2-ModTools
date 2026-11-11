@@ -26,6 +26,7 @@ MS2_SERVER_DATA = "/path/to/server/data"      # holds Xml.m2d and Server.m2d
 # Optional
 # MS2_CLIENT_FEATURES = "KR/Live"             # locale/server type modkit works the features out for, per data folder
 # MS2_SERVER_FEATURES = "NA/Live"             # (also MS2_GMS_CLIENT_FEATURES); these are the defaults
+# MS2_MOD_PRIORITY = "my.mod, other.mod"      # modkit: mod ids, the highest priority first; the higher mod wins a conflict
 # MS2_DOTNET_ROOT = "/path/to/dotnet"         # used for m2d and the ingest instead of the dotnet on PATH
 # MS2_OUT = "out"                             # outputs when no -o is given
 # MS2_TRIGGER_CACHE = "out/trigger-cache"

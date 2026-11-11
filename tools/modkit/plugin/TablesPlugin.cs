@@ -52,6 +52,25 @@ namespace MS2.Tables
 
         public static string FeaturesId(Profile p) { return "MS2.Mods.Features." + p.Name; }
 
+        const string AllowConflictsId = "MS2.Mods.AllowConflicts";
+
+        /// <summary>The view's "higher mod wins" box: apply although mods conflict.</summary>
+        public static bool LoadAllowConflicts()
+        {
+            ISettingService s = Platform.GetService<ISettingService>();
+            string v;
+            return s != null && s.GetSetting<string>(AllowConflictsId, out v) && v == "true";
+        }
+
+        public static void SaveAllowConflicts(bool on)
+        {
+            ISettingService s = Platform.GetService<ISettingService>();
+            if (s == null) return;
+            s.SetSetting(AllowConflictsId, on ? "true" : "false");
+            try { s.SaveSettings(SettingStorageMode.PerUser); }
+            catch (Exception ex) { Logger.Warning("MS2 Mods: could not save the settings: " + ex.Message); }
+        }
+
         /// <summary>Saves the view's features field of a profile.</summary>
         public static void SaveFeatures(Profile p, string value)
         {

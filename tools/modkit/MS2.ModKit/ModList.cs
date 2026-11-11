@@ -1,8 +1,9 @@
-// The mods folder as a list the user arranges: which mods take part in a plan or an apply, and in what order
-// (a later mod wins where two set the same thing).
-//   <mods folder>/modkit-mods.xml      <mods><mod folder="a.first" enabled="true"/>...</mods>
+// The mods folder as a list the user arranges: which mods take part in a plan or an apply, and their priority.
+// The first mod of the list has the highest priority: it wins where two mods set the same thing (ModOrder).
+//   <mods folder>/modkit-mods.xml      <mods version="2"><mod folder="a.first" enabled="true"/>...</mods>
 // The file lives in the mods folder, not in a mod, so a mod folder can be copied to someone else as it is.
-// A mod folder the file does not name yet is enabled and goes to the end, in the order of the folder names.
+// A mod folder the file does not name yet is enabled and goes to the end (the lowest priority), in the order of
+// the folder names. A file of version 1 had the winner last; it is read the other way round.
 // Folders whose name starts with '.' or '_' are not mods (as in ModFolder).
 using System;
 using System.Collections.Generic;
@@ -54,9 +55,11 @@ namespace MS2.ModKit
             {
                 XmlDoc doc = XmlDoc.Parse(File.ReadAllBytes(f), f);
                 if (doc.Root == null || doc.Root.Name != "mods") throw new ModKitException(f + ": not a mod list");
-                foreach (XmlElem e in doc.Root.Children)
+                var rows = new List<XmlElem>();
+                foreach (XmlElem e in doc.Root.Children) if (e.Name == "mod") rows.Add(e);
+                if (doc.Root.Attr("version") == "1") rows.Reverse();
+                foreach (XmlElem e in rows)
                 {
-                    if (e.Name != "mod") continue;
                     string folder = e.Attr("folder");
                     int at = folders.FindIndex(delegate(string n) { return string.Equals(n, folder, StringComparison.OrdinalIgnoreCase); });
                     if (at < 0) continue;       // the folder is gone
@@ -83,7 +86,7 @@ namespace MS2.ModKit
         {
             if (Dir == null) throw new ModKitException("the mods folder is not set");
             var sb = new StringBuilder();
-            sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<mods version=\"1\">\n");
+            sb.Append("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<mods version=\"2\">\n");
             foreach (ModListItem it in Items)
                 sb.Append("  <mod folder=\"").Append(XmlDoc.EscapeAttr(it.Folder, '"')).Append("\" enabled=\"").Append(it.Enabled ? "true" : "false").Append("\"/>\n");
             sb.Append("</mods>\n");
@@ -94,10 +97,12 @@ namespace MS2.ModKit
             File.Move(f + ".tmp", f);
         }
 
-        /// <summary>Moves an item one place up (delta -1) or down (+1); returns its new index.</summary>
-        public int Move(int index, int delta)
+        /// <summary>Moves an item one place up (delta -1, a higher priority) or down (+1); returns its new index.</summary>
+        public int Move(int index, int delta) { return MoveTo(index, index + delta); }
+
+        /// <summary>Moves an item to another place of the list (as a drag does); returns its new index.</summary>
+        public int MoveTo(int index, int to)
         {
-            int to = index + delta;
             if (index < 0 || index >= Items.Count || to < 0 || to >= Items.Count) return index;
             ModListItem it = Items[index];
             Items.RemoveAt(index);
@@ -112,9 +117,10 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// The mods a plan or an apply uses: the enabled ones in list order. The mod being edited always takes
-        /// part, as it is in memory: at its place in the list when its id is there (enabled or not), else at
-        /// the end. An edited mod without any operation is left out.
+        /// The mods a plan or an apply uses: the enabled ones in rising priority, so the first of the list comes
+        /// last (as Planner.Build takes them). The mod being edited always takes part, as it is in memory: at
+        /// its place in the list when its id is there (enabled or not), else with the highest priority. An
+        /// edited mod without any operation is left out.
         /// </summary>
         public List<Mod> LoadEnabled(Mod current)
         {
@@ -132,6 +138,7 @@ namespace MS2.ModKit
                 if (it.Error != null) throw new ModKitException("mod folder " + it.Folder + " is enabled but cannot be read: " + it.Error);
                 mods.Add(Mod.Load(Path.Combine(Dir, it.Folder)));
             }
+            mods.Reverse();
             if (current != null && !seen && !current.IsEmpty) mods.Add(current);
             return mods;
         }

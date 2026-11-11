@@ -194,10 +194,13 @@ namespace MS2.ModKit
         /// <summary>What follows an apply or a revert on the server's side: a target folder and a command, both off until set.</summary>
         public readonly ServerStep Server = new ServerStep();
 
+        /// <summary>true: an apply goes on although mods conflict, and the mod of the higher priority wins.</summary>
+        public bool AllowConflicts;
+
         /// <summary>The mods folder as a list with order and enabled states.</summary>
         public ModList ModList() { return MS2.ModKit.ModList.Load(ModsDir); }
 
-        /// <summary>The mods that a plan or an apply uses: the enabled mods in list order, with the mod being edited as it is in memory.</summary>
+        /// <summary>The mods that a plan or an apply uses: the enabled mods in rising priority (the first of the list last), with the mod being edited as it is in memory.</summary>
         public List<Mod> ActiveMods() { return ModList().LoadEnabled(Mod); }
 
         LooseTarget Loose()
@@ -274,7 +277,7 @@ namespace MS2.ModKit
             if (!Mod.IsEmpty) SaveMod();
             List<Mod> mods = ActiveMods();
             if (mods.Count == 0) throw new ModKitException("no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
-            var options = new ApplyOptions { Progress = progress, Maps = Maps, NoSync = NoSync };
+            var options = new ApplyOptions { Progress = progress, Maps = Maps, NoSync = NoSync, AllowConflicts = AllowConflicts };
 
             if (loose == null)
             {
@@ -341,6 +344,7 @@ namespace MS2.ModKit
             sb.Append(p.Mods.Count).Append(" mod(s), ").Append(p.Changes.Count).Append(" change(s), ")
               .Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ")
               .Append(p.Warnings.Count).Append(" warning(s)\r\n");
+            if (p.Conflicts.Count > 0 && p.Mods.Count > 1) sb.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append("\r\n");
             foreach (PlanMessage m in p.Errors) sb.Append("error: ").Append(m).Append("\r\n");
             foreach (PlanMessage m in p.Conflicts) sb.Append("conflict: ").Append(m).Append("\r\n");
             foreach (PlanMessage m in p.Warnings) sb.Append("warning: ").Append(m).Append("\r\n");

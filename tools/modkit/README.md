@@ -65,8 +65,8 @@ and `validate` with the third example mod, which is made to collide with the oth
 ```
 warning: [example.rival-pets] id 905 of space "pet" is added in 1 of 2 places; nothing is added in server:Xml.m2d pet/{id}.xml
 warning: [example.rival-pets] client:Xml.m2d table/pet.xml: attribute glow is never set on ms2/pet in the shipped table/pet.xml
-conflict: [example.rival-pets] client:Xml.m2d table/pet.xml: pet[id=100] @hp: "80" here, "65" in mod example.bigger-pets
-conflict: [example.rival-pets] client:Xml.m2d table/pet.xml: deletes the row pet[id=101] that mod example.bigger-pets changes
+conflict: [example.rival-pets] client:Xml.m2d table/pet.xml: pet[id=100] @hp: "80" here, "65" in mod example.bigger-pets; mod example.rival-pets wins (it has the higher priority)
+conflict: [example.rival-pets] client:Xml.m2d table/pet.xml: deletes the row pet[id=101] that mod example.bigger-pets changes; mod example.rival-pets wins (it has the higher priority)
 conflict: [example.rival-pets] ids space "pet": the range 905-915 overlaps 900-909 of mod example.new-pet
 error: [example.rival-pets] client:Xml.m2d table/pet.xml: new id 905 of space "pet" is already used in the original data (server:Xml.m2d pet/{id}.xml)
 ```
@@ -172,9 +172,19 @@ modkit status --game <game folder>
   data folder or holds one: originals are opened for reading only.
 - Every `apply` starts from the originals, so applying a list of mods always gives the same result, whatever was in
   the workspace before. `revert` is the same thing with one mod less; with none left it removes the copies.
-- Mods are applied in the order given. Two mods that set the same attribute of the same row to different values,
-  a mod that deletes a row another one changes, two that add the same id or entry: these are **conflicts**. With a
-  conflict or an error nothing is written (exit code 1). `--allow-conflicts` applies anyway, and the later mod wins.
+- Two mods that set the same attribute of the same row to different values, a mod that deletes a row another one
+  changes, two that add the same id or entry: these are **conflicts**. With a conflict or an error nothing is
+  written (exit code 1). `--allow-conflicts` applies anyway, and the mod of the higher priority wins.
+- **Priority.** Of the mods given, a later one is higher than an earlier one. `--priority ID,ID,...` names mod ids
+  with the highest first: the named mods are above all others, the others keep their order below them. An id
+  that none of the given mods has is a usage error. Without the option the list is read from the setting
+  `MS2_MOD_PRIORITY` (environment, then `modtools.toml`), which may also name mods that are not given this time.
+  Every conflict line ends with the winner (`; mod X wins (it has the higher priority)`), a line
+  `priority, the highest first: c > a > b` follows the conflicts, and `--json` has `priority` and a `winner` per
+  conflict. What the higher mod sets is what the plan holds: its value, its delete, its new row or its entry; the
+  lower mod's part of that conflict is left out, and the rest of the lower mod still applies. Three kinds of
+  conflict have no winner and name none: two mods whose id ranges overlap, a new id that two mods add in
+  different places (both are written), and a file in the game folder that this tool did not write.
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
 - Point the game at the copies yourself (or copy them over a **copy** of the game folder). For the server see
@@ -294,10 +304,16 @@ Using it:
 4. **Save mod** writes the mod folder. **New mod** starts an empty mod with the id in **Mod id** (the first mod is
    called `my.mod`).
 5. The **Mods** list shows the mods of the mods folder. A checked mod is applied, an unchecked one stays in the
-   folder and is left out. Mods are applied from the top down, which matters when you allow conflicts (the later mod
-   wins); **Up** and **Down** move the selected mod. **Load mod** (or a double-click) loads the selected mod into the
+   folder and is left out. The list is the priority: the numbers start at the top with 1, the highest, and where
+   two mods set the same thing the higher one wins. **Up** and **Down** move the selected mod, or drag it to its
+   place with the mouse. A mod folder that is new goes to the end of the list; the mod being edited, when it is
+   not saved yet, is above all. **Higher mod wins a conflict** under the list decides what a conflict does: off,
+   Apply writes nothing while mods conflict; on, Apply goes on and the higher mod's change is written. Either way
+   Plan names the winner of every conflict and shows the order. The box is kept in the Toolbench settings and
+   holds for the other MS2 views too. **Load mod** (or a double-click) loads the selected mod into the
    grid. The mod being edited is marked and always takes part, checked or not. The checks and the order are kept in
-   `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them. When the view opens and
+   `modkit-mods.xml` in the mods folder; the mod folders themselves are not changed by them. (A list saved by an
+   earlier version had the winner at the bottom; it is turned round when it is read, so the same mod still wins.) When the view opens and
    the mods folder already has a mod with the id being edited (`my.mod` at first), that saved mod is loaded, so work
    goes on where it was saved. When Toolbench is closed with changes that were not saved, it asks first: Yes saves
    the mod, No drops the changes, Cancel keeps Toolbench open. Closing only the view's pane hides it and keeps the

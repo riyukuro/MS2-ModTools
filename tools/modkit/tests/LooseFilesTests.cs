@@ -206,22 +206,37 @@ namespace MS2.ModKit.Tests
 
                 l = ModList.Load(mods);
                 Assert.That(l.Items.Select(i => i.Id + ":" + i.Enabled), Is.EqualTo(new[] { "b.second:True", "a.first:True", "c.third:False" }));
-                Assert.That(l.LoadEnabled(null).Select(m => m.Id), Is.EqualTo(new[] { "b.second", "a.first" }));
-                // the order decides who wins: a.first is later now
+                Assert.That(File.ReadAllText(Path.Combine(mods, ModList.FileName)), Does.Contain("<mods version=\"2\">"));
+                // a plan takes the mods in rising priority: the first of the list comes last
+                Assert.That(l.LoadEnabled(null).Select(m => m.Id), Is.EqualTo(new[] { "a.first", "b.second" }));
+                // the order decides who wins: b.second is the top one now
                 Plan p = f.Plan(l.LoadEnabled(null).ToArray());
-                Assert.That(Fake.Text(p, C, Pet), Does.Contain("<pet id=\"100\" name=\"Mossy\" hp=\"2\""));
+                Assert.That(Fake.Text(p, C, Pet), Does.Contain("<pet id=\"100\" name=\"Mossy\" hp=\"1\""));
+                Assert.That(p.Conflicts.Single().WinnerId, Is.EqualTo("b.second"));
+                Assert.That(EditorSession.Report(p), Does.Contain("priority, the highest first: b.second > a.first").And.Contain("; mod b.second wins (it has the higher priority)"));
+                // a drag: the third to the top, and back
+                Assert.That(l.MoveTo(2, 0), Is.EqualTo(0));
+                Assert.That(l.Items.Select(i => i.Id), Is.EqualTo(new[] { "c.third", "b.second", "a.first" }));
+                Assert.That(l.MoveTo(0, 2), Is.EqualTo(2));
+                Assert.That(l.MoveTo(0, 3), Is.EqualTo(0), "no such place");
+                Assert.That(l.Items.Select(i => i.Id), Is.EqualTo(new[] { "b.second", "a.first", "c.third" }));
 
                 // the mod being edited takes part although it is switched off, at its place, from memory
                 Mod open = Mod.Load(Path.Combine(mods, "c.third"));
                 List<Mod> set = l.LoadEnabled(open);
-                Assert.That(set.Select(m => m.Id), Is.EqualTo(new[] { "b.second", "a.first", "c.third" }));
-                Assert.That(set[2], Is.SameAs(open));
-                // one that is not in the folder yet goes to the end; an empty one is left out
+                Assert.That(set.Select(m => m.Id), Is.EqualTo(new[] { "c.third", "a.first", "b.second" }));
+                Assert.That(set[0], Is.SameAs(open));
+                // one that is not in the folder yet has the highest priority; an empty one is left out
                 Mod fresh = new Mod { Id = "t.new", Name = "", Version = "1" };
                 Assert.That(l.LoadEnabled(fresh).Count, Is.EqualTo(2));
                 var d = new TableDraft(f.Data, fresh, C, Pet, null);
                 d.Set(d.Rows[0], "speed", "9");
-                Assert.That(l.LoadEnabled(fresh).Select(m => m.Id), Is.EqualTo(new[] { "b.second", "a.first", "t.new" }));
+                Assert.That(l.LoadEnabled(fresh).Select(m => m.Id), Is.EqualTo(new[] { "a.first", "b.second", "t.new" }));
+                // a list written before the priority model had the winner last: it is read the other way round
+                string listFile = Path.Combine(mods, ModList.FileName);
+                File.WriteAllText(listFile, "<mods version=\"1\"><mod folder=\"c.third\" enabled=\"false\"/><mod folder=\"a.first\"/><mod folder=\"b.second\"/></mods>");
+                Assert.That(ModList.Load(mods).Items.Select(i => i.Id + ":" + i.Enabled), Is.EqualTo(new[] { "b.second:True", "a.first:True", "c.third:False" }));
+                l.Save();
 
                 // a new folder goes to the end, a folder that is gone leaves the list, a broken mod is shown and refused when enabled
                 f.ModDir("0.new", Hp(C, "102", "5"));
