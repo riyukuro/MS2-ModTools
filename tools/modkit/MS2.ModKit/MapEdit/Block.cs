@@ -144,13 +144,38 @@ namespace MS2.ModKit.MapEdit
         static void WriteLayerTree(BLayer layer, string dir)
         {
             foreach (BLayer sub in layer.Layers) WriteLayerTree(sub, dir);
-            File.WriteAllBytes(System.IO.Path.Combine(dir, layer.Path), NetXmlWriter.Bytes(LayerText(layer)));
+            File.WriteAllBytes(OutPath.Under(dir, layer.Path), NetXmlWriter.Bytes(LayerText(layer)));
         }
 
-        /// <summary>Writes the block and its layer files next to it.</summary>
+        static void UnsafeLayers(IList<BLayer> layers, List<string> res)
+        {
+            foreach (BLayer l in layers)
+            {
+                string why = l.Path != null && l.Path.IndexOfAny(new[] { '/', '\\' }) >= 0 ? "more than one part" : OutPath.Why(l.Path);
+                if (why != null) res.Add(OutPath.Line("layer file", l.Path, why));
+                UnsafeLayers(l.Layers, res);
+            }
+        }
+
+        /// <summary>The map name and the layer file names that Write would refuse: each is one file name next to the
+        /// block, never a path.</summary>
+        public List<string> UnsafeNames()
+        {
+            var res = new List<string>();
+            string why = Name != null && Name.IndexOfAny(new[] { '/', '\\' }) >= 0 ? "more than one part" : OutPath.Why(Name);
+            if (why != null) res.Add(OutPath.Line("map name", Name, why));
+            UnsafeLayers(Layers, res);
+            return res;
+        }
+
+        /// <summary>Writes the block and its layer files next to it. Nothing is written when a layer file name is
+        /// not a plain file name.</summary>
         public void Write(string path)
         {
             string dir = System.IO.Path.GetDirectoryName(System.IO.Path.GetFullPath(path));
+            var bad = new List<string>();
+            UnsafeLayers(Layers, bad);
+            if (bad.Count > 0) throw new ModKitException("refused to write " + path + ": " + string.Join("; ", bad.ToArray()));
             foreach (BLayer l in Layers) WriteLayerTree(l, dir);
             File.WriteAllBytes(path, NetXmlWriter.Bytes(Text()));
         }

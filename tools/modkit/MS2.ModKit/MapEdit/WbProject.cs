@@ -68,6 +68,8 @@ namespace MS2.ModKit.MapEdit
         public readonly List<KeyValuePair<string, int>> Stats = new List<KeyValuePair<string, int>>();
         public List<string> Warnings = new List<string>();
         public readonly List<string> Log = new List<string>();
+        /// <summary>Names that were not written because they could leave the output folder (see OutPath).</summary>
+        public readonly List<string> Refused = new List<string>();
 
         internal void Count(string key)
         {
@@ -102,6 +104,9 @@ namespace MS2.ModKit.MapEdit
         /// <summary>The game's Resource folder. When set (and AssetPaths too), the model files the maps use and the
         /// textures those name are copied into the project.</summary>
         public string ResourceDir;
+        /// <summary>Filled by Build: names that were not written because they could leave the project folder. A
+        /// caller that finds any must report failure.</summary>
+        public readonly List<string> Refused = new List<string>();
     }
 
     public static class WbProject
@@ -163,9 +168,23 @@ namespace MS2.ModKit.MapEdit
             return t.Replace("\r\n", "\n").Replace('\r', '\n');
         }
 
-        static void WriteModel(CasePaths cp, WbModel m, string baseDir, string rel)
+        /// <summary>The path to write rel at below baseDir (a folder inside root), with the letter case of what is
+        /// on disk; null, and a line in refused, when the name is unsafe or the path is not inside root.</summary>
+        static string SafePath(CasePaths cp, string root, string baseDir, string rel, string what, List<string> refused)
         {
-            string path = cp.Resolve(baseDir, rel, true);
+            string why = OutPath.Why(rel);
+            if (why == null)
+            {
+                string path = cp.Resolve(baseDir, rel, false);
+                why = OutPath.WhyNotUnder(root, path);
+                if (why == null) return cp.Resolve(baseDir, rel, true);
+            }
+            refused.Add(OutPath.Line(what, rel, why));
+            return null;
+        }
+
+        static void WriteModel(string path, WbModel m)
+        {
             Directory.CreateDirectory(Path.GetDirectoryName(path));
             File.WriteAllBytes(path, Utf8.GetBytes(m.Text()));
         }
@@ -247,12 +266,16 @@ namespace MS2.ModKit.MapEdit
                     if (relF.ToLowerInvariant().EndsWith(".preset", StringComparison.Ordinal))
                     {
                         if (cp.Exists(epDir, relF)) { res.Count("library-preset-kept(shipped)"); continue; }
-                        WriteModel(cp, rec.BuildPreset(fname), epDir, relF);
+                        string path = SafePath(cp, root, epDir, relF, rel + " lists", res.Refused);
+                        if (path == null) continue;
+                        WriteModel(path, rec.BuildPreset(fname));
                         res.Count("library-preset-generated");
                     }
                     else
                     {
-                        WriteModel(cp, rec.Build(fname), epDir, relF);
+                        string path = SafePath(cp, root, epDir, relF, rel + " lists", res.Refused);
+                        if (path == null) continue;
+                        WriteModel(path, rec.Build(fname));
                         res.Count("library-model-generated");
                     }
                 }
@@ -261,7 +284,13 @@ namespace MS2.ModKit.MapEdit
                     libOfName[b.Value] = libdir;
                     if (listed.ContainsKey(b.Key)) continue;
                     string relF = b.Value + ".model";
-                    WriteModel(cp, rec.Build(b.Value), epDir, relF);
+                    string path = b.Value.IndexOfAny(new[] { '/', '\\' }) >= 0 ? null : SafePath(cp, root, epDir, relF, "model name in " + flats.Get(b.Value).File + ":", res.Refused);
+                    if (path == null)
+                    {
+                        if (b.Value.IndexOfAny(new[] { '/', '\\' }) >= 0) res.Refused.Add(OutPath.Line("model name in " + flats.Get(b.Value).File + ":", b.Value, "more than one part"));
+                        continue;
+                    }
+                    WriteModel(path, rec.Build(b.Value));
                     text = AddFileEntry(text, relF);
                     changed = true;
                     res.Count("library-model-generated-and-added-to-project");
@@ -293,10 +322,17 @@ namespace MS2.ModKit.MapEdit
                 Stable.Sort(names, delegate (string a, string b) { return string.CompareOrdinal(a.ToLowerInvariant(), b.ToLowerInvariant()); });
                 var files = new List<string>();
                 var refs = new SortedDictionary<string, bool>(StringComparer.Ordinal);
+                // the folder name of the listing becomes a folder and a project file name: one part, or nothing is written
+                string projPath, bad = sub.IndexOfAny(new[] { '/', '\\' }) >= 0 ? "more than one part" : OutPath.Why(sub);
+                if (bad == null) OutPath.TryUnder(root, pdir, label + ".emtproj", out projPath, out bad); else projPath = null;
+                if (bad != null) { res.Refused.Add(OutPath.Line("preset folder", c.Key, bad)); continue; }
                 foreach (string n in names)
                 {
+                    if (n.IndexOfAny(new[] { '/', '\\' }) >= 0) { res.Refused.Add(OutPath.Line("model name in " + flats.Get(n).File + ":", n, "more than one part")); continue; }
+                    string path = SafePath(cp, root, pdir, sub + "/" + n + ".preset", "model name in " + flats.Get(n).File + ":", res.Refused);
+                    if (path == null) continue;
                     WbModel m = rec.BuildPreset(n);
-                    WriteModel(cp, m, pdir, sub + "/" + n + ".preset");
+                    WriteModel(path, m);
                     files.Add(sub + "\\" + n + ".preset");
                     string bas = m.Mixins.Count > 0 ? m.Mixins[0].Value : null;
                     string ld = null, bl;
@@ -310,7 +346,7 @@ namespace MS2.ModKit.MapEdit
                     res.Count("preset-generated");
                 }
                 Directory.CreateDirectory(pdir);
-                File.WriteAllBytes(Path.Combine(pdir, label + ".emtproj"),
+                File.WriteAllBytes(projPath,
                     Utf8.GetBytes(ProjectText(files, new List<string>(refs.Keys), "..\\..\\Exported\\Flat\\Presets\\" + FlatOutName(c.Key), sub)));
                 res.Count("preset-projects");
                 res.Log.Add(label + ": " + names.Count + " presets, " + refs.Count + " references");
@@ -319,7 +355,7 @@ namespace MS2.ModKit.MapEdit
             if (rec.Warnings.Count > 0)
             {
                 Directory.CreateDirectory(Path.Combine(root, "logs"));
-                File.WriteAllBytes(Path.Combine(Path.Combine(root, "logs"), "flat2model-warnings.txt"), Utf8.GetBytes(string.Join("\n", rec.Warnings.ToArray()) + "\n"));
+                File.WriteAllBytes(OutPath.Under(root, "logs/flat2model-warnings.txt"), Utf8.GetBytes(string.Join("\n", rec.Warnings.ToArray()) + "\n"));
             }
             return res;
         }
@@ -370,6 +406,13 @@ namespace MS2.ModKit.MapEdit
             }
             o.Add("  </Hierarchy>"); o.Add("</Solution>"); o.Add("");
             return string.Join("\r\n", o.ToArray());
+        }
+
+        /// <summary>Where the solution file goes: a plain file name in root, nothing else.</summary>
+        public static string SolutionPath(string root, string name)
+        {
+            if (name != null && name.IndexOfAny(new[] { '/', '\\' }) >= 0) throw new ModKitException("refused to write \"" + name + "\": the solution is a file name in the project folder, not a path");
+            return OutPath.Under(root, name);
         }
 
         static void ProjectFiles(string dir, List<string> res)
@@ -431,16 +474,15 @@ namespace MS2.ModKit.MapEdit
             foreach (string d in Directory.GetDirectories(src)) CopyTree(d, Path.Combine(dst, Path.GetFileName(d)));
         }
 
-        static void CopyLibrary(string source, string lib)
+        static void CopyLibrary(string source, string lib, List<string> refused)
         {
             if (Directory.Exists(source)) { CopyTree(source, lib); return; }
             if (!File.Exists(source)) throw new ModKitException("no model library at " + source + " (a folder, or the Library archive)");
-            string full = Path.GetFullPath(lib).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
             using (M2dArchive a = M2dArchive.Open(source))
                 foreach (M2dEntry e in a.Entries)
                 {
-                    string p = Path.GetFullPath(Path.Combine(lib, e.Name.Replace('/', Path.DirectorySeparatorChar)));
-                    if (!p.StartsWith(full, StringComparison.Ordinal)) throw new ModKitException("the library archive has an entry outside its folder: " + e.Name);
+                    string p, why;
+                    if (!OutPath.TryUnder(lib, lib, e.Name, out p, out why)) { refused.Add(OutPath.Line("library archive entry", e.Name, why)); continue; }
                     Directory.CreateDirectory(Path.GetDirectoryName(p));
                     File.WriteAllBytes(p, a.Read(e));
                 }
@@ -548,7 +590,7 @@ namespace MS2.ModKit.MapEdit
             if (!Directory.Exists(lib))
             {
                 if (o.LibrarySource == null) throw new ModKitException(root + " has no Library folder and no model library was given");
-                CopyLibrary(o.LibrarySource, lib);
+                CopyLibrary(o.LibrarySource, lib, o.Refused);
                 log.Add("copied the model library into " + lib);
             }
             WbFlats flats = WbFlats.FromFiles(flatFiles);
@@ -571,6 +613,7 @@ namespace MS2.ModKit.MapEdit
             Dictionary<string, bool> presets = o.AllPresets ? null : PresetClosure(flats, used);
             WbBuildResult br = BuildModels(root, flats, o.KnownIds, presets);
             foreach (KeyValuePair<string, int> s in br.Stats) log.Add(s.Key + " " + s.Value);
+            o.Refused.AddRange(br.Refused);
 
             string mapDir = Path.Combine(root, "Maps");
             Directory.CreateDirectory(mapDir);
@@ -581,6 +624,8 @@ namespace MS2.ModKit.MapEdit
             {
                 var opt = new ToBlockOptions { LayersByCategory = o.LayersByCategory, FoldersByCategory = o.FoldersByCategory, ModelIds = ids, ExportFolder = "..\\Exported\\xblock" };
                 BlockDoc blk = MapConvert.ToBlock(m.Value, m.Key, index, opt, rep);
+                List<string> unsafeNames = blk.UnsafeNames();
+                if (unsafeNames.Count > 0) { foreach (string u in unsafeNames) o.Refused.Add("map " + m.Key + ": " + u); continue; }
                 blk.Write(Path.Combine(mapDir, blk.Name + ".block"));
                 refs.AddRange(blk.References);
                 log.Add("map " + blk.Name + ": " + m.Value.Count + " entities");
@@ -606,15 +651,16 @@ namespace MS2.ModKit.MapEdit
                 {
                     WbAssetCopy c = WbAssets.Copy(root, src, resolved, o.AssetFiles ?? new List<string>(o.AssetPaths.Values));
                     missing.AddRange(c.Missing);
+                    o.Refused.AddRange(c.Refused);
                     log.Add("copied " + c.Models + " model files and " + c.Textures + " texture files (" + c.Bytes + " bytes), " + c.Missing.Count + " not found, listed in MISSING.txt");
                 }
-            File.WriteAllBytes(Path.Combine(root, "MISSING.txt"), Utf8.GetBytes(string.Join("\n", missing.ToArray()) + "\n"));
-            File.WriteAllBytes(Path.Combine(root, "ASSETS.txt"), Utf8.GetBytes(sb.ToString()));
+            File.WriteAllBytes(OutPath.Under(root, "MISSING.txt"), Utf8.GetBytes(string.Join("\n", missing.ToArray()) + "\n"));
+            File.WriteAllBytes(OutPath.Under(root, "ASSETS.txt"), Utf8.GetBytes(sb.ToString()));
             log.Add(assets.Count + " asset files used by the maps, listed in ASSETS.txt" +
                 (o.AssetPaths == null ? " (ids only: no asset list was given)" : " (" + unresolved + " not in the asset list)"));
 
             string sol = o.SolutionName ?? Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar)) + ".gsl";
-            File.WriteAllBytes(Path.Combine(root, sol), Utf8.GetBytes(SolutionText(root, sol)));
+            File.WriteAllBytes(SolutionPath(root, sol), Utf8.GetBytes(SolutionText(root, sol)));
             log.Add("solution " + sol);
             if (br.Warnings.Count > 0) log.Add(br.Warnings.Count + " notes on models, in logs/flat2model-warnings.txt");
             log.Add("This folder holds copied game files. Keep it local; do not put it in a repository.");

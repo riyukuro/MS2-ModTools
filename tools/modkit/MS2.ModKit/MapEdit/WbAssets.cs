@@ -62,6 +62,8 @@ namespace MS2.ModKit.MapEdit
         public long Bytes;
         /// <summary>Lines for the list of missing things.</summary>
         public readonly List<string> Missing = new List<string>();
+        /// <summary>Asset paths that were not written because they could leave the project folder.</summary>
+        public readonly List<string> Refused = new List<string>();
     }
 
     public static class WbAssets
@@ -113,9 +115,9 @@ namespace MS2.ModKit.MapEdit
 
         static bool Write(string root, string assetPath, byte[] data, WbAssetCopy r)
         {
-            string full = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            string p = Path.GetFullPath(Path.Combine(root, assetPath.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
-            if (!p.StartsWith(full, StringComparison.Ordinal)) throw new ModKitException("asset path outside the project: " + assetPath);
+            // an asset path is written "/A/B/file": that one leading '/' is the list's form, anything more is refused
+            string p, why, rel = assetPath.StartsWith("/", StringComparison.Ordinal) ? assetPath.Substring(1) : assetPath;
+            if (!OutPath.TryUnder(root, root, rel, out p, out why)) { r.Refused.Add(OutPath.Line("asset path", assetPath, why)); return false; }
             if (File.Exists(p)) return false;
             Directory.CreateDirectory(Path.GetDirectoryName(p));
             File.WriteAllBytes(p, data);

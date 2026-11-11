@@ -121,7 +121,15 @@ namespace MS2.ModKit.Cli
             foreach (string l in r.Log) Console.Error.WriteLine(l);
             foreach (KeyValuePair<string, int> s in r.Stats) Console.WriteLine(s.Key + " " + s.Value);
             Console.WriteLine("warnings " + r.Warnings.Count);
-            return 0;
+            return Refused(r.Refused);
+        }
+
+        // names that could leave the output folder: listed, not written, and the command fails
+        static int Refused(List<string> refused)
+        {
+            foreach (string r in refused) Console.Error.WriteLine("refused, not written: " + r);
+            if (refused.Count > 0) Console.Error.WriteLine(refused.Count + " unsafe names were refused");
+            return refused.Count > 0 ? 1 : 0;
         }
 
         static int MapSolution(Args a)
@@ -129,8 +137,9 @@ namespace MS2.ModKit.Cli
             if (a.Pos.Count < 1 || a.Pos.Count > 2) throw new UsageException("map-solution <project folder> [NAME.gsl]");
             string root = Path.GetFullPath(a.Pos[0]).TrimEnd(Path.DirectorySeparatorChar);
             string name = a.Pos.Count > 1 ? a.Pos[1] : Path.GetFileName(root) + ".gsl";
-            File.WriteAllBytes(Path.Combine(root, name), new UTF8Encoding(false).GetBytes(WbProject.SolutionText(root, name)));
-            Console.WriteLine(Path.Combine(root, name));
+            string dst = WbProject.SolutionPath(root, name);
+            File.WriteAllBytes(dst, new UTF8Encoding(false).GetBytes(WbProject.SolutionText(root, name)));
+            Console.WriteLine(dst);
             return 0;
         }
 
@@ -164,7 +173,7 @@ namespace MS2.ModKit.Cli
                 o.AssetFiles = allPaths;
             }
             foreach (string l in WbProject.Build(o, WbProject.ReadFlatFiles(src))) Console.WriteLine(l);
-            return 0;
+            return Refused(o.Refused);
         }
 
         static Dictionary<string, string> ReadStringMap(string path)
@@ -186,7 +195,7 @@ namespace MS2.ModKit.Cli
             foreach (string f in a.Pos)
                 foreach (KeyValuePair<string, List<XEntity>> x in MapConvert.ToXBlocks(BlockDoc.Read(f), ix, order))
                 {
-                    string dst = Path.Combine(outDir, x.Key);
+                    string dst = OutPath.Under(outDir, x.Key);      // the name comes from the block file
                     File.WriteAllBytes(dst, XBlock.Bytes(x.Value, d));
                     Console.WriteLine(dst);
                 }

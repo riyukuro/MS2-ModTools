@@ -273,6 +273,180 @@ namespace MS2.ModKit.Tests
             Assert.IsFalse(Directory.Exists(Path.Combine(root2, "Model")));
         }
 
+        // ---- names that could leave the output folder ----
+
+        static readonly string ToolProjectHead = "\uFEFF<?xml version=\"1.0\" encoding=\"utf-8\"?>\r\n<Project version=\"5\">\r\n\t<Files>\r\n\t\t<File path=\"BASE.model\" />\r\n";
+        const string ToolProjectTail = "\t</Files>\r\n</Project>";
+
+        void Put(string rel, string text)
+        {
+            string p = Path.Combine(dir, rel.Replace('/', Path.DirectorySeparatorChar));
+            Directory.CreateDirectory(Path.GetDirectoryName(p));
+            File.WriteAllBytes(p, new UTF8Encoding(false).GetBytes(text));
+        }
+
+        // everything below the test folder except the project folder and the game folder: must stay as it was
+        List<string> Outside(params string[] own)
+        {
+            var res = new List<string>();
+            foreach (string e in Directory.GetFileSystemEntries(dir))
+                if (Array.IndexOf(own, Path.GetFileName(e)) < 0) res.Add(Path.GetFileName(e));
+            return res;
+        }
+
+        [Test]
+        public void OutPathRefusesNamesThatLeaveTheFolder()
+        {
+            string[] bad = { "..", "../x", "a/../../x", "a\\..\\x", "..\\x", "/x", "\\x", "\\\\host\\share\\x", "C:\\x", "C:x", "c:/x", "a/b:c", "", ".", "./", ".. /x", "a/.../x", "a\nb", null };
+            foreach (string b in bad)
+            {
+                string full, why;
+                Assert.IsFalse(OutPath.TryUnder(dir, dir, b, out full, out why), b);
+                Assert.IsNotNull(why, b);
+                Assert.IsNull(full, b);
+                Assert.Throws<ModKitException>(delegate { OutPath.Under(dir, b); }, b);
+            }
+            string[] good = { "x", "a/b.c", "a\\b.c", "./a/x", "a//x", "..x", "x..", "a.b/..c" };
+            foreach (string g in good)
+            {
+                string p = OutPath.Under(dir, g);
+                StringAssert.StartsWith(Path.GetFullPath(dir) + Path.DirectorySeparatorChar, p, g);
+            }
+            // a base folder that is not inside the root
+            string f, w;
+            Assert.IsFalse(OutPath.TryUnder(Path.Combine(dir, "in"), dir, "x", out f, out w));
+            Assert.IsFalse(OutPath.TryUnder(Path.Combine(dir, "in"), Path.Combine(dir, "inside"), "x", out f, out w), "a folder whose name only starts like the root");
+        }
+
+        [Test]
+        public void ProjectFilePathWithDotDotIsRefused()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            Put("proj/Library/tool/tool.emtproj", ToolProjectHead + "\t\t<File path=\"..\\..\\..\\out\\Mover.model\" />\r\n\t\t<File path=\"sub/../../../out2/Kept.model\" />\r\n" + ToolProjectTail);
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            Assert.AreEqual(2, r.Refused.Count, string.Join("\n", r.Refused.ToArray()));
+            StringAssert.Contains("Mover.model", r.Refused[1]);
+            StringAssert.Contains("'..' part", r.Refused[1]);
+            Assert.AreEqual(new string[0], Outside("proj", "Exported").ToArray(), "nothing beside the project folder");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Library/tool/BASE.model")), "the safe files are still written");
+        }
+
+        [Test]
+        public void ModelNameWithDotDotIsRefused()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            const string body = "\">\n\t<property type=\"Float32\" name=\"Weight\" id=\"452724692\" source=\"x\">\n\t\t<set value=\"4\"/>\n\t</property>\n</model>\n";
+            Put("Exported/flat/library/tool/esc.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"../../../esc\" id=\"1" + body);
+            Put("Exported/flat/library/tool/esc2.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"..\\..\\..\\esc2\" id=\"2" + body);
+            Put("Exported/flat/presets/presets cube/esc3.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"../../../../esc3\" id=\"3\">\n\t<mixin name=\"Mover\" id=\"1245817287\" type=\"x\"/>\n</model>\n");
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            string all = string.Join("\n", r.Refused.ToArray());
+            Assert.AreEqual(3, r.Refused.Count, all);
+            StringAssert.Contains("esc.flat", all);
+            StringAssert.Contains("esc2.flat", all);
+            StringAssert.Contains("esc3.flat", all);
+            Assert.AreEqual(new string[0], Outside("proj", "Exported").ToArray(), "nothing beside the project folder");
+            var got = new List<string>();
+            Files(root, root, got);
+            foreach (string g in got) StringAssert.DoesNotContain("esc", g);
+            StringAssert.DoesNotContain("esc", File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj")));
+            StringAssert.DoesNotContain("esc", File.ReadAllText(Path.Combine(root, "Library/Presets/Presets_Cube.emtproj")));
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Library/Presets/Cube/box_a.preset")), "the safe files are still written");
+        }
+
+        [Test]
+        public void DriveLetterNameIsRefused()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            Put("proj/Library/tool/tool.emtproj", ToolProjectHead + "\t\t<File path=\"C:\\made\\Mover.model\" />\r\n\t\t<File path=\"c:/x/Kept.model\" />\r\n" + ToolProjectTail);
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            Assert.AreEqual(2, r.Refused.Count, string.Join("\n", r.Refused.ToArray()));
+            StringAssert.Contains("drive letter", r.Refused[0]);
+            var got = new List<string>();
+            Files(root, root, got);
+            foreach (string g in got) { StringAssert.DoesNotContain(":", g); StringAssert.DoesNotContain("Mover.model", g); StringAssert.DoesNotContain("Kept.model", g); }
+        }
+
+        [Test]
+        public void RootedNamesAreRefused()
+        {
+            string game = Path.Combine(dir, "game"), root = Path.Combine(dir, "proj"), away = Path.Combine(dir, "away");
+            WriteInput(game, game);
+            Directory.CreateDirectory(away);
+            // a rooted File path in a project file
+            Put("game/Library/tool/tool.emtproj", ToolProjectHead + "\t\t<File path=\"" + away.Replace('\\', '/') + "/Mover.model\" />\r\n" + ToolProjectTail);
+            // a rooted map name, a map name with "..", and a good one
+            var e = new XEntity { Id = "000000000000000000000000000000a1", Model = "Extra", Name = "one" };
+            byte[] map = XBlock.Bytes(new[] { e }, XDialect.Tab);
+            var o = new WbProjectOptions { Root = root, LibrarySource = Path.Combine(game, "Library") };
+            o.Maps.Add(new KeyValuePair<string, byte[]>(Path.Combine(away, "rooted_map"), map));
+            o.Maps.Add(new KeyValuePair<string, byte[]>("../../away/up_map", map));
+            o.Maps.Add(new KeyValuePair<string, byte[]>("90000001_made_up", map));
+            WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+            string all = string.Join("\n", o.Refused.ToArray());
+            Assert.AreEqual(3, o.Refused.Count, all);
+            StringAssert.Contains("Mover.model", o.Refused[0]);
+            StringAssert.Contains("rooted_map", all);
+            StringAssert.Contains("up_map", all);
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(away).Length, "nothing was written outside the project");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Maps/90000001_made_up.block")), "the safe map is still written");
+            StringAssert.DoesNotContain("rooted_map", File.ReadAllText(Path.Combine(root, "proj.gsl")));
+
+            // the solution file is a file name, not a path
+            Assert.Throws<ModKitException>(delegate { WbProject.SolutionPath(root, "../x.gsl"); });
+            Assert.Throws<ModKitException>(delegate { WbProject.SolutionPath(root, "sub/x.gsl"); });
+            Assert.Throws<ModKitException>(delegate { WbProject.SolutionPath(root, Path.Combine(away, "x.gsl")); });
+            Assert.Throws<ModKitException>(delegate { WbProject.SolutionPath(root, "C:x.gsl"); });
+            o.Root = Path.Combine(dir, "proj3"); o.SolutionName = "..\\x.gsl";
+            Assert.Throws<ModKitException>(delegate { WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported"))); });
+            Assert.IsFalse(File.Exists(Path.Combine(dir, "x.gsl")));
+        }
+
+        [Test]
+        public void LayerFileNameFromABlockFileIsRefused()
+        {
+            var doc = new BlockDoc("made_up");
+            doc.Layers.Add(new BLayer { Name = "l", Path = "../made_up.l.layer" });
+            string dst = Path.Combine(Path.Combine(dir, "maps"), "made_up.block");
+            Directory.CreateDirectory(Path.GetDirectoryName(dst));
+            Assert.Throws<ModKitException>(delegate { doc.Write(dst); });
+            Assert.IsFalse(File.Exists(dst), "nothing is written, not even the block");
+            Assert.IsFalse(File.Exists(Path.Combine(dir, "made_up.l.layer")));
+            Assert.AreEqual(1, doc.UnsafeNames().Count);
+        }
+
+        [Test]
+        public void UnsafeAssetPathIsRefusedAndTheRestIsCopied()
+        {
+            string res = Path.Combine(dir, "Resource"), root = Path.Combine(dir, "proj");
+            Directory.CreateDirectory(Path.Combine(res, "Model/Made"));
+            File.WriteAllBytes(Path.Combine(res, "Model/Made/a.nif"), FakeModelFile("none"));
+            File.WriteAllBytes(Path.Combine(res, "Model/Made/b.nif"), FakeModelFile("none"));
+            Directory.CreateDirectory(root);
+            var paths = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("0000aaaa-0000-0000-0000-000000000000", "//Model/Made/a.nif"),
+                new KeyValuePair<string, string>("0000bbbb-0000-0000-0000-000000000000", "/Model/Made/b.nif"),
+                new KeyValuePair<string, string>("0000cccc-0000-0000-0000-000000000000", "/Model/../../Made/a.nif"),
+            };
+            using (var src = new WbAssetSource(res))
+            {
+                WbAssetCopy c = WbAssets.Copy(root, src, paths, new List<string>());
+                Assert.AreEqual(1, c.Refused.Count, string.Join("\n", c.Refused.ToArray()));
+                StringAssert.Contains("rooted name", c.Refused[0]);
+                Assert.AreEqual(1, c.Models);
+                Assert.AreEqual(1, c.Missing.Count, "a path with '..' is not even read");
+            }
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Model/Made/b.nif")));
+            Assert.IsFalse(File.Exists(Path.Combine(root, "Model/Made/a.nif")));
+        }
+
         [Test]
         public void AssetListIsReadFromTheTwoTripleFiles()
         {
