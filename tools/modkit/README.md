@@ -730,15 +730,40 @@ archive may also hold map files that no row names; the game never loads those. A
 a file, and when the changed file is one of several of its map but not the one the target loads (see the warnings
 below). Before you write a map mod, look the map id up in the map table and take the file name from there.
 
-Which features are on is worked out per target from its own `Xml.m2d`, the way the game does it:
+Which features are on is worked out per target from its own `Xml.m2d`:
 `table/feature_setting.xml` gives a level for a server type and a locale (`<setting type="Live" KR="10" NA="5"/>`),
-`table/feature.xml` gives the level each feature switches on at (`<feature name="MadeUp" KR="8" NA="7"/>`). A feature
-is on when its level is not 0 and not above the level of the server type. Of a map's rows whose feature is on (and
-whose `locale`, when set, is the target's), the game takes the one with the highest feature level. The tool takes
-locale `KR` for `kms-client`, `NA` for `gms-client` and `server`, and server type `Live`. If your game runs with
-another one (a client started with `-env` or `-locale`, a server built for another locale), say so with the setting
-`MS2_CLIENT_FEATURES`, `MS2_GMS_CLIENT_FEATURES` or `MS2_SERVER_FEATURES` (environment or `modtools.toml`; the
-Toolbench view reads the environment): `LOCALE/TYPE`, for example `NA/Dev`, `KR`, or `/Dev`.
+`table/feature.xml` gives the level each feature switches on at (`<feature name="MadeUp" KR="8" NA="7"/>`). The
+client and the server's data import do not pick the same way, so each target is worked out by its own rule:
+
+| | A client (`kms-client`, `gms-client`) | The server (`server`) |
+|---|---|---|
+| A feature is on | its level is not 0 and not above the level of the server type | its level is not above the level of the server type; a feature with level 0 or with no level for the locale is on |
+| Server type | any letter case | written exactly as in the `type` of the setting row (`Live`, not `live`) |
+| Locale | any locale the tables have a column for | one of TW, TH, NA, CN, JP, KR |
+| Rows with the target's locale and rows with no locale | compared by feature like any two rows; for the same feature the row with the locale wins | when a row with the locale can be taken, rows with no locale are not looked at |
+| Two rows whose features are both on | the higher level wins; at the same level the feature whose name sorts later | the higher level wins; at the same level the row written first |
+| A row with a feature and a row with none | the row with the feature | the row with the feature |
+| Two rows with no feature | the first | the last |
+
+The tool takes locale `KR` for `kms-client`, `NA` for `gms-client` and `server`, and server type `Live`. If your
+game runs with another one, say so with the setting `MS2_CLIENT_FEATURES`, `MS2_GMS_CLIENT_FEATURES` or
+`MS2_SERVER_FEATURES`: `LOCALE/TYPE`, for example `NA/Dev`, `KR`, or `/Dev`. The setting can be in the environment,
+in `modtools.toml`, or in the Toolbench view: the view has one field per target under its top bar, and what you type
+there is saved with the other MS2 Mods settings. The environment wins over `modtools.toml`, and both win over the
+field; the field is then grey and its tooltip says where the value comes from.
+
+When to pick something other than `Live`:
+
+- A client takes its server type from the `-env` start argument, or else from the server list the login server
+  sends; its locale from `-locale`. Set the client's setting when your clients are started with another `-env` or
+  `-locale`, or when your server's list names another type.
+- The server takes locale and type when its data import runs; a stock import uses `NA` and `Live`. Set
+  `MS2_SERVER_FEATURES` only when you changed that in your import (for example to a development type, to switch on
+  features whose level is above the `Live` level, or to another locale's content). Write the type exactly as the
+  setting row does, and run the import again after applying a mod, since the server reads its database and not the
+  archive.
+- Keep the two sides the same. A client that loads one map file while the server loaded another one shows a map
+  that does not fit what the server knows about it.
 
 Each client has its own copy of the archive and the server reads one too. The Korean and the global client do not
 always hold the same bytes for a map, so a map mod is never a whole replacement file. It is a list of small
@@ -869,7 +894,7 @@ The `.tok` files (the client's own walkable-ground data) are not touched.
 | `was put into no map file, so its spawn rows are not written either` | No copy took the spawn place (for example no copy has that map), so no row is written for it | Fix the map name, or what the other warning of that spawn names |
 | `this target has no such table, the spawn rows are not written there` | That copy does not ship `table/mapspawntag.xml`. A warning on the server, a note on a client | On the server: set the data folder up first. On a client: nothing to do |
 | `no map of this target's map table uses this map file, so the game does not load it` | No row of this copy's map table names the changed file. The file is still changed, and nothing shows in the game. When the table has a row for the map id (the leading digits of the file name, or `<map id="...">`), the warning lists the files that row names | Change the file the map table names |
-| `with this target's features (locale ..., server type ..., level ...) the game loads ... for map ..., not this map file` | The map's row names several files, one per feature, and under this target's features the game loads another one than the mod changes. The file is still changed, and nothing shows in the game | Change the file the warning names, or set the target's `..._FEATURES` setting when the locale or server type in the warning is not the one your game runs with |
+| `with this target's features (locale ..., server type ..., level ...) the game loads ... for map ..., not this map file` (`the server loads` for the server target) | The map's row names several files, one per feature, and under this target's features the game (or the server) loads another one than the mod changes. The file is still changed, and nothing shows in the game | Change the file the warning names, or set the target's `..._FEATURES` setting when the locale or server type in the warning is not the one your game runs with |
 | `this target's map table has no map ...` | The portal leads to a map id this copy does not know | Fix `to-map` |
 | `that map has no such portal after this plan` | With all mods applied, the target map has no portal with the number of `to-portal` | Add the portal on the other map, or fix the number |
 | `no portal of that map leads back to map ...` | There is no way back | Fine for a one-way door; else add one |
