@@ -29,11 +29,11 @@ namespace MS2.Tables
             Jump(go, id);
         }
 
-        /// <summary>The Remove clone line: what still names the removed id, or "" when nothing does.</summary>
+        /// <summary>The end of a Remove clone: the places that still name the removed id, listed, or "" when nothing does.</summary>
         internal static string LeftBehind(EditorSession session, string kind, long id)
         {
-            string w = new WhereUsed(session).LeftBehind(kind, id, 3);
-            return w == null ? "" : "\n" + w;
+            string w = new WhereUsed(session).LeftBehind(kind, id);
+            return w == null ? "" : "\r\n" + w.Replace("\n", "\r\n");
         }
 
         static T Shown<T>(string viewId, string what) where T : AbstractView

@@ -84,7 +84,7 @@ namespace MS2.ModKit.Tests
                     "the edited shop and box no longer name 5001 (the plan mirrors the flat edit to the other side)");
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5006)), Is.EqualTo(new[] { "drop box 7100: group 1 item (new)" }));
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5003)), Does.Contain("shop 9002: sn 2 id"), "an unedited row of the edited shop stays, not new");
-                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Item, 5005, 3), Does.Contain("shop 9002"));
+                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Item, 5005), Does.Contain("shop 9002"));
             }
         }
 
@@ -110,10 +110,18 @@ namespace MS2.ModKit.Tests
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Npc, 51)), Is.EqualTo(new[] { "quest 701: start npc (new)" }));
                 s.Quests().Clone(701, 750);
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Npc, 41)), Is.EqualTo(new[] { "quest 750: condition 1 (npc) (new) [added]", "quest 701: condition 1 (npc)" }));
-                string w = new WhereUsed(s).LeftBehind(IdLookup.Npc, 41, 1);
-                Assert.That(w, Does.StartWith("warning: 2 place(s) still name npc 41: quest 750"));
-                Assert.That(w, Does.Contain("; ..."));
-                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Npc, 99, 3), Is.Null);
+                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Npc, 41), Is.EqualTo(
+                    "warning: 2 place(s) still name npc 41:\n" +
+                    "  quest 750, condition 1 (npc), Fake Errand\n" +
+                    "  quest 701, condition 1 (npc), Fake Errand"), "from, field, name: the places themselves");
+                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Npc, 99), Is.Null);
+
+                for (long q = 751; q <= 761; q++) s.Quests().Clone(701, q);
+                string[] w = new WhereUsed(s).LeftBehind(IdLookup.Npc, 41).Split('\n');
+                Assert.That(w[0], Is.EqualTo("warning: 13 place(s) still name npc 41:"));
+                Assert.That(w.Length, Is.EqualTo(12), "the first 10, then the rest counted");
+                Assert.That(w[11], Is.EqualTo("  and 3 more"));
+                Assert.That(string.Join("\n", w), Does.Not.Contain("Where used"), "nothing points at a dialog");
             }
         }
         [Test]

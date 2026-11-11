@@ -388,17 +388,25 @@ namespace MS2.ModKit
 
         static readonly string[] SourceOrder = { IdLookup.Quest, IdLookup.Shop, IdLookup.DropBox, IdLookup.Npc, IdLookup.Item };
 
+        /// <summary>How many places a Remove clone warning lists before "and N more".</summary>
+        public const int LeftBehindShown = 10;
+
         /// <summary>
-        /// A line for the end of a Remove clone: the places that still name the removed id, or null when none does.
+        /// The end of a Remove clone: a warning that lists the places that still name the removed id, one per line
+        /// ("from id, field, name"), the first show of them and then "and N more"; null when none does.
         /// </summary>
-        public string LeftBehind(string kind, long id, int show)
+        public string LeftBehind(string kind, long id, int show = LeftBehindShown)
         {
             List<UseHit> l = Of(kind, id);
             if (l.Count == 0) return null;
-            var parts = new List<string>();
-            for (int i = 0; i < l.Count && i < show; i++) parts.Add(l[i].ToString());
-            return "warning: " + l.Count + " place(s) still name " + kind + " " + Inv(id) + ": " + string.Join("; ", parts.ToArray())
-                + (l.Count > show ? "; ..." : "") + " (Where used lists them all)";
+            var lines = new List<string> { "warning: " + l.Count + " place(s) still name " + kind + " " + Inv(id) + ":" };
+            for (int i = 0; i < l.Count && i < show; i++)
+            {
+                UseHit h = l[i];
+                lines.Add("  " + h.Kind + " " + Inv(h.Id) + ", " + h.Where + (h.Name.Length > 0 ? ", " + h.Name : ""));
+            }
+            if (l.Count > show) lines.Add("  and " + (l.Count - show) + " more");
+            return string.Join("\n", lines.ToArray());
         }
     }
 
