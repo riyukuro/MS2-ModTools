@@ -110,6 +110,45 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        static int Cli(out string text, params string[] argv)
+        {
+            System.Reflection.MethodInfo main = System.Reflection.Assembly.Load("modkit").EntryPoint;
+            TextWriter o = Console.Out, e = Console.Error;
+            var so = new StringWriter();
+            Console.SetOut(so); Console.SetError(so);
+            try { return (int)main.Invoke(null, new object[] { argv }); }
+            finally { Console.SetOut(o); Console.SetError(e); text = so.ToString(); }
+        }
+
+        [Test]
+        public void TheCommandLineReadsOneFolderAndWritesIntoAnother()
+        {
+            using (var f = new Fake())
+            {
+                // the server's data folder is the target; the tool reads the originals from a second copy of it
+                string mod = f.ModDir("m.one", Hp("71")), ws = Path.Combine(f.Dir, "ws"), live = Path.Combine(f.Dir, "live"), text;
+                Directory.CreateDirectory(live);
+                foreach (string n in new[] { "Xml.m2d", "Xml.m2h" }) File.Copy(Path.Combine(f.ServerDir, n), Path.Combine(live, n));
+                byte[] original = File.ReadAllBytes(Path.Combine(f.ServerDir, "Xml.m2d"));
+
+                // one folder for both is refused and nothing in it changes
+                Assert.That(Cli(out text, "apply", "-w", ws, "--server", live, "--server-target", live, mod), Is.EqualTo(3));
+                Assert.That(text, Does.Contain("inside one another").And.Contain("Give the tool a copy"), text);
+                Assert.That(File.ReadAllBytes(Path.Combine(live, "Xml.m2d")), Is.EqualTo(original));
+                Assert.That(Cli(out text, "revert", "-w", ws, "--server", live, "--server-target", live), Is.EqualTo(3), text);
+                Assert.That(text, Does.Contain("inside one another"), text);
+
+                Assert.That(Cli(out text, "apply", "-w", ws, "--server", f.ServerDir, "--server-target", live, mod), Is.EqualTo(0), text);
+                Assert.That(text, Does.Contain("copied to the server target: " + Path.Combine(live, "Xml.m2d")), text);
+                Assert.That(File.ReadAllBytes(Path.Combine(live, "Xml.m2d")), Is.Not.EqualTo(original));
+                Assert.That(File.ReadAllBytes(Path.Combine(f.ServerDir, "Xml.m2d")), Is.EqualTo(original));
+
+                Assert.That(Cli(out text, "revert", "-w", ws, "--server", f.ServerDir, "--server-target", live), Is.EqualTo(0), text);
+                Assert.That(text, Does.Contain("put back from the original data: " + Path.Combine(live, "Xml.m2d")), text);
+                Assert.That(File.ReadAllBytes(Path.Combine(live, "Xml.m2d")), Is.EqualTo(original));
+            }
+        }
+
         [Test]
         public void AClientOnlyApplyDoesNotRunTheCommand()
         {

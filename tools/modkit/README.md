@@ -1218,7 +1218,7 @@ default, and then nothing more happens.
 
 | Setting (page "MS2 Mods") | Environment | Command line | Meaning |
 |-|-|-|-|
-| Server target folder | `MS2_SERVER_TARGET` | `--server-target DIR` | after a successful apply, every server archive of the workspace (with its `.m2h`) is copied into this folder. Use the data folder of a **copy** of your server, never the folder modkit reads the originals from (it refuses that, and a folder inside the workspace) |
+| Server target folder | `MS2_SERVER_TARGET` | `--server-target DIR` | after a successful apply, every server archive of the workspace (with its `.m2h`) is copied into this folder. This is the data folder your (private) server runs on. The folder modkit reads the originals from (`--server`, `MS2_SERVER_DATA`) must be another one: an untouched **copy** of that data, which modkit only reads and from which a revert puts the files back. One folder for both is refused (as is a folder inside the workspace) with exit code 3, and nothing in it is changed |
 | Command after apply | `MS2_AFTER_APPLY` | `--after-apply COMMAND` | a command line that is started when the copy is done, for example your server's ingest step |
 
 - **Plan shows both before anything runs**: `after a successful apply server:Xml.m2d would be copied to ...` and
