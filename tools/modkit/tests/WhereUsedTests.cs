@@ -305,5 +305,32 @@ namespace MS2.ModKit.Tests
             }
             finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
         }
+
+        /// <summary>
+        /// The first question's time and the shipped index's size on a data set (kms, gms, server) in
+        /// MS2_WHEREUSED_DATA. Runs only when asked for by name.
+        /// </summary>
+        [Test, Explicit]
+        public void MeasureTheShippedIndex()
+        {
+            string dir = Environment.GetEnvironmentVariable("MS2_WHEREUSED_DATA");
+            if (string.IsNullOrEmpty(dir)) Assert.Ignore("MS2_WHEREUSED_DATA is not set");
+            using (EditorSession s = Session(dir))
+            {
+                long before = GC.GetTotalMemory(true);
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                int n = new WhereUsed(s).Of(IdLookup.Item, 1).Count;
+                long first = clock.ElapsedMilliseconds;
+                clock.Restart();
+                new WhereUsed(s).Of(IdLookup.Npc, 1);
+                long second = clock.ElapsedMilliseconds;
+                long after = GC.GetTotalMemory(true);
+                WhereUsedStats st = WhereUsed.Stats(s.Data);
+                TestContext.Progress.WriteLine("first question " + first + " ms (shipped read " + st.ShippedMs + " ms), second " + second + " ms; " +
+                    st.ShippedPlaces + " places, " + st.Targets + " ids; " + st.Skipped.Count + " files skipped; heap +" + ((after - before) / (1024 * 1024)) + " MB (data set caches included); " + n);
+                foreach (string k in st.Skipped) TestContext.Progress.WriteLine("  skipped " + k);
+                GC.KeepAlive(s);
+            }
+        }
     }
 }
