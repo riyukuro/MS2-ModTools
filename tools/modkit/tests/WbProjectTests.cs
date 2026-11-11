@@ -633,6 +633,21 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ListedModelNameMatchesInAnyLetterCase()
+        {
+            string root = Path.Combine(dir, "proj");
+            Put("Exported/flat/library/tool/loud.flat", LoudFlat);
+            Put("proj/Library/tool/tool.emtproj", ToolProjectHead + "\t\t<File path=\"Loud.MODEL\" />\r\n" + ToolProjectTail);
+            string before = File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj"));
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            Assert.AreEqual(0, r.Refused.Count);
+            Assert.AreEqual(before, File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj")), "the listed name is known, no entry is added");
+            Assert.IsTrue(File.Exists(Path.Combine(root, "Library/tool/Loud.MODEL")));
+            Assert.AreEqual(1, Directory.GetFiles(Path.Combine(root, "Library/tool"), "*.model", new EnumerationOptions { MatchCasing = MatchCasing.CaseInsensitive }).Length);
+        }
+
+        [Test]
         public void ListedFileOutsideItsFolderIsNotLookedFor()
         {
             string root = Path.Combine(dir, "proj");

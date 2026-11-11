@@ -199,8 +199,8 @@ namespace MS2.ModKit.MapEdit
         {
             string n = relFile.Replace('\\', '/');
             n = n.Substring(n.LastIndexOf('/') + 1);
-            if (n.EndsWith(".model", StringComparison.Ordinal)) n = n.Substring(0, n.Length - 6);
-            else if (n.EndsWith(".preset", StringComparison.Ordinal)) n = n.Substring(0, n.Length - 7);
+            if (n.EndsWith(".model", StringComparison.OrdinalIgnoreCase)) n = n.Substring(0, n.Length - 6);
+            else if (n.EndsWith(".preset", StringComparison.OrdinalIgnoreCase)) n = n.Substring(0, n.Length - 7);
             return n;
         }
 
@@ -250,7 +250,7 @@ namespace MS2.ModKit.MapEdit
                 string epDir = Path.GetDirectoryName(ep);
                 string text = ReadText(ep);
                 var listed = new SortedDictionary<string, string[]>(StringComparer.Ordinal);       // lower name -> name, file
-                foreach (Match m in Regex.Matches(text, "<File\\s+path=\"([^\"]+\\.(?:model|preset))\""))
+                foreach (Match m in Regex.Matches(text, "<File\\s+path=\"([^\"]+\\.(?:model|preset))\"", RegexOptions.IgnoreCase))
                 {
                     string relF = Unescape(m.Groups[1].Value), nm = BaseName(relF);
                     listed[nm.ToLowerInvariant()] = new[] { nm, relF };
