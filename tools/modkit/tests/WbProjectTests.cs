@@ -605,6 +605,33 @@ namespace MS2.ModKit.Tests
             Assert.AreEqual("Library/tool/TOOL.EMTPROJ: BASE.model", string.Join("|", WbProject.Missing(root, new List<string>()).ToArray()));
         }
 
+        const string LoudFlat = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Loud\" id=\"1\">\n</model>\n";
+
+        [Test]
+        public void FlatExtensionInTheArchiveMatchesInAnyLetterCase()
+        {
+            string path = Path.Combine(dir, "Exported.m2d");
+            M2dWriter.Create(path, PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
+            {
+                new KeyValuePair<string, byte[]>("flat/library/tool/loud.FLAT", Encoding.UTF8.GetBytes(LoudFlat)),
+                new KeyValuePair<string, byte[]>("flat/library/tool/not-a-flat.txt", Encoding.UTF8.GetBytes("made up")),
+            });
+            List<KeyValuePair<string, byte[]>> files = WbProject.ReadFlatFiles(path);
+            Assert.AreEqual(1, files.Count);
+            Assert.AreEqual("flat/library/tool/loud.FLAT", files[0].Key);
+            using (M2dArchive a = M2dArchive.Open(path)) Assert.IsNotNull(FlatIndex.FromArchive(a).Get("Loud"));
+        }
+
+        [Test]
+        public void FlatExtensionInAFolderMatchesInAnyLetterCaseForTheIndex()
+        {
+            Put("Exported/flat/library/tool/loud.FLAT", LoudFlat);
+            Put("Exported/flat/library/tool/not-a-flat.txt", "made up");
+            FlatIndex ix = FlatIndex.FromDirectory(Path.Combine(dir, "Exported"));
+            Assert.AreEqual(1, ix.Count);
+            Assert.IsNotNull(ix.Get("Loud"));
+        }
+
         [Test]
         public void ListedFileOutsideItsFolderIsNotLookedFor()
         {

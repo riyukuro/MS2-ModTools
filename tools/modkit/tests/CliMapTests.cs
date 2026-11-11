@@ -63,6 +63,25 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AFolderGivesItsMapsWhateverTheLetterCaseOfTheExtension()
+        {
+            var ents = new[] { Ent("000000000000000000000000000000a1", "one", 1) };
+            Put("in/90000001_made_up.XBLOCK", ents, XDialect.Tab);
+            Put("in/90000002_made_up.xblock", ents, XDialect.Tab);
+            File.WriteAllText(Path.Combine(dir, "in/notes.txt"), "made up");
+            string flat = Path.Combine(dir, "game/flat");
+            Directory.CreateDirectory(flat);
+            File.WriteAllText(Path.Combine(flat, "made.flat"), "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"MadeUpModel\" id=\"1\">\n</model>\n");
+            string so, se, index = Path.Combine(dir, "index.json");
+            Assert.AreEqual(0, Run(out so, out se, "map-index", Path.Combine(dir, "game"), index), so + se);
+            Assert.AreEqual(0, Run(out so, out se, "map-to-block", Path.Combine(dir, "in"), "-o", Path.Combine(dir, "out"), "--index", index), so + se);
+            var made = new List<string>();
+            foreach (string f in Directory.GetFiles(Path.Combine(dir, "out"))) made.Add(Path.GetFileName(f));
+            made.Sort(StringComparer.Ordinal);
+            Assert.AreEqual("90000001_made_up.block|90000002_made_up.block", string.Join("|", made.ToArray()), so + se);
+        }
+
+        [Test]
         public void MapNormalizeWritesTheLayoutOfTheOriginal()
         {
             var a = Ent("000000000000000000000000000000a1", "one", 4);
