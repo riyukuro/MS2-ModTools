@@ -38,6 +38,36 @@ namespace MS2.ModKit.Xml
             return null;
         }
 
+        sealed class IdIndex { internal int Count; internal Dictionary<string, List<XmlElem>> By; }
+        IdIndex ids;
+
+        /// <summary>
+        /// The children whose id attribute has the value, in their order; null for an element with few children
+        /// (the caller then looks at all of them). The index is made at the first question, so that many
+        /// selectors into one long table do not each walk all of its rows.
+        /// </summary>
+        internal List<XmlElem> ChildrenWithId(string id)
+        {
+            if (Children.Count < 64) return null;
+            IdIndex ix = ids;
+            if (ix == null || ix.Count != Children.Count)
+            {
+                var by = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
+                foreach (XmlElem c in Children)
+                {
+                    string v = c.Attr("id") ?? "";
+                    List<XmlElem> l;
+                    if (!by.TryGetValue(v, out l)) by[v] = l = new List<XmlElem>(1);
+                    l.Add(c);
+                }
+                ids = ix = new IdIndex { Count = Children.Count, By = by };
+            }
+            List<XmlElem> hits;
+            return ix.By.TryGetValue(id, out hits) ? hits : NoChildren;
+        }
+
+        static readonly List<XmlElem> NoChildren = new List<XmlElem>();
+
         /// <summary>The attribute value, or null if the element does not have it.</summary>
         public string Attr(string name) { XmlAttr a = FindAttr(name); return a == null ? null : a.Value; }
 
@@ -202,11 +232,31 @@ namespace MS2.ModKit.Xml
 
         // ---- scanning ----
 
+        // the positions after each line break of the text, made at the first question (a long file is asked for the
+        // line of many places: every edit names its line). One object, so that two threads never see the starts
+        // of one text beside another text
+        sealed class LineIndex { internal string Of; internal int[] Starts; }
+        LineIndex lines;
+
         public int LineOf(int pos)
         {
-            int line = 1;
-            for (int i = 0; i < pos && i < Text.Length; i++) if (Text[i] == '\n') line++;
-            return line;
+            string t = Text;
+            LineIndex ix = lines;
+            if (ix == null || !ReferenceEquals(ix.Of, t))
+            {
+                var starts = new List<int>();
+                for (int i = 0; i < t.Length; i++) if (t[i] == '\n') starts.Add(i + 1);
+                lines = ix = new LineIndex { Of = t, Starts = starts.ToArray() };
+            }
+            int[] lineStarts = ix.Starts;
+            // the line breaks before pos: the starts that are <= pos
+            int lo = 0, hi = lineStarts.Length;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) / 2;
+                if (lineStarts[mid] <= pos) lo = mid + 1; else hi = mid;
+            }
+            return lo + 1;
         }
 
         ModKitException Bad(int pos, string what)

@@ -118,7 +118,11 @@ namespace MS2.ModKit.Xml
         static List<XmlElem> MatchStep(RowStep step, XmlElem parent)
         {
             var hits = new List<XmlElem>();
-            foreach (XmlElem c in parent.Children) if (step.Matches(c)) hits.Add(c);
+            // a test of the id: only the rows with that id are looked at (a long table keeps them by id)
+            IList<XmlElem> among = parent.Children;
+            foreach (KeyValuePair<string, string> t in step.Tests)
+                if (t.Key == "id") { among = parent.ChildrenWithId(t.Value) ?? among; break; }
+            foreach (XmlElem c in among) if (step.Matches(c)) hits.Add(c);
             if (step.Nth > 0)
             {
                 var one = new List<XmlElem>();

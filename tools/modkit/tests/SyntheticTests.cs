@@ -278,6 +278,31 @@ namespace MS2.ModKit.Tests
             Assert.Throws<ModKitException>(() => XmlDoc.Parse(U8("<a"), "x"));
         }
 
+        // a table long enough that its rows are kept by id, and the lines by position: the same answers as in a short one
+        [Test]
+        public void Selectors_AndLines_InALongTable()
+        {
+            var sb = new System.Text.StringBuilder("<?xml version=\"1.0\"?>\n<ms2>\n");
+            for (int i = 1; i <= 200; i++) sb.Append("\t<pet id=\"").Append(i).Append("\" hp=\"").Append(i * 2).Append("\" />\n");
+            sb.Append("\t<pet id=\"50\" feature=\"Alpha\" hp=\"7\" />\n\t<pet hp=\"8\" />\n\t<dog id=\"60\" hp=\"9\" />\n</ms2>\n");
+            XmlElem root = XmlDoc.Parse(U8(sb.ToString()), "pets").Root;
+            Assert.That(RowPath.Parse("pet[id=120]").Resolve(root).Attr("hp"), Is.EqualTo("240"));
+            Assert.That(RowPath.Parse("pet[id=120]").Resolve(root).Line, Is.EqualTo(122));
+            Assert.That(RowPath.Parse("pet[id=1]").Resolve(root).Line, Is.EqualTo(3));
+            Assert.That(root.Line, Is.EqualTo(2));
+            Assert.That(RowPath.Parse("pet[hp=120][id=60]").Resolve(root).Line, Is.EqualTo(62));
+            Assert.That(RowPath.Parse("*[id=60][hp=9]").Resolve(root).Name, Is.EqualTo("dog"));
+            Assert.That(RowPath.Parse("pet[id=50][feature=Alpha]").Resolve(root).Attr("hp"), Is.EqualTo("7"));
+            Assert.That(RowPath.Parse("pet[id=50][feature=]").Resolve(root).Attr("hp"), Is.EqualTo("100"));
+            Assert.That(RowPath.Parse("pet[id=]").Resolve(root).Attr("hp"), Is.EqualTo("8"), "[id=] is the row without the attribute");
+            Assert.That(RowPath.Parse("pet[id=50]").ResolveAll(root).ConvertAll(e => e.Line), Is.EqualTo(new[] { 52, 203 }));
+            Assert.That(RowPath.Parse("pet[id=50][#2]").Resolve(root).Attr("hp"), Is.EqualTo("7"));
+            var x = Assert.Throws<ModKitException>(() => RowPath.Parse("pet[id=50]").Resolve(root));
+            Assert.That(x.Message, Does.Contain("2 elements match").And.Contain("feature"));
+            x = Assert.Throws<ModKitException>(() => RowPath.Parse("pet[id=999]").Resolve(root));
+            Assert.That(x.Message, Does.Contain("no <pet> has id=\"999\""));
+        }
+
         [Test]
         public void Selectors()
         {
