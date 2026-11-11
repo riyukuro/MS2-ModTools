@@ -60,10 +60,10 @@ namespace MS2.Tables
         List<TriggerFolder> folders = new List<TriggerFolder>();
 
         readonly ComboBox attrBox = new ComboBox { Width = 120 };
-        readonly TextBox valueBox = new TextBox { Width = 170 };
+        readonly TextBox valueBox = new TextBox { Width = 130 };
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
-        readonly TextBox nameBox = new TextBox { Width = 150 };
-        readonly TextBox goToBox = new TextBox { Width = 110 };
+        readonly TextBox nameBox = new TextBox { Width = 120 };
+        readonly TextBox goToBox = new TextBox { Width = 90 };
         readonly TextBox newScriptBox = new TextBox { Width = 120 };
         readonly CheckBox lintWarnBox = new CheckBox { Text = "lint errors only warn", AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
         static readonly TriggerKind[] Kinds = { TriggerKind.Action, TriggerKind.Condition, TriggerKind.Transition, TriggerKind.State, TriggerKind.OnEnter, TriggerKind.OnExit };
@@ -87,15 +87,16 @@ namespace MS2.Tables
             scriptBar.Controls.Add(Btn("Expand all", "Opens every state of the script", delegate { tree.ExpandAll(); if (tree.Nodes.Count > 0) tree.Nodes[0].EnsureVisible(); }));
             scriptBar.Controls.Add(Btn("Collapse", "Shows the states only", delegate { CollapseToStates(); }));
             scriptBar.Controls.Add(Btn("Revert script", "Takes the script out of the mod: every edit of it is gone (a script the mod added is gone too)", delegate { Revert(); }));
-            scriptBar.Controls.Add(Lbl("New script"));
-            scriptBar.Controls.Add(newScriptBox);
+            FlowLayoutPanel modBar = Bar();
+            modBar.Controls.Add(Lbl("New script"));
+            modBar.Controls.Add(newScriptBox);
             tips.SetToolTip(newScriptBox, "The file name of a new script in the folder of the chosen script (trigger/<xblock>/<name>.xml); it starts with one state, Start");
-            scriptBar.Controls.Add(Btn("Add script", "Adds a new script to the map's trigger folder, in the mod", delegate { NewScript(); }));
-            scriptBar.Controls.Add(lintWarnBox);
+            modBar.Controls.Add(Btn("Add script", "Adds a new script to the map's trigger folder, in the mod", delegate { NewScript(); }));
+            modBar.Controls.Add(lintWarnBox);
             tips.SetToolTip(lintWarnBox, "For the mod being edited: a lint error of one of its trigger scripts is a plan warning instead of an error, and Apply goes on (trigger-lint=\"warn\" in mod.xml)");
-            scriptBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change, with the lint of the mod's trigger scripts; writes nothing", delegate { return host.DoPlan(); }));
-            scriptBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change (the MS2 Tables view's Apply); a lint error of a trigger script stops it", delegate { return host.DoApply(); }));
-            scriptBar.Controls.Add(Btn("Save mod", "Saves the mod being edited, the trigger files beside mod.xml (the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
+            modBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change, with the lint of the mod's trigger scripts; writes nothing", delegate { return host.DoPlan(); }));
+            modBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change (the MS2 Tables view's Apply); a lint error of a trigger script stops it", delegate { return host.DoApply(); }));
+            modBar.Controls.Add(Btn("Save mod", "Saves the mod being edited, the trigger files beside mod.xml (the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             FlowLayoutPanel editBar = Bar();
             editBar.Controls.Add(Lbl("Attribute"));
@@ -148,6 +149,7 @@ namespace MS2.Tables
             right.Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
             right.Controls.Add(findingPanel);
             right.Controls.Add(editBar);
+            right.Controls.Add(modBar);
             right.Controls.Add(scriptBar);
 
             Controls.Add(right);
