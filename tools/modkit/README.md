@@ -355,6 +355,8 @@ Using it:
    writes nothing and says why. **Revert** removes what Apply wrote. The three are also in the **MS2 Mods** menu.
    They run in the background: the view is greyed out and shows the progress beside the buttons until the result
    is in the **Output** pane.
+   The first Plan reads the archives; a later Plan on the same data reuses what was read and is several times
+   faster. Anything kept is dropped when the data or the mod changes.
 
 ### How the game gets the changes
 
@@ -426,6 +428,8 @@ section is missing and the mod holds the client half only.
 
 1. Type an id, or part of a name, into **Item id or name** and press Enter. **Names in** picks the language folder
    whose names are searched and listed. The list shows shipped names; items the mod adds come first, marked `(new)`.
+   Each line starts with the item's icon, read from the client data folder and kept for the session; an empty box
+   means no data folder has that image. The picked item's icon is shown larger above the grid.
 2. Pick an item. The grid shows every field with its value and the shipped value. Edit the value: the cell turns
    yellow, and typing the shipped value back takes the edit out of the mod.
 3. **Client and server together** (on by default): an edit of a field that both sides hold is written to both, in
@@ -579,6 +583,7 @@ The game reads one of them; the view shows that one, and Plan warns that the oth
    of the names: **own language** (the default) shows Korean names from the Korean client and English names from the
    global client and the server. A target that has no names in the chosen language shows its own, and the line on the
    right always says which language each target gave.
+   Each line starts with the skill's icon (a clone shows its source's); an empty box means no data folder has it.
 2. Pick one. The icon, the name and a **Level** list appear above the grid. The grid shows the level's fields, then
    each motion (`Motion 1`, `Motion 2`, ...) with its fields, then each attack (`Motion 1 attack 1`, ...).
 3. Each target has its own column of shipped values. They are shown in the same units everywhere: seconds for times,
