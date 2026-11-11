@@ -86,6 +86,20 @@ namespace MS2.ModKit.Tests
             { "trigger/fake_server/empty.xml", "<ms2></ms2>" },
             { "trigger/fake_server/wrongroot.xml", "<trigger><state name=\"a\" /></trigger>" },
             { "trigger/fake_server/broken.xml", "<ms2><state name=\"a\"></ms2>" },
+            // what expat refuses and XmlDoc reads (a bare '&' or a '<' in a value), and the other expat errors
+            { "trigger/fake_server/amp.xml", "<ms2>\n  <state name=\"a&b\" />\n</ms2>\n" },
+            { "trigger/fake_server/lt.xml", "<ms2>\n  <state name=\"a\">\n    <action name=\"x<y\" />\n  </state>\n</ms2>\n" },
+            { "trigger/fake_server/entity.xml", "<ms2>\n  <state name=\"&nbsp;\" />\n</ms2>\n" },
+            { "trigger/fake_server/dup.xml", "<ms2>\n  <state name=\"a\" name=\"b\" />\n</ms2>\n" },
+            { "trigger/fake_server/open.xml", "<ms2>\n  <state name=\"a\">\n  </state>\n" },
+            { "trigger/fake_server/junk.xml", "<ms2 />\n<ms2 />\n" },
+            { "trigger/fake_server/comment.xml", "<ms2>\n  <!-- a -- b -->\n</ms2>\n" },
+            { "trigger/fake_server/noquote.xml", "<ms2>\n  <state name=a />\n</ms2>\n" },
+            { "trigger/fake_server/before.xml", "text\n<ms2 />\n" },
+            { "trigger/fake_server/decl.xml", "\n<?xml version=\"1.0\"?>\n<ms2 />\n" },
+            // a raw script that imports a file expat does not read
+            { "trigger/fake_raw/usesbroken.xml", "<ms2>\n  <import path=\"Data/Xml/Trigger/fake_raw/broken_lib.xml\" />\n  <state name=\"Start\">\n    <onEnter>\n      <action name=\"SetTimer\" arg1=\"1\" arg2=\"5\" />\n    </onEnter>\n  </state>\n</ms2>\n" },
+            { "trigger/fake_raw/broken_lib.xml", "<ms2>\n  <state name=\"L\">\n    <onEnter>\n  </state>\n</ms2>\n" },
             { "trigger/fake_server/imports.xml", "<ms2><import path=\"x.xml\" /><state name=\"a\" /></ms2>" },
             // raw (shipped) form: CamelCase names, arg1.., `!Name`, numbered state names, imports, features
             { "trigger/fake_raw/main.xml", @"<ms2>
@@ -159,7 +173,7 @@ namespace MS2.ModKit.Tests
 
         static string Key(string path, int line, string level, string code, string msg)
         {
-            return path + "|" + line + "|" + level + "|" + code + "|" + (code == "parse" ? "" : msg);
+            return path + "|" + line + "|" + level + "|" + code + "|" + msg;
         }
 
         static List<string> Python(string repo, string root, bool allow)
@@ -174,7 +188,11 @@ namespace MS2.ModKit.Tests
             psi.ArgumentList.Add(Path.Combine(root, "cache"));
             psi.ArgumentList.Add(Path.Combine(root, "trigger"));
             var l = new List<string>();
-            using (Process p = Process.Start(psi))
+            Process started;
+            // without python3 (a Windows dev box) there is nothing to compare with
+            try { started = Process.Start(psi); }
+            catch (System.ComponentModel.Win32Exception) { Assert.Ignore("python3 is not on PATH; the comparison with lint.py is skipped"); return null; }
+            using (Process p = started)
             {
                 string o = p.StandardOutput.ReadToEnd();
                 string e = p.StandardError.ReadToEnd();
@@ -234,6 +252,11 @@ namespace MS2.ModKit.Tests
                 Assert.That(onlyPy.Count + onlyOurs.Count, Is.EqualTo(0),
                     "only lint.py:\n  " + string.Join("\n  ", onlyPy) + "\nonly ours:\n  " + string.Join("\n  ", onlyOurs));
                 if (allow) Assert.That(all.Exists(f => f.Level == "allowed" && f.AllowReason == "made-up reason"));
+                // expat's words and lines, in the script and in an imported file
+                foreach (string m in new[] { "fake_server/amp.xml|2|error|parse|XML parse error: not well-formed (invalid token)",
+                    "fake_server/entity.xml|2|error|parse|XML parse error: undefined entity", "fake_server/open.xml|4|error|parse|XML parse error: no element found",
+                    "fake_raw/usesbroken.xml|2|error|import|import 'Data/Xml/Trigger/fake_raw/broken_lib.xml': trigger/fake_raw/broken_lib.xml parse error line 4: mismatched tag" })
+                    Assert.That(ours, Has.Some.EndsWith(m));
                 // every check is exercised
                 foreach (string code in new[] { "unknown-action", "unknown-condition", "missing-arg", "bad-transition", "unreachable", "state-dup",
                     "state-noname", "ignored-node", "group-missing", "no-states", "root", "parse", "import", "ingest", "lib-transition", "int-list-dropped",

@@ -477,7 +477,7 @@ namespace MS2.ModKit
                 string why = Read(packs, name, out idoc);
                 if (idoc == null)
                 {
-                    issues.Add(new Issue { Level = "error", Line = im.Line, Message = "import " + Py.Repr(im.Get("path")) + ": " + name + " parse error: " + why });
+                    issues.Add(new Issue { Level = "error", Line = im.Line, Message = "import " + Py.Repr(im.Get("path")) + ": " + name + " " + why });
                     continue;
                 }
                 foreach (LintEl st in idoc.Iter("state"))
@@ -496,15 +496,33 @@ namespace MS2.ModKit
             foreach (LintEl p in doc.Iter(null)) p.Kids.RemoveAll(delegate(LintEl c) { return c.Tag == "import"; });
         }
 
+        /// <summary>
+        /// Parses as lint.py does: expat's error and line (x) when expat does not read the text; else the XmlDoc (d),
+        /// or XmlDoc's message when only it fails (or the bytes do not decode).
+        /// </summary>
+        internal static string ParseLikeExpat(byte[] bytes, string label, out XmlDoc d, out ExpatError x)
+        {
+            d = null; x = null;
+            try
+            {
+                x = ExpatCheck.Check(XmlDoc.DecodeText(bytes, label));
+                if (x != null) return null;
+                d = XmlDoc.Parse(bytes, label);
+                return d.Root == null ? "empty document" : null;
+            }
+            catch (ModKitException e) { d = null; return e.Message; }
+        }
+
         internal static string Read(TriggerPacks packs, string name, out LintEl doc)
         {
             doc = null;
             byte[] b = packs.Read(name);
-            if (b == null) return "cannot be read";
+            if (b == null) return "parse error: cannot be read";
             XmlDoc d;
-            try { d = XmlDoc.Parse(b, name); }
-            catch (ModKitException e) { return e.Message; }
-            if (d.Root == null) return "empty document";
+            ExpatError x;
+            string why = ParseLikeExpat(b, name, out d, out x);
+            if (x != null) return "parse error line " + x.Line + ": " + x.Message;
+            if (why != null) return "parse error: " + why;
             doc = LintEl.From(d.Root, null);
             return null;
         }
@@ -871,11 +889,13 @@ namespace MS2.ModKit
             {
                 fmt = null;
                 XmlDoc d;
-                try { d = XmlDoc.Parse(bytes, entry); }
-                catch (ModKitException e)
+                ExpatError x;
+                string why = TriggerNormalizer.ParseLikeExpat(bytes, entry, out d, out x);
+                if (x != null) { Add("error", "parse", x.Line, null, "XML parse error: " + x.Message); return outl; }
+                if (why != null)
                 {
-                    var lm = System.Text.RegularExpressions.Regex.Match(e.Message, @" line (\d+): ");
-                    Add("error", "parse", lm.Success ? int.Parse(lm.Groups[1].Value) : 0, null, "XML parse error: " + e.Message);
+                    var lm = System.Text.RegularExpressions.Regex.Match(why, @" line (\d+): ");
+                    Add("error", "parse", lm.Success ? int.Parse(lm.Groups[1].Value) : 0, null, "XML parse error: " + why);
                     return outl;
                 }
                 if (d.Root == null) { Add("error", "parse", 0, null, "empty document"); return outl; }

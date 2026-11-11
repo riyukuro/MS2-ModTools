@@ -121,6 +121,14 @@ namespace MS2.ModKit.Xml
             return d;
         }
 
+        /// <summary>The text of the bytes as Parse decodes it (BOM, declared encoding, fallbacks), without the scan.</summary>
+        internal static string DecodeText(byte[] bytes, string label)
+        {
+            var d = new XmlDoc { Label = label };
+            d.Decode(bytes);
+            return d.Text;
+        }
+
         /// <summary>A fragment: any number of top-level elements, no encoding.</summary>
         public static XmlDoc ParseFragment(string text, string label)
         {
