@@ -420,6 +420,44 @@ namespace MS2.ModKit
             foreach (PlanChange c in p.Changes) sb.Append("  ").Append(c).Append("\r\n");
         }
 
+        /// <summary>
+        /// The most a view's text of a plan or apply holds (chars). A mod with 200k changes would make a text of
+        /// hundreds of MB, more than the 32-bit host can hold in one string: past this the lines are counted, not shown.
+        /// </summary>
+        public const int ViewChars = 200000;
+
+        // the messages, notes and changes while they fit in ViewChars, then how many lines are left out
+        static void Capped(StringBuilder sb, Plan p, bool messages, bool rest)
+        {
+            int limit = sb.Length + ViewChars, total = 0, shown = 0;
+            var line = new StringBuilder();
+            Action<string, object> add = delegate(string lead, object o)
+            {
+                total++;
+                if (shown < total - 1) return;
+                line.Length = 0;
+                line.Append(lead).Append(o).Append("\r\n");
+                if (sb.Length + line.Length > limit) return;
+                sb.Append(line);
+                shown++;
+            };
+            if (messages)
+            {
+                foreach (PlanMessage m in p.Errors) add("error: ", m);
+                foreach (PlanMessage m in p.Warnings) add("warning: ", m);
+            }
+            if (rest)
+            {
+                foreach (PlanMessage m in p.Notes) add("note: ", m);
+                foreach (PlanChange c in p.Changes) add("  ", c);
+            }
+            if (shown < total)
+                sb.Append("... ").Append(N(total - shown)).Append(" more lines of ").Append(N(total))
+                  .Append(" not shown here; modkit validate or diff lists them all\r\n");
+        }
+
+        static string N(int n) { return n.ToString("N0", System.Globalization.CultureInfo.InvariantCulture); }
+
         static string Report(Plan p, bool conflicts)
         {
             var sb = new StringBuilder();
@@ -440,10 +478,10 @@ namespace MS2.ModKit
             var sb = new StringBuilder();
             Conflicts(sb, p);
             Totals(sb, p);
-            Messages(sb, p);
+            Capped(sb, p, true, false);
             sb.Append(Targets.Line(Data)).Append("\r\n");
             foreach (string l in Targets.PlanLines(p, Data)) sb.Append("  ").Append(l).Append("\r\n");
-            Rest(sb, p);
+            Capped(sb, p, false, true);
             return sb.ToString();
         }
 
@@ -455,7 +493,7 @@ namespace MS2.ModKit
             var sb = new StringBuilder(Targets.Line(Data)).Append("\r\n");
             if (r.Plan != null) foreach (string l in Targets.PlanLines(r.Plan, Data)) sb.Append("  plan, ").Append(l).Append("\r\n");
             foreach (string l in Targets.ResultLines(r, Data, WorkspaceDir)) sb.Append("  ").Append(l).Append("\r\n");
-            if (r.Plan != null) sb.Append(Report(r.Plan));
+            if (r.Plan != null) { Totals(sb, r.Plan); Conflicts(sb, r.Plan); Capped(sb, r.Plan, true, true); }
             sb.Append(ServerStep.Report(r.Server));
             return sb.ToString();
         }

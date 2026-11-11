@@ -421,6 +421,36 @@ namespace MS2.ModKit
             Files.Clear();      // on disk now; the planner and the editors read them from the folder
         }
     
+        /// <summary>
+        /// mod.xml as a text pane shows it: CRLF line ends, and for a large mod (a text import puts 100,000s of sets
+        /// into one mod) only the lines that fit in maxChars, then a line that says how many are not shown.
+        /// </summary>
+        public string PendingText(int maxChars)
+        {
+            string x = ToXml();
+            var sb = new StringBuilder(Math.Min(x.Length, maxChars) + 256);
+            int lines = 0, shown = 0;
+            for (int i = 0; i < x.Length; )
+            {
+                int e = x.IndexOf('\n', i);
+                int end = e < 0 ? x.Length : e;
+                int len = end - i;
+                if (len > 0 && x[end - 1] == '\r') len--;
+                lines++;
+                if (shown == lines - 1 && sb.Length + len + 2 <= maxChars)
+                {
+                    sb.Append(x, i, len).Append("\r\n");
+                    shown++;
+                }
+                i = e < 0 ? x.Length : e + 1;
+            }
+            if (shown < lines)
+                sb.Append("... ").Append((lines - shown).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append(" more lines of ").Append(lines.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
+                  .Append(" not shown here; Save mod writes them all\r\n");
+            return sb.ToString();
+        }
+
         /// <summary>The files under files/ that the last Save took out: no entry op names them any more (reverted scripts).</summary>
         public readonly List<string> Removed = new List<string>();
 

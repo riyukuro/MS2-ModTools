@@ -272,5 +272,22 @@ namespace MS2.ModKit.Tests
             }
             finally { if (Directory.Exists(mods)) Directory.Delete(mods, true); }
         }
+
+        [Test]
+        public void ThePendingText_OfALargeMod_ShowsTheHeadAndSaysTheRest()
+        {
+            var body = new StringBuilder();
+            for (int i = 0; i < 2000; i++)
+                body.Append("<edit archive=\"client:Xml.m2d\" entry=\"string/kr/itemname.xml\"><change at=\"key[id=" + i + "]\"><set name=\"name\" value=\"n" + i + "\"/></change></edit>\n");
+            Mod m = Mod.Parse("<mod id=\"big\" name=\"t\" version=\"1\">\n" + body + "</mod>", "test mod");
+            string whole = m.PendingText(int.MaxValue);
+            Assert.That(whole, Does.Not.Contain("not shown"));
+            Assert.That(whole.Replace("\r\n", ""), Does.Not.Contain("\n"), "CRLF only");
+            Assert.That(whole, Does.StartWith(m.ToXml().Replace("\r\n", "\n").Split('\n')[0] + "\r\n"));
+            string head = m.PendingText(5000);
+            Assert.That(head.Length, Is.LessThan(5200));
+            Assert.That(whole, Does.StartWith(head.Substring(0, head.LastIndexOf("\r\n...", System.StringComparison.Ordinal) + 2)));
+            Assert.That(head, Does.Match(@"\.\.\. [0-9,]+ more lines of [0-9,]+ not shown here"));
+        }
     }
 }

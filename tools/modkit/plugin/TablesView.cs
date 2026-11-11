@@ -621,13 +621,16 @@ namespace MS2.Tables
             NotifyChanged();
         }
 
+        // the pending pane shows this much of mod.xml (the 32-bit host runs out of memory on a whole text import)
+        const int PendingChars = 200000;
+
         void ShowMod()
         {
             if (session == null) { pendingBox.Text = ""; return; }
             modIdBox.Text = session.Mod.Id;
             pendingBox.Text = session.Mod.IsEmpty
                 ? "(mod " + session.Mod.Id + " holds no change yet)"
-                : session.Mod.ToXml().Replace("\r\n", "\n").Replace("\n", "\r\n");
+                : session.Mod.PendingText(PendingChars);
         }
 
         void CloneRow()

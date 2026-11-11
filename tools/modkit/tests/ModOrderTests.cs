@@ -88,6 +88,30 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // a plan of 200k changes made a text of hundreds of MB, more than the 32-bit host holds: the view's text stops at ViewChars
+        [Test]
+        public void SessionPlanText_OfAHugePlan_ShowsTheHeadAndCountsTheRest()
+        {
+            using (var f = new Fake())
+            {
+                f.ModDir("a.one", Hp("11"));
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+                {
+                    Plan p = s.Plan(null);
+                    string small = s.Describe(p);
+                    Assert.That(small, Does.Not.Contain("not shown"));
+                    PlanChange c = p.Changes[0];
+                    int n = EditorSession.ViewChars / 10 + 1000;
+                    for (int i = 0; i < n; i++) p.Changes.Add(c);
+                    string text = s.Describe(p);
+                    Assert.That(text.Length, Is.LessThan(EditorSession.ViewChars + 2000));
+                    Assert.That(text, Does.StartWith("1 mod(s), " + (n + 1) + " change(s)"));
+                    Assert.That(text, Does.Contain("targets: "));
+                    Assert.That(text, Does.Match(@"\.\.\. [0-9,]+ more lines of [0-9,]+ not shown here; modkit validate or diff lists them all\r\n$"));
+                }
+            }
+        }
+
         // the output box of a view is two lines high: the counts and the first error stand above the targets
         [Test]
         public void SessionPlanText_StartsWithTheCountsAndTheErrors()
