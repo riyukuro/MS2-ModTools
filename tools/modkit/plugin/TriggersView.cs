@@ -3,6 +3,10 @@
 // script as a tree: its states, each with its on enter actions, its conditions (their actions and the states they
 // go to) and its on exit actions. The output box is the MS2 Tables view's.
 //
+// The script is linted as it is shown (MS2.ModKit.TriggerLint, the port of tools/trigger/lint.py with its schema and
+// known issues): a node with a problem is coloured and names it, and the list under the tree has every problem of the
+// script, with Go to.
+//
 // The view holds no data logic: MS2.ModKit.Triggers reads the scripts. The session, the worker thread and the
 // output stay in the MS2 Tables view, as for the other entity views.
 using System;
@@ -41,6 +45,12 @@ namespace MS2.Tables
         readonly List<Control> lockable = new List<Control>();
         readonly List<long> hitIds = new List<long>();
         readonly List<string> scriptEntries = new List<string>();
+        readonly ListView findingList = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
+        readonly Label findingsLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
+        readonly Dictionary<TriggerNode, TreeNode> treeNodes = new Dictionary<TriggerNode, TreeNode>();
+        List<TriggerFinding> findings = new List<TriggerFinding>();
+        TriggerPacks packs;
+        string packsArchive;
 
         public TriggersView()
         {
@@ -68,8 +78,29 @@ namespace MS2.Tables
             left.Controls.Add(scriptList);
             tips.SetToolTip(scriptList, "The scripts of the map's trigger folders (trigger/<xblock>/), one folder per map file of the map");
 
+            findingList.Columns.Add("level", 70);
+            findingList.Columns.Add("line", 50);
+            findingList.Columns.Add("code", 130);
+            findingList.Columns.Add("problem", 600);
+            findingList.Resize += delegate { FitFindings(); };
+            findingList.DoubleClick += delegate { Guard(delegate { GoToFinding(); }); };
+            findingList.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode != Keys.Enter) return;
+                e.Handled = e.SuppressKeyPress = true;
+                Guard(delegate { GoToFinding(); });
+            };
+            FlowLayoutPanel findingBar = Bar();
+            findingBar.Controls.Add(Btn("Go to", "Selects the node of the chosen problem in the tree", delegate { GoToFinding(); }));
+            findingBar.Controls.Add(findingsLabel);
+            var findingPanel = new Panel { Dock = DockStyle.Bottom, Height = 170 };
+            findingPanel.Controls.Add(findingList);
+            findingPanel.Controls.Add(findingBar);
+
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(tree);
+            right.Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
+            right.Controls.Add(findingPanel);
             right.Controls.Add(scriptBar);
 
             Controls.Add(right);
@@ -81,6 +112,7 @@ namespace MS2.Tables
             lockable.AddRange(new Control[] { top, left, right });
             ViewLayout.KeepLogLines(outputBox, this);
             ViewLayout.KeepHeightShare(scriptList, left, 0.45, 4 * scriptList.ItemHeight + 4);
+            ViewLayout.KeepHeightShare(findingPanel, right, 0.3, 120);
             ViewLayout.CentreOnFirstShow(this);
 
             searchBox.KeyDown += delegate(object sender, KeyEventArgs e)
@@ -183,6 +215,7 @@ namespace MS2.Tables
         void OnHostChanged()
         {
             lookup = null;
+            packs = null;
             string keep = script != null ? script.Entry : null;
             try
             {
@@ -245,6 +278,7 @@ namespace MS2.Tables
         {
             mapId = id;
             archive = Triggers.ArchiveOf(Session().Data);
+            if (archive != packsArchive) packs = null;
             List<TriggerFolder> folders = archive == null ? new List<TriggerFolder>() : Triggers.FoldersOf(Session().Data, archive, id);
             filling = true;
             int sel = -1;
@@ -288,9 +322,17 @@ namespace MS2.Tables
             ShowScript(Triggers.Read(Session().Data, archive, scriptEntries[i]));
         }
 
+        TriggerPacks Packs()
+        {
+            if (packs == null && archive != null) { packs = TriggerPacks.OfArchive(Session().Data, archive); packsArchive = archive; }
+            return packs;
+        }
+
         void ShowScript(TriggerScript s)
         {
             script = s;
+            treeNodes.Clear();
+            findings = s == null ? new List<TriggerFinding>() : TriggerLint.Shipped.Lint(s.Entry, s.Bytes, Packs());
             tree.BeginUpdate();
             try
             {
@@ -305,21 +347,114 @@ namespace MS2.Tables
                 List<TriggerNode> states = s.States;
                 scriptLabel.Text = s.Entry + ": " + states.Count + " state(s)";
                 foreach (TriggerNode n in s.Root.Children) tree.Nodes.Add(Node(n));
+                MarkFindings();
                 foreach (TreeNode t in tree.Nodes) t.Expand();
                 if (tree.Nodes.Count > 0) tree.Nodes[0].EnsureVisible();
             }
-            finally { tree.EndUpdate(); }
+            finally
+            {
+                tree.EndUpdate();
+                FillFindings();
+            }
         }
 
-        static TreeNode Node(TriggerNode n)
+        TreeNode Node(TriggerNode n)
         {
             var t = new TreeNode(n.Label) { Tag = n, ToolTipText = "line " + n.Line.ToString(CultureInfo.InvariantCulture) };
-            if (n.Kind == TriggerKind.State) t.NodeFont = null;
+            treeNodes[n] = t;
             if (n.Kind == TriggerKind.Transition) t.ForeColor = Color.RoyalBlue;
             else if (n.Kind == TriggerKind.Condition) t.ForeColor = Color.DarkGreen;
             else if (n.Kind == TriggerKind.Other) t.ForeColor = SystemColors.GrayText;
             foreach (TriggerNode c in n.Children) t.Nodes.Add(Node(c));
             return t;
+        }
+
+        /// <summary>The tree node a finding is about, or null (the whole file, or a line of an imported script).</summary>
+        TreeNode NodeOf(TriggerFinding f)
+        {
+            if (script == null || f.Line <= 0 || f.ImportedFrom != null) return null;
+            TriggerNode n = script.NodeAt(f.Line);
+            TreeNode t;
+            return n != null && treeNodes.TryGetValue(n, out t) ? t : null;
+        }
+
+        // the nodes with problems: red for an error, orange for a warning, grey-brown for a known issue; the codes after
+        // the label, the messages in the tooltip
+        void MarkFindings()
+        {
+            var byNode = new Dictionary<TreeNode, List<TriggerFinding>>();
+            foreach (TriggerFinding f in findings)
+            {
+                TreeNode t = NodeOf(f);
+                if (t == null) continue;
+                List<TriggerFinding> l;
+                if (!byNode.TryGetValue(t, out l)) byNode[t] = l = new List<TriggerFinding>();
+                l.Add(f);
+            }
+            foreach (KeyValuePair<TreeNode, List<TriggerFinding>> kv in byNode)
+            {
+                string worst = "allowed";
+                var codes = new List<string>();
+                var tip = new List<string> { kv.Key.ToolTipText };
+                foreach (TriggerFinding f in kv.Value)
+                {
+                    if (f.IsError) worst = "error";
+                    else if (f.Level == "warning" && worst != "error") worst = "warning";
+                    if (!codes.Contains(f.Code)) codes.Add(f.Code);
+                    tip.Add(f.Level + ": " + f.Message + (f.AllowReason != null ? " (known: " + f.AllowReason + ")" : ""));
+                }
+                kv.Key.ForeColor = LevelColour(worst);
+                kv.Key.Text += "    [" + worst + ": " + string.Join(", ", codes.ToArray()) + "]";
+                kv.Key.ToolTipText = string.Join("\n", tip.ToArray());
+            }
+        }
+
+        static Color LevelColour(string level)
+        {
+            return level == "error" ? Color.Firebrick : level == "warning" ? Color.DarkOrange : Color.RosyBrown;
+        }
+
+        void FillFindings()
+        {
+            int errors = 0, warnings = 0, allowed = 0;
+            findingList.BeginUpdate();
+            try
+            {
+                findingList.Items.Clear();
+                foreach (TriggerFinding f in findings)
+                {
+                    if (f.IsError) errors++; else if (f.Level == "warning") warnings++; else allowed++;
+                    string msg = f.Message + (f.AllowReason != null ? " (known: " + f.AllowReason + ")" : "");
+                    var it = new ListViewItem(new[] { f.Level, f.Line.ToString(CultureInfo.InvariantCulture), f.Code, msg }) { Tag = f, ForeColor = LevelColour(f.Level) };
+                    findingList.Items.Add(it);
+                }
+            }
+            finally { findingList.EndUpdate(); }
+            findingsLabel.Text = script == null ? "" : findings.Count == 0 ? "lint: no problem"
+                : "lint: " + errors + " error(s), " + warnings + " warning(s), " + allowed + " known issue(s)";
+            FitFindings();
+        }
+
+        void FitFindings()
+        {
+            int w = findingList.ClientSize.Width - findingList.Columns[0].Width - findingList.Columns[1].Width - findingList.Columns[2].Width - 4;
+            if (w > 160) findingList.Columns[3].Width = w;
+        }
+
+        void GoToFinding()
+        {
+            TriggerFinding f = findingList.SelectedItems.Count > 0 ? findingList.SelectedItems[0].Tag as TriggerFinding : null;
+            if (f == null) { host.SayOutside("choose a problem in the list first"); return; }
+            TreeNode t = NodeOf(f);
+            if (t == null)
+            {
+                host.SayOutside(f.ImportedFrom != null ? "the problem is in the imported script " + f.ImportedFrom + ", line " + f.Line
+                    : "the problem is about the whole file (line " + f.Line + "): " + f.Message);
+                return;
+            }
+            tree.SelectedNode = t;
+            t.EnsureVisible();
+            tree.Focus();
         }
 
         void CollapseToStates()

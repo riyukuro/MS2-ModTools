@@ -16,6 +16,8 @@
     <EmbeddedResource Include="Maps/*.fieldmap.xml" LogicalName="MS2.ModKit.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Maps/*.dropmap.xml" LogicalName="MS2.ModKit.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Maps/*.skillmap.xml" LogicalName="MS2.ModKit.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="../../trigger/schema.json" LogicalName="MS2.ModKit.trigger.schema.json" />
+    <EmbeddedResource Include="../../trigger/known-issues.json" LogicalName="MS2.ModKit.trigger.known-issues.json" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetFramework)' == 'net35'">
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />

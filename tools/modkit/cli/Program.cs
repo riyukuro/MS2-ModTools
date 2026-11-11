@@ -43,6 +43,9 @@ namespace MS2.ModKit.Cli
   modkit refs <id>... [mod...]                 the rows of server-only tables that belong to an item (option,
                                                drop and shop rows), as shipped or as the mods leave them
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
+  modkit trigger-lint <folder or archive> [--json]
+                                               lint the trigger scripts (trigger/<xblock>/*.xml of a folder or an
+                                               Xml archive) as tools/trigger/lint.py does, with its allowlist
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
 
   modkit map-index <Exported.m2d or folder> <out.json>   the model listing of a game (its .flat files) as one file
@@ -137,6 +140,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             string cmd = a.Pos[0];
             a.Pos.RemoveAt(0);
             if (cmd == "pack") return Pack(a);
+            if (cmd == "trigger-lint" && a.Pos.Count == 1 && Directory.Exists(a.Pos[0])) return TriggerLintCmd(a, null, null);
             if (cmd.StartsWith("map-")) return MapCmd(cmd, a);
             if (cmd == "schema" && a.Pos.Count > 0 && a.Pos[0] == "cite") return Cite(a);
             RepoSettings set = RepoSettings.Load(AppContext.BaseDirectory, Directory.GetCurrentDirectory());
@@ -169,6 +173,12 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                     case "sync": return Sync(ctx);
                     case "refs": return Refs(ctx);
                     case "next-id": return NextId(ctx);
+                    case "trigger-lint":
+                    {
+                        if (a.Pos.Count != 1) throw new UsageException("trigger-lint needs one folder or archive");
+                        string ar = a.Pos[0];
+                        return TriggerLintCmd(a, data, ar);
+                    }
                     default: throw new UsageException("unknown command " + cmd);
                 }
             }
