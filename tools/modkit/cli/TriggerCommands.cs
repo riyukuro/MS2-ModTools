@@ -25,6 +25,21 @@ namespace MS2.ModKit.Cli
             foreach (string n in packs.Names) if (n.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) names.Add(n);
             names.Sort(StringComparer.Ordinal);
             TriggerLint lint = TriggerLint.Shipped;
+            string xspec = a.Get("--xblock");
+            TriggerXBlocks xblocks = null;
+            TriggerObjects loose = null;
+            if (xspec != null)
+            {
+                if (xspec != "auto" && File.Exists(xspec))
+                {
+                    // a loose .xblock: its models come from the Exported archive (or extract) all the same
+                    xblocks = OpenExported(a, data, archive);
+                    string nm = Path.GetFileNameWithoutExtension(xspec).ToLowerInvariant();
+                    loose = xblocks.Read(File.ReadAllBytes(xspec), nm);
+                }
+                else xblocks = OpenExported(a, data, archive);
+            }
+            var opt = new TriggerLintOptions { Strict = a.Has("--strict") };
             var counts = new Dictionary<string, int>(StringComparer.Ordinal);
             var files = new Dictionary<string, int>(StringComparer.Ordinal);
             var o = new StringBuilder();
@@ -33,7 +48,17 @@ namespace MS2.ModKit.Cli
                 byte[] b = packs.Read(n);
                 if (b == null) continue;
                 var seen = new HashSet<string>(StringComparer.Ordinal);
-                foreach (TriggerFinding f in lint.Lint(n, b, packs))
+                if (xspec != null)
+                {
+                    // auto: the folder of the script (trigger/<xblock>/<name>.xml), as lint.py takes it
+                    string nn = n.Replace('\\', '/');
+                    int sl = nn.LastIndexOf('/');
+                    string dir = sl < 0 ? "" : nn.Substring(0, sl);
+                    opt.XBlock = xspec == "auto" ? dir.Substring(dir.LastIndexOf('/') + 1) : xspec;
+                    opt.Objects = loose ?? xblocks.Get(opt.XBlock);
+                }
+                string format;
+                foreach (TriggerFinding f in lint.Lint(n, b, packs, opt, out format))
                 {
                     int c;
                     counts.TryGetValue(f.Level, out c);
@@ -52,6 +77,27 @@ namespace MS2.ModKit.Cli
             foreach (string lv in new[] { "error", "warning", "allowed" })
                 Console.Error.WriteLine(lv + ": " + get(lv).ToString(CultureInfo.InvariantCulture) + " in " + getf(lv).ToString(CultureInfo.InvariantCulture) + " files");
             return get("error") > 0 ? 1 : 0;
+        }
+
+        /// <summary>
+        /// The map files for --xblock: --exported (an archive ref of the data, an .m2d or an extract folder holding
+        /// flat/ and xblock/); without it the Resource/Exported.m2d beside the Xml archive.
+        /// </summary>
+        static TriggerXBlocks OpenExported(Args a, DataSet data, string archive)
+        {
+            string ex = a.Get("--exported");
+            if (ex == null)
+            {
+                if (data == null) throw new UsageException("--xblock on a folder needs --exported ARCHIVE|DIR (the map files: flat/ and xblock/)");
+                string norm = DataSet.NormalizeRef(archive);
+                int colon = norm.IndexOf(':');
+                ex = (colon > 0 ? norm.Substring(0, colon) : norm) + ":" + Planner.MapArchivePath;
+                if (!data.Exists(ex)) throw new ModKitException("--xblock: no " + ex + "; give --exported ARCHIVE|DIR");
+                return TriggerXBlocks.OfArchive(data.Open(ex));
+            }
+            if (Directory.Exists(ex) || File.Exists(ex)) return TriggerXBlocks.Load(ex);
+            if (data != null && data.Exists(ex)) return TriggerXBlocks.OfArchive(data.Open(ex));
+            throw new ModKitException("--exported: no archive or folder " + ex);
         }
 
         static string Js(string s)

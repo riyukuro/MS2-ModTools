@@ -6,7 +6,8 @@
 // A shipped script (raw form: CamelCase or Korean names, `!Name`, <import>) is normalised the way the ingest does
 // it (snake_case names, renamed arguments, merged imports), then checked: unknown action or condition, unknown,
 // bad or missing argument, a transition to no state, an unreachable state, a group condition without <group>,
-// what the server ignores. Not ported: the object id checks of lint.py --xblock (they need the map's xblock index).
+// what the server ignores. With TriggerLintOptions.Objects (lint.py --xblock) the object ids are checked against the
+// map's xblock (TriggerObjects); with Strict (lint.py --strict) what Maple2 does not run correctly yet is an error.
 // Levels: error, warning, allowed (a finding the allowlist names; it does not count).
 using System;
 using System.Collections.Generic;
@@ -691,9 +692,18 @@ namespace MS2.ModKit
         /// <summary>int.TryParse (NumberStyles.Integer): whitespace, sign, digits, the Int32 range.</summary>
         public static bool DotnetInt(string v)
         {
+            int n;
+            return DotnetInt(v, out n);
+        }
+
+        public static bool DotnetInt(string v, out int value)
+        {
+            value = 0;
             if (!IsInt(v)) return false;
             long n;
-            return long.TryParse(v.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n) && n >= int.MinValue && n <= int.MaxValue;
+            if (!long.TryParse(v.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n) || n < int.MinValue || n > int.MaxValue) return false;
+            value = (int)n;
+            return true;
         }
 
         public static bool DotnetFloat(string v)
@@ -739,6 +749,19 @@ namespace MS2.ModKit
     public sealed class TriggerAllow
     {
         public string Code, Path, Match, Level, Reason;
+    }
+
+    /// <summary>What TriggerLint.Lint checks beyond the file (lint.py --xblock, --strict).</summary>
+    public sealed class TriggerLintOptions
+    {
+        /// <summary>Look for the files that import this one (lint.py does).</summary>
+        public bool ScanImporters = true;
+        /// <summary>The xblock asked for (a name, auto's map, a path); null: no object id check.</summary>
+        public string XBlock;
+        /// <summary>The objects of XBlock; null with XBlock set gives xblock-missing.</summary>
+        public TriggerObjects Objects;
+        /// <summary>maple2-gap warnings are errors (before known-issues).</summary>
+        public bool Strict;
     }
 
     public sealed class TriggerLint
@@ -840,9 +863,17 @@ namespace MS2.ModKit
         /// </summary>
         public List<TriggerFinding> Lint(string entry, byte[] bytes, TriggerPacks packs, bool scanImporters, out string format)
         {
-            List<TriggerFinding> l = new Run(this, entry, packs, scanImporters).File(bytes, out format);
+            return Lint(entry, bytes, packs, new TriggerLintOptions { ScanImporters = scanImporters }, out format);
+        }
+
+        /// <summary>As Lint, with the object id check and the strict levels of the options.</summary>
+        public List<TriggerFinding> Lint(string entry, byte[] bytes, TriggerPacks packs, TriggerLintOptions options, out string format)
+        {
+            options = options ?? new TriggerLintOptions();
+            List<TriggerFinding> l = new Run(this, entry, packs, options).File(bytes, out format);
             foreach (TriggerFinding f in l)
             {
+                if (options.Strict && f.Code == "maple2-gap" && f.Level == "warning") f.Level = "error";
                 TriggerAllow a = Allowed(f);
                 if (a != null) { f.Level = "allowed"; f.AllowReason = a.Reason ?? "?"; }
             }
@@ -862,8 +893,13 @@ namespace MS2.ModKit
             Dictionary<string, LintEl> states;
 
             readonly bool scanImporters;
+            readonly TriggerLintOptions opt;
+            TriggerObjects idx;
 
-            public Run(TriggerLint lt, string entry, TriggerPacks packs, bool scanImporters) { this.lt = lt; schema = lt.schema; this.entry = entry; this.packs = packs; this.scanImporters = scanImporters; }
+            public Run(TriggerLint lt, string entry, TriggerPacks packs, TriggerLintOptions opt)
+            {
+                this.lt = lt; schema = lt.schema; this.entry = entry; this.packs = packs; this.opt = opt; scanImporters = opt.ScanImporters;
+            }
 
             void Add(string level, string code, LintEl el, string msg) { Add(level, code, el == null ? 0 : el.Line, el == null ? null : el.Src, msg, el == null ? null : el.Tag); }
 
@@ -920,6 +956,12 @@ namespace MS2.ModKit
                     Add(i.Level, i.Message.Contains("import") ? "import" : "ingest", i.Line, null, i.Message);
 
                 if (doc.Tag != "ms2") { Add("error", "root", doc, "root element is <" + doc.Tag + ">, the server needs <ms2>"); return outl; }
+
+                if (opt.XBlock != null)
+                {
+                    idx = opt.Objects;
+                    if (idx == null) Add("warning", "xblock-missing", 0, null, "xblock " + Py.Repr(opt.XBlock) + " is not in the index; object IDs not checked");
+                }
 
                 states = new Dictionary<string, LintEl>(StringComparer.Ordinal);
                 var order = new List<string>();
@@ -980,6 +1022,18 @@ namespace MS2.ModKit
                     foreach (string n in order)
                         if (!seen.Contains(n) && states[n].Src == null)
                             Add("warning", "unreachable", states[n], "state " + Py.Repr(states[n].NameBefore) + " is never entered from " + Py.Repr(first.RawName ?? order[0]));
+                }
+
+                // the script is loaded by a TriggerModel of the map?
+                if (idx != null)
+                {
+                    string b = entry.Replace('\\', '/');
+                    b = b.Substring(b.LastIndexOf('/') + 1);
+                    int dot = b.LastIndexOf('.');
+                    if (dot > 0) b = b.Substring(0, dot);
+                    b = b.ToLowerInvariant();
+                    if (!idx.LoadsScript(b))
+                        Add("warning", "no-trigger-model", 0, null, "no TriggerModel in xblock " + idx.Name + " names " + b + ".xml; the script is never loaded");
                 }
                 return outl;
             }
@@ -1160,13 +1214,129 @@ namespace MS2.ModKit
                     else if (t == "banner" && Array.IndexOf(new[] { "", "1", "3", "4", "5", "6", "7" }, v) < 0)
                         Add("warning", "bad-banner", el, label + ": only 1,3,4,5,6,7 are mapped; reads as Text");
                 }
-                if (imported) return;
-                foreach (JsonObj a in TriggerSchema.Args(e))
+                if (!imported)
+                    foreach (JsonObj a in TriggerSchema.Args(e))
+                    {
+                        string n = TriggerSchema.S(a, "name");
+                        if (TriggerSchema.True(a, "required") && string.IsNullOrEmpty(el.Get(n)))
+                            Add("warning", "missing-arg", el, what + ": required argument " + Py.Repr(n) + " is missing; reads as " + Py.Str(a.Get("default")));
+                    }
+                if (idx != null) CheckRefs(el, kind, args, rawargs, what);
+            }
+
+            // ref (schema) -> the xblock kinds the server's lookup can find
+            static readonly string[] SpawnKinds = { "npc_spawn", "event_npc_spawn", "pc_spawn", "region_spawn" };
+
+            static string[] RefKinds(string kind, string name, string arg, string reff)
+            {
+                if (kind == "action" && name == "spawn_monster" && arg == "spawn_ids") return new[] { "event_npc_spawn" };
+                switch (reff)
                 {
-                    string n = TriggerSchema.S(a, "name");
-                    if (TriggerSchema.True(a, "required") && string.IsNullOrEmpty(el.Get(n)))
-                        Add("warning", "missing-arg", el, what + ": required argument " + Py.Repr(n) + " is missing; reads as " + Py.Str(a.Get("default")));
+                    case "spawn": return SpawnKinds;
+                    default: return new[] { reff };
                 }
+            }
+
+            /// <summary>The object ids of the element against the map's xblock (Linter.check_refs).</summary>
+            void CheckRefs(LintEl el, string kind, Dictionary<string, JsonObj> args, Dictionary<string, string> rawargs, string what)
+            {
+                string name = el.Get("name");
+                foreach (KeyValuePair<string, JsonObj> ka in args)   // first-seen order, last definition (a dict of lint.py)
+                {
+                    JsonObj a = ka.Value;
+                    string k = ka.Key, reff = TriggerSchema.S(a, "ref"), v = k == null ? null : el.Get(k);
+                    if (string.IsNullOrEmpty(reff) || string.IsNullOrEmpty(v)) continue;
+                    // set_dialogue: spawn_id is an object id only with type 1
+                    if (kind == "action" && name == "set_dialogue" && k == "spawn_id" && (el.Get("type") ?? "").Trim() != "1") continue;
+                    var ids = new List<int>();
+                    if (TriggerSchema.S(a, "type") == "int_list") IntIds(v, ids);
+                    else { int n; if (Py.DotnetInt(v, out n)) ids.Add(n); }
+                    string[] kinds = RefKinds(kind, name, k, reff);
+                    var missing = new List<int>();
+                    var wrong = new List<KeyValuePair<int, List<string>>>();
+                    foreach (int i in ids)
+                    {
+                        if (i <= 0) continue;
+                        bool found = false;
+                        foreach (string kd in kinds) if (idx.Has(kd, i)) { found = true; break; }
+                        if (found) continue;
+                        List<string> other = idx.KindsOf(i);
+                        if (other.Count > 0) wrong.Add(new KeyValuePair<int, List<string>>(i, other));
+                        else missing.Add(i);
+                    }
+                    string an;
+                    if (!rawargs.TryGetValue(k, out an)) an = k;
+                    if (reff == "breakable")
+                    {
+                        var nif = new List<int>();
+                        foreach (KeyValuePair<int, List<string>> w in wrong) if (w.Value.Contains("breakable_nif")) nif.Add(w.Key);
+                        if (nif.Count > 0)
+                        {
+                            wrong.RemoveAll(w => nif.Contains(w.Key));
+                            Add("warning", "maple2-gap", el, what + " " + an + ": id(s) " + Compact(nif) + " are MS2BreakableNIF objects, which the "
+                                + "ingest does not export (case commented out in MapEntityMapper), so the server finds nothing");
+                        }
+                    }
+                    if (missing.Count > 0)
+                        Add("warning", "ref-missing", el, what + " " + an + ": " + string.Join("/", kinds) + " id(s) " + Compact(missing) + " not in xblock " + idx.Name);
+                    if (wrong.Count > 0)
+                    {
+                        var wk = new List<string>();
+                        var wi = new List<int>();
+                        foreach (KeyValuePair<int, List<string>> w in wrong) { wi.Add(w.Key); foreach (string x in w.Value) if (!wk.Contains(x)) wk.Add(x); }
+                        wk.Sort(string.CompareOrdinal);
+                        Add("warning", "ref-kind", el, what + " " + an + ": id(s) " + Compact(wi) + " are " + string.Join("/", wk.ToArray()) + ", not " + string.Join("/", kinds));
+                    }
+                }
+            }
+
+            static string Compact(List<int> l)
+            {
+                var s = new List<int>(new HashSet<int>(l));
+                s.Sort();
+                var parts = new List<string>();
+                foreach (int i in s)
+                {
+                    if (parts.Count == 8) break;
+                    parts.Add(i.ToString(CultureInfo.InvariantCulture));
+                }
+                return string.Join(",", parts.ToArray()) + (s.Count > 8 ? ",...(" + s.Count.ToString(CultureInfo.InvariantCulture) + ")" : "");
+            }
+
+            const int RangeLimit = 100000;
+
+            static void Range(int a, int b, List<int> ids)
+            {
+                if (a > b) { int t = a; a = b; b = t; }
+                long end = (long)b - a > RangeLimit ? (long)a + RangeLimit - 1 : b;
+                for (long i = a; i <= end; i++) ids.Add((int)i);
+            }
+
+            /// <summary>The ids of TriggerFunctionMapping.ParseIntArray (int_array of lint.py); "all" is -1.</summary>
+            static void IntIds(string v, List<int> ids)
+            {
+                if (string.IsNullOrEmpty(v)) return;
+                if (v == "all") { ids.Add(-1); return; }
+                int x, y;
+                if (v.IndexOf(',') >= 0)
+                {
+                    foreach (string part in v.Split(','))
+                    {
+                        if (part.IndexOf('-') >= 0)
+                        {
+                            string[] rp = part.Split('-');
+                            if (rp.Length == 2 && Py.DotnetInt(rp[0], out x) && Py.DotnetInt(rp[1], out y)) Range(x, y, ids);
+                        }
+                        else if (Py.DotnetInt(part, out x)) ids.Add(x);
+                    }
+                    return;
+                }
+                if (v.IndexOf('-') >= 0)
+                {
+                    string[] rp = v.Split('-');
+                    if (rp.Length == 2 && Py.DotnetInt(rp[0], out x) && Py.DotnetInt(rp[1], out y)) { Range(x, y, ids); return; }
+                }
+                if (Py.DotnetInt(v, out x)) ids.Add(x);
             }
 
             /// <summary>TriggerFunctionMapping.ParseIntArray: why it throws (null if it does not), and the parts it drops.</summary>

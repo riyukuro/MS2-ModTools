@@ -149,7 +149,7 @@ namespace MS2.ModKit.Tests
   {""code"": ""maple2-gap"", ""path"": ""fake_*/*.xml"", ""match"": ""DungeonVariable"", ""reason"": ""another""}
 ]}";
 
-        static string Repo()
+        internal static string Repo()
         {
             string dir = TestContext.CurrentContext.TestDirectory;
             for (int i = 0; i < 10 && dir != null; i++, dir = Path.GetDirectoryName(dir))
@@ -171,12 +171,12 @@ namespace MS2.ModKit.Tests
             return root;
         }
 
-        static string Key(string path, int line, string level, string code, string msg)
+        internal static string Key(string path, int line, string level, string code, string msg)
         {
             return path + "|" + line + "|" + level + "|" + code + "|" + msg;
         }
 
-        static List<string> Python(string repo, string root, bool allow)
+        internal static List<string> Python(string repo, string root, bool allow, params string[] extra)
         {
             var psi = new ProcessStartInfo("python3") { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, StandardOutputEncoding = Encoding.UTF8 };
             psi.ArgumentList.Add("-I");
@@ -186,6 +186,7 @@ namespace MS2.ModKit.Tests
             psi.ArgumentList.Add(allow ? Path.Combine(root, "allow.json") : "");
             psi.ArgumentList.Add("--cache");
             psi.ArgumentList.Add(Path.Combine(root, "cache"));
+            foreach (string x in extra) psi.ArgumentList.Add(x);
             psi.ArgumentList.Add(Path.Combine(root, "trigger"));
             var l = new List<string>();
             Process started;
@@ -215,20 +216,29 @@ namespace MS2.ModKit.Tests
 
         static List<string> Ours(TriggerLint lint, string root, out List<TriggerFinding> all)
         {
+            return Ours(lint, root, null, out all);
+        }
+
+        /// <summary>The findings of the folder; options (by entry) give the xblock check and strict, null: none.</summary>
+        internal static List<string> Ours(TriggerLint lint, string root, Func<string, TriggerLintOptions> options, out List<TriggerFinding> all)
+        {
             TriggerPacks packs = TriggerPacks.OfFolder(root);
             var l = new List<string>();
             all = new List<TriggerFinding>();
             foreach (string n in packs.Names)
-                foreach (TriggerFinding f in lint.Lint(n, packs.Read(n), packs))
+            {
+                string format;
+                foreach (TriggerFinding f in options == null ? lint.Lint(n, packs.Read(n), packs) : lint.Lint(n, packs.Read(n), packs, options(n), out format))
                 {
                     all.Add(f);
                     l.Add(Key(f.Entry, f.Line, f.Level, f.Code, f.Message));
                 }
+            }
             l.Sort(StringComparer.Ordinal);
             return l;
         }
 
-        static TriggerLint WithAllow(string json)
+        internal static TriggerLint WithAllow(string json)
         {
             return new TriggerLint(TriggerLint.Shipped.Schema, TriggerLint.ParseAllow(json));
         }

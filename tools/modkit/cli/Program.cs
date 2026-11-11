@@ -43,9 +43,13 @@ namespace MS2.ModKit.Cli
   modkit refs <id>... [mod...]                 the rows of server-only tables that belong to an item (option,
                                                drop and shop rows), as shipped or as the mods leave them
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
-  modkit trigger-lint <folder or archive> [--json]
+  modkit trigger-lint <folder or archive> [--json] [--strict] [--xblock NAME|auto|FILE.xblock [--exported ARCHIVE|DIR]]
                                                lint the trigger scripts (trigger/<xblock>/*.xml of a folder or an
-                                               Xml archive) as tools/trigger/lint.py does, with its allowlist
+                                               Xml archive) as tools/trigger/lint.py does, with its allowlist;
+                                               --xblock checks the object ids against the map (auto: the script's
+                                               folder) in --exported (default Resource/Exported.m2d of the same
+                                               root; an extract folder holds flat/ and xblock/); --strict makes
+                                               what Maple2 does not run correctly yet an error
   modkit field-rows <source> [--put MOD | --take MOD]
                                                the maps our client's table/fielddata.xml has no loadable row for
                                                while the source client (e.g. gms-client:Xml.m2d) has the map's file,
@@ -119,8 +123,8 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
         static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply",
             "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original", "--flats", "--library", "--known-ids", "--assets", "--resource", "--priority", "--src",
-            "--target", "--pack", "--locale", "--rows", "--put", "--take", "--lang", "--source-lang", "--files" };
-        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all", "--all-presets", "--no-asset-files", "--list", "--plain" };
+            "--target", "--pack", "--locale", "--rows", "--put", "--take", "--lang", "--source-lang", "--files", "--xblock", "--exported" };
+        static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all", "--all-presets", "--no-asset-files", "--list", "--plain", "--strict" };
 
         static int Main(string[] argv)
         {
