@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs Gamebryo LightSpeed 3.2 Toolbench + WorldBuilder (the PREBUILT Win32 VC90 "Shipping" build from the SDK, nothing is
-# compiled except a 30-line CLR4 shim) headless under Wine. See tools/toolbench/README.md.
+# compiled except the launcher shim that starts it on .NET 4 with the fixes of tools/toolbench/README.md) headless under Wine. See tools/toolbench/README.md.
 #   tools/run-toolbench.sh [file.gsl ...]        # no args: the MangledMetal sample solution (work copy)
 #   tools/run-toolbench.sh --setup               # (re)create the working copies, Wine prefix, fonts, shim (idempotent)
 #   tools/run-toolbench.sh --shot NAME           # screenshot of the Toolbench display -> <MS2_OUT>/toolbench_shots/NAME.png
