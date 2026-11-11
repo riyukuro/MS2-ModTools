@@ -17,6 +17,7 @@ namespace MS2.ModKit.Cli
                 case "map-to-block": return MapToBlock(a);
                 case "map-from-block": return MapFromBlock(a);
                 case "map-normalize": return MapNormalize(a);
+                case "map-diff": return MapDiffCmd(a);
                 default: throw new UsageException("unknown command " + cmd);
             }
         }
@@ -122,6 +123,52 @@ namespace MS2.ModKit.Cli
                     File.WriteAllBytes(dst, XBlock.Bytes(x.Value, d));
                     Console.WriteLine(dst);
                 }
+            return 0;
+        }
+
+        // pairs of <shipped map> <edited map>; the map name is the shipped file's name
+        static int MapDiffCmd(Args a)
+        {
+            const string usage = "map-diff --id MODID -o MODDIR <shipped.xblock> <edited.xblock> [<shipped2.xblock> <edited2.xblock>...]";
+            if (a.Pos.Count == 0 || a.Pos.Count % 2 != 0) throw new UsageException(usage);
+            string id = a.Get("--id");
+            if (id == null) throw new UsageException("missing --id <mod id>\n" + usage);
+            string o = a.Get("-o");
+            if (o == null) throw new UsageException("missing -o <mod folder>\n" + usage);
+            string modFile = Path.Combine(o, "mod.xml");
+            if (File.Exists(modFile)) throw new ModKitException(modFile + " exists; map-diff does not write over a mod");
+            var mod = new Mod { Id = id, Name = id, Version = "1" };
+            var files = new List<KeyValuePair<string, byte[][]>>();
+            var problems = new List<string>();
+            for (int i = 0; i < a.Pos.Count; i += 2)
+            {
+                string name = Path.GetFileNameWithoutExtension(a.Pos[i]);
+                byte[] shipped = File.ReadAllBytes(a.Pos[i]), edited = File.ReadAllBytes(a.Pos[i + 1]);
+                int before = problems.Count;
+                MapOp m = MapDiff.Build(name, shipped, edited, problems);
+                for (int k = before; k < problems.Count; k++) problems[k] = name + ": " + problems[k];
+                if (m == null) { Console.WriteLine(name + ": no difference in entities or values"); continue; }
+                int add = 0, rem = 0, chg = 0;
+                foreach (MapEntityOp op in m.Ops) { if (op.Kind == MapOpKind.Remove) rem++; else if (op.Kind == MapOpKind.Change) chg++; else add++; }
+                Console.WriteLine(name + ": " + add + " added, " + rem + " removed, " + chg + " changed");
+                foreach (MapEntityOp op in m.Ops)
+                    if (op.Kind == MapOpKind.Spawn) Console.WriteLine(name + ": spawn point " + op.Number + " is new; a map file does not hold its server rows, add <row .../> to its <spawn> by hand");
+                mod.Maps.Add(m);
+                files.Add(new KeyValuePair<string, byte[][]>(name, new[] { shipped, edited }));
+            }
+            if (mod.Maps.Count == 0) { Console.WriteLine("nothing to write"); return problems.Count == 0 ? 0 : 1; }
+            // what is checked is the text as it will be loaded again
+            Mod loaded = Mod.Parse(mod.ToXml(), "the generated mod");
+            foreach (KeyValuePair<string, byte[][]> f in files)
+            {
+                string bad = MapDiff.Check(loaded, f.Key, f.Value[0], f.Value[1]);
+                if (bad != null) problems.Add(f.Key + ": " + bad);
+                else Console.WriteLine(f.Key + ": checked, the shipped map with these ops is the edited map byte for byte");
+            }
+            foreach (string p in problems) Console.Error.WriteLine("problem: " + p);
+            if (problems.Count > 0) { Console.Error.WriteLine("no mod written"); return 1; }
+            mod.Save(o);
+            Console.WriteLine(modFile);
             return 0;
         }
 

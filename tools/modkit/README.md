@@ -865,6 +865,24 @@ modkit map-from-block blocks/<map>.block -o exported --index index.json    # edi
 modkit map-normalize exported/<map>.xblock -o final --original <shipped map>   # put it in the shipped file's order
 ```
 
+### From an edited map to a mod
+
+A mod never carries a whole map file; it carries the edits. When you have the shipped map file and an edited copy
+of it (from the map editor, put in the shipped file's order with `map-normalize --original`), this writes the mod:
+
+```sh
+modkit map-diff --id my-map-mod -o my-map-mod <shipped map>.xblock final/<map>.xblock
+```
+
+The map's name is the shipped file's name; give more pairs for more maps. An entity only in the shipped file becomes
+`<remove>`, a new one `<add>` (`<portal>` or `<spawn>` when it carries those numbers), a changed one `<change>` with
+the shipped values as the expected old ones. New entities keep their id and the order of their properties
+(`entity-id="..."` and `order="..."`, which you do not write by hand). Before the mod is written the command
+applies it to the shipped file and compares the result with your edited file, byte for byte; when they differ it
+says so and writes nothing. Things a mod cannot say: another model, display name or iterations value of a shipped
+entity, the same properties in another order, another file layout. A new spawn point comes without server rows,
+because a map file does not hold them: add its `<row .../>` lines by hand.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different

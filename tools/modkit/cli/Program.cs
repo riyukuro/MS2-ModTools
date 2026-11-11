@@ -46,6 +46,7 @@ namespace MS2.ModKit.Cli
   modkit map-to-block <map.xblock or folder>... -o DIR --index FILE     game maps as editor maps (.block)
   modkit map-from-block <map.block>... -o DIR --index FILE              editor maps as game maps (.xblock)
   modkit map-normalize <map.xblock>... -o DIR [--original FILE or DIR]  an exported game map in the shipped form
+  modkit map-diff --id MODID -o MODDIR <shipped.xblock> <edited.xblock>...  the edits of a map as a mod (add, remove, change)
                                                (see Maps in the README for the options of these three)
 
   <archive> is <root>:<path>, for example client:Xml.m2d, gms-client:Xml.m2d, server:Xml.m2d, server:Server.m2d.
@@ -86,7 +87,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
         }
 
         static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply",
-            "-o", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original" };
+            "-o", "--id", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original" };
         static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all" };
 
         static int Main(string[] argv)

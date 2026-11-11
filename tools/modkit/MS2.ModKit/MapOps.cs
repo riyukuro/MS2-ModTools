@@ -22,6 +22,10 @@
 //
 // name= of add, spawn and portal is the operation's own name; the id of the new entity is derived from the mod id,
 // the xblock name and that name (MapValues.NewEntityId). How the ops are planned is in PlannerMaps.cs.
+//
+// add, spawn and portal also take two attributes that modkit map-diff writes, so that an edited map comes back
+// byte for byte: entity-id="(32 hex)" gives the new entity that id instead of the derived one, and
+// order="Position,PortalID,..." lists all its properties (those the tool writes too) in the order they are written.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -67,6 +71,10 @@ namespace MS2.ModKit
         public readonly List<List<KeyValuePair<string, string>>> Rows = new List<List<KeyValuePair<string, string>>>();
         /// <summary>Add, Spawn, Portal: the iterations attribute of the new entity.</summary>
         public int Iterations = 1;
+        /// <summary>Add, Spawn, Portal: the id the new entity gets; null = derived from the mod id, the map and Name.</summary>
+        public string NewId;
+        /// <summary>Add, Spawn, Portal: every property name of the new entity in the order to write; null = like the shipped entities.</summary>
+        public List<string> Order;
         public int Line;
     }
 
@@ -121,17 +129,18 @@ namespace MS2.ModKit
                 if (m.XBlock.IndexOfAny(new[] { '/', '\\', '.' }) >= 0) throw Bad(e, "xblock=\"" + m.XBlock + "\" is the map file name without folder and extension");
                 if (e.Attr("id") != null) m.MapId = Num32(e, "id");
                 var names = new Dictionary<string, bool>();
+                var ids = new Dictionary<string, bool>();
                 foreach (XmlElem c in e.Children)
                 {
                     var op = new MapEntityOp { Line = c.Line };
                     switch (c.Name)
                     {
-                        case "add": Only(c, "name", "model", "entity-name", "iterations"); op.Kind = MapOpKind.Add; break;
+                        case "add": Only(c, "name", "model", "entity-name", "iterations", "entity-id", "order"); op.Kind = MapOpKind.Add; break;
                         case "spawn":
-                            Only(c, "name", "model", "entity-name", "iterations", "point"); op.Kind = MapOpKind.Spawn; op.Number = Num32(c, "point");
+                            Only(c, "name", "model", "entity-name", "iterations", "entity-id", "order", "point"); op.Kind = MapOpKind.Spawn; op.Number = Num32(c, "point");
                             break;
                         case "portal":
-                            Only(c, "name", "model", "entity-name", "iterations", "id", "to-map", "to-portal"); op.Kind = MapOpKind.Portal;
+                            Only(c, "name", "model", "entity-name", "iterations", "entity-id", "order", "id", "to-map", "to-portal"); op.Kind = MapOpKind.Portal;
                             op.Number = Num32(c, "id"); op.ToMap = Num32(c, "to-map"); op.ToPortal = Num32(c, "to-portal");
                             break;
                         case "remove": Only(c, "id", "model", "position"); op.Kind = MapOpKind.Remove; break;
@@ -205,6 +214,23 @@ namespace MS2.ModKit
                             foreach (XProp q in op.Props)
                                 if (Array.IndexOf(own.Split(new[] { ", " }, StringSplitOptions.None), q.Name) >= 0)
                                     throw Bad(c, "<" + c.Name + "> writes the property " + q.Name + " itself; leave it out");
+                        if (c.Attr("entity-id") != null)
+                        {
+                            op.NewId = c.Attr("entity-id").ToLowerInvariant();
+                            if (!IsEntityId(op.NewId)) throw Bad(c, "entity-id=\"" + c.Attr("entity-id") + "\" is not an entity id (32 hex digits)");
+                            if (ids.ContainsKey(op.NewId)) throw Bad(c, "entity-id=\"" + op.NewId + "\" is used twice in this <map>");
+                            ids[op.NewId] = true;
+                        }
+                        if (c.Attr("order") != null)
+                        {
+                            op.Order = new List<string>(c.Attr("order").Split(','));
+                            var all = new List<string>();
+                            foreach (XProp q in op.Props) all.Add(q.Name);
+                            if (own != null) all.AddRange(own.Split(new[] { ", " }, StringSplitOptions.None));
+                            foreach (string n in op.Order)
+                                if (!all.Remove(n)) throw Bad(c, "order=\"...\" names " + (n.Length == 0 ? "an empty name" : n) + ", which is not a property of this <" + c.Name + "> or is named twice");
+                            if (all.Count > 0) throw Bad(c, "order=\"...\" must name every property of the new entity; it leaves out " + string.Join(", ", all.ToArray()));
+                        }
                     }
                     m.Ops.Add(op);
                 }
@@ -240,6 +266,8 @@ namespace MS2.ModKit
                     {
                         A(sb, "name", op.Name); A(sb, "model", op.Model); A(sb, "entity-name", op.EntityName);
                         if (op.Iterations != 1) A(sb, "iterations", op.Iterations.ToString(CultureInfo.InvariantCulture));
+                        A(sb, "entity-id", op.NewId);
+                        if (op.Order != null) A(sb, "order", string.Join(",", op.Order.ToArray()));
                         if (op.Kind == MapOpKind.Spawn) A(sb, "point", op.Number.ToString(CultureInfo.InvariantCulture));
                         if (op.Kind == MapOpKind.Portal)
                         {

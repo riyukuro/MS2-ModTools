@@ -642,6 +642,146 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // ---- shipped map + edited map -> the ops of a mod ----
+
+        const string New1 = "40000000000000000000000000000004", New2 = "50000000000000000000000000000005", New3 = "00000000000000000000000000000009";
+
+        // every kind of edit on map A; the new entities stand at their place in id order, as the files do
+        static List<XEntity> Edited(bool gms)
+        {
+            List<XEntity> l = FakeMaps.A(gms);
+            XEntity crate1 = l[0], spawn1 = l[1], portal1 = l[2], crate2 = l[3];
+            crate1.Find("Position").Items[0] = new XSet(null, "0, 0, 450");                 // a value changed
+            crate1.Props.RemoveAll(x => x.Name == "Rotation");                               // a stored value removed
+            crate1.Props.Insert(0, new XProp("IsVisible", "False"));                        // a new property, at its place by name
+            crate2.Find("Tags").Items[1] = new XSet("1", "c");                              // a list item changed
+            crate2.Find("Tags").Items.Add(new XSet("2", "d"));                              // a list item added
+            l.Remove(spawn1);                                                               // an entity removed
+            portal1.Find("TargetPortalID").Items[0] = new XSet(null, "4");
+            var crate = new XEntity { Id = New1, Model = "Crate_A", Name = "Crate_A_900", Iterations = 2 };
+            crate.Props.Add(new XProp("Scale", "2"));                                       // not the name order
+            crate.Props.Add(new XProp("Position", "150, 300, 450"));
+            crate.Props.Add(new XProp("Tags", new List<XSet> { new XSet("0", "x"), new XSet("1", "y") }));
+            var portal = new XEntity { Id = New2, Model = "Portal_A", Name = "Portal_900", Iterations = 1 };
+            portal.Props.Add(new XProp("Position", "300, 300, 150"));                       // not the shipped portals' order
+            portal.Props.Add(new XProp("TargetPortalID", "1"));
+            portal.Props.Add(new XProp("PortalID", "50000"));
+            portal.Props.Add(new XProp("TargetFieldSN", "90000002"));
+            var spawn = new XEntity { Id = New3, Model = "SpawnPoint_A", Name = "Spawn_900", Iterations = 1 };
+            spawn.Props.Add(new XProp("SpawnPointID", "140000"));
+            spawn.Props.Add(new XProp("Position", "150, 150, 450"));
+            l.Add(crate); l.Add(portal); l.Add(spawn);
+            MapConvert.SortById(l);
+            return l;
+        }
+
+        [TestCase(false)]
+        [TestCase(true)]
+        public void DifferenceOfTwoMapsAsAModGivesTheEditedMapBack(bool gms)
+        {
+            XDialect d = gms ? XDialect.Spaced : XDialect.Tab;
+            byte[] shipped = XBlock.Bytes(FakeMaps.A(gms), d), edited = XBlock.Bytes(Edited(gms), d);
+            var problems = new List<string>();
+            MapOp ops = MapDiff.Build(FakeMaps.MapA, shipped, edited, problems);
+            Assert.That(problems, Is.Empty);
+            Assert.That(ops.Ops.Select(o => o.Kind + " " + (o.Id ?? o.NewId)).ToArray(), Is.EqualTo(new[]
+            {
+                "Change " + FakeMaps.Crate1, "Remove " + FakeMaps.Spawn1, "Change " + FakeMaps.Portal1, "Change " + FakeMaps.Crate2,
+                "Spawn " + New3, "Add " + New1, "Portal " + New2,
+            }));
+            MapEntityOp c1 = ops.Ops[0];
+            Assert.That(c1.Position, Is.EqualTo(gms ? "0, 0, 300" : "0, 0, 150"));
+            Assert.That(c1.Sets.Select(x => x.Name + "|" + x.Index + "|" + x.Old + "|" + x.Value).ToArray(), Is.EqualTo(new[]
+            {
+                "Position||" + c1.Position + "|0, 0, 450", "Rotation||0, 0, 90|", "IsVisible|||False",
+            }));
+            Assert.That(ops.Ops[3].Sets.Select(x => x.Name + "|" + x.Index + "|" + x.Old + "|" + x.Value).ToArray(), Is.EqualTo(new[] { "Tags|1|b|c", "Tags|2||d" }));
+
+            var mod = new Mod { Id = "diffed", Name = "diffed", Version = "1" };
+            mod.Maps.Add(ops);
+            string text = mod.ToXml();
+            Mod loaded = Mod.Parse(text, "generated");
+            Assert.That(loaded.ToXml(), Is.EqualTo(text));
+            Assert.That(MapDiff.Check(loaded, FakeMaps.MapA, shipped, edited), Is.Null);
+
+            // through the planner on the three targets: the target that ships this file gets the edited file, byte for byte
+            using (var f = new FakeMaps())
+            {
+                Plan p = f.Plan(loaded);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Conflicts, Is.Empty, Fake.Dump(p));
+                Assert.That(Bytes(p, gms ? G : K, FakeMaps.EntryA), Is.EqualTo(edited));
+                if (!gms) Assert.That(Bytes(p, S, FakeMaps.EntryA), Is.EqualTo(edited));
+                // the other target ships the first crate somewhere else: that one change is skipped there and said
+                Assert.That(Lines(p.Warnings).Count(w => w.Contains(FakeMaps.Crate1) && w.Contains("is skipped on")), Is.EqualTo(gms ? 2 : 1), Fake.Dump(p));
+                Assert.That(Lines(p.Warnings).Count(w => w.Contains("spawn point 140000") && w.Contains("has no <row>")), Is.EqualTo(1), Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void DifferenceThatAModCannotSayIsReported()
+        {
+            byte[] shipped = XBlock.Bytes(FakeMaps.A(false), XDialect.Tab);
+            var problems = new List<string>();
+            Assert.That(MapDiff.Build(FakeMaps.MapA, shipped, shipped, problems), Is.Null);
+            Assert.That(problems, Is.Empty);
+
+            // another display name
+            List<XEntity> l = FakeMaps.A(false);
+            l[0].Name = "Crate_A_renamed";
+            Assert.That(MapDiff.Build(FakeMaps.MapA, shipped, XBlock.Bytes(l, XDialect.Tab), problems), Is.Null);
+            Assert.That(problems.Count, Is.EqualTo(1));
+            Assert.That(problems[0], Does.Contain(FakeMaps.Crate1).And.Contain("a mod cannot say that"));
+
+            // the same values, properties of one entity in another order: no op, and the check says the bytes differ
+            l = FakeMaps.A(false);
+            l[0].Props.Reverse();
+            l[3].Find("Position").Items[0] = new XSet(null, "300, 0, 300");
+            byte[] edited = XBlock.Bytes(l, XDialect.Tab);
+            problems.Clear();
+            MapOp ops = MapDiff.Build(FakeMaps.MapA, shipped, edited, problems);
+            Assert.That(problems, Is.Empty);
+            Assert.That(ops.Ops.Count, Is.EqualTo(1));
+            var mod = new Mod { Id = "diffed", Name = "diffed", Version = "1" };
+            mod.Maps.Add(ops);
+            Assert.That(MapDiff.Check(mod, FakeMaps.MapA, shipped, edited), Does.Contain("is not the edited map, byte for byte"));
+
+            // the other layout
+            Assert.That(MapDiff.Check(mod, FakeMaps.MapA, shipped, XBlock.Bytes(l, XDialect.Spaced)), Does.Contain("is not the edited map, byte for byte"));
+        }
+
+        [Test]
+        public void EntityIdAndOrderOfANewEntity()
+        {
+            const string open = "<add name=\"c\" model=\"Crate_A\" entity-name=\"Crate_A_900\"";
+            const string props = "><property name=\"Position\" value=\"150, 300, 450\" /><property name=\"Scale\" value=\"2\" /></add>";
+            using (var f = new FakeMaps())
+            {
+                Plan p = f.Plan(f.Mod("a", Map(open + " entity-id=\"" + New1 + "\" order=\"Scale,Position\"" + props)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                List<XEntity> got = XBlock.Read(Bytes(p, K, FakeMaps.EntryA), "k");
+                Assert.That(got.Select(e => e.Id).ToArray(), Is.EqualTo(new[] { FakeMaps.Crate1, FakeMaps.Spawn1, FakeMaps.Portal1, New1, FakeMaps.Crate2 }));
+                Assert.That(got[3].Props.Select(x => x.Name).ToArray(), Is.EqualTo(new[] { "Scale", "Position" }));
+
+                // an id the map has already
+                p = f.Plan(f.Mod("b", Map(open + " entity-id=\"" + FakeMaps.Crate2 + "\"" + props)));
+                Assert.That(Lines(p.Errors).Count(e => e.Contains("which is already in the map")), Is.EqualTo(3), Fake.Dump(p));
+
+                foreach (string[] bad in new[]
+                {
+                    new[] { " entity-id=\"12\"", "is not an entity id" },
+                    new[] { " order=\"Scale\"", "leaves out Position" },
+                    new[] { " order=\"Scale,Position,Rotation\"", "names Rotation" },
+                    new[] { " order=\"Scale,Scale,Position\"", "named twice" },
+                })
+                    Assert.That(Assert.Throws<ModKitException>(() => f.Mod("x" + bad[1].Length, Map(open + bad[0] + props))).Message, Does.Contain(bad[1]), bad[0]);
+                Assert.That(Assert.Throws<ModKitException>(() => f.Mod("y", Map(
+                    open + " entity-id=\"" + New1 + "\"" + props + open.Replace("\"c\"", "\"d\"") + " entity-id=\"" + New1 + "\"" + props))).Message, Does.Contain("is used twice"));
+                // the properties the tool writes are part of the order
+                Assert.That(Assert.Throws<ModKitException>(() => f.Mod("z", Map(Spawn("s", 140000, "").Replace(" point=", " order=\"Position\" point=")))).Message, Does.Contain("leaves out SpawnPointID"));
+            }
+        }
+
         [Test]
         public void ServerFolderThatIsALinkIsWrittenOnce()
         {

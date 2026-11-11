@@ -288,7 +288,7 @@ namespace MS2.ModKit
         {
             Plan plan = run.Plan;
             EntryState st = ms.St;
-            string id = MapValues.NewEntityId(mod.Id, mop.XBlock, op.Name);
+            string id = op.NewId ?? MapValues.NewEntityId(mod.Id, mop.XBlock, op.Name);
             MapEnt old;
             if (ms.ById.TryGetValue(id, out old))
             {
@@ -305,7 +305,8 @@ namespace MS2.ModKit
                 props.Add(new XProp("TargetPortalID", D(op.ToPortal)));
             }
             var xe = new XEntity { Id = id, Model = op.Model, Name = op.EntityName, Iterations = op.Iterations, Props = props };
-            OrderLikeShipped(ms, xe);
+            if (op.Order == null) OrderLikeShipped(ms, xe);
+            else Stable.Sort(xe.Props, delegate (XProp x, XProp y) { return op.Order.IndexOf(x.Name).CompareTo(op.Order.IndexOf(y.Name)); });
 
             var me = new MapEnt { Id = id, Model = op.Model, AddedBy = mod, New = xe, Op = op };
             XProp pp = xe.Find("PortalID"), sp = xe.Find("SpawnPointID"), tm = xe.Find("TargetFieldSN"), tp = xe.Find("TargetPortalID");
