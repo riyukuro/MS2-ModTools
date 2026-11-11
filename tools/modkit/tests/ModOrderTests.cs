@@ -63,7 +63,7 @@ namespace MS2.ModKit.Tests
                     // the default: the later mod is the higher one; a conflict stops the apply
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", a, b), Is.EqualTo(1), text);
                     Assert.That(text, Does.Contain("conflict, b.two wins: [a.one] " + C + " " + Pet + ": pet[id=100] @hp: \"11\" here, \"22\" in mod b.two\n"));
-                    Assert.That(text, Does.Contain("priority, the highest first: b.two > a.one"));
+                    Assert.That(text, Does.Contain("priority, the highest first: b.two > a.one\nleft out of a.one: 1 part, for b.two\n"));
                     Assert.That(Run(out text, "apply", "--client", f.ClientDir, "-q", "-w", ws, a, b), Is.EqualTo(1), text);
                     Assert.That(Directory.Exists(ws), Is.False, "nothing written");
 
@@ -78,7 +78,7 @@ namespace MS2.ModKit.Tests
                     // the setting does the same; it may name a mod that is not given, the option may not
                     Environment.SetEnvironmentVariable(ModOrder.Setting, "x.none, a.one");
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", "--json", a, b), Is.EqualTo(1), text);
-                    Assert.That(text.Replace(" ", "").Replace("\n", ""), Does.Contain("\"priority\":[\"a.one\",\"b.two\"]").And.Contain("\"winner\":\"a.one\""));
+                    Assert.That(text.Replace(" ", "").Replace("\n", ""), Does.Contain("\"priority\":[\"a.one\",\"b.two\"]").And.Contain("\"winner\":\"a.one\"").And.Contain("\"loser\":\"b.two\""));
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", "--priority", "b.two", a, b), Is.EqualTo(1), text);
                     Assert.That(text, Does.Contain("conflict, b.two wins: "), "the option goes before the setting");
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", "--priority", "x.none", a, b), Is.EqualTo(2), text);
@@ -108,7 +108,7 @@ namespace MS2.ModKit.Tests
                     Assert.That(r.Applied, EditorSession.Report(r));
                     Assert.That(Written(ws), Does.Contain("hp=\"11\""));
                     // a view shows the order and the conflicts first, each conflict with its winner in front
-                    Assert.That(s.Describe(r.Plan), Does.StartWith("priority, the highest first: a.one > b.two\r\nconflict, a.one wins: [b.two] "));
+                    Assert.That(s.Describe(r.Plan), Does.StartWith("priority, the highest first: a.one > b.two\r\nleft out of b.two: 1 part, for a.one\r\nconflict, a.one wins: [b.two] "));
                     Assert.That(s.Describe(r), Does.Contain("priority, the highest first: a.one > b.two"));
 
                     // b.two moved to the top

@@ -391,6 +391,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (PlanMessage m in p.Conflicts) o.Append(m.ConflictLine()).Append('\n');
             foreach (PlanMessage m in p.Errors) o.Append("error: ").Append(m).Append('\n');
             if (p.Conflicts.Count > 0 && p.Mods.Count > 1) o.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append('\n');
+            foreach (string l in p.LeftOut()) o.Append(l).Append('\n');
             int entries = 0;
             foreach (PlanArchive a in p.Archives) entries += a.Put.Count + a.Delete.Count;
             o.Append(p.Mods.Count).Append(" mod(s): ").Append(p.Changes.Count).Append(" change(s) in ").Append(entries).Append(" entr").Append(entries == 1 ? "y" : "ies").Append(" of ")
@@ -411,7 +412,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
                 mods = p.Mods.Select(m => new { id = m.Id, name = m.Name, version = m.Version, dir = m.Dir }).ToArray(),
                 priority = p.Mods.Select(m => m.Id).Reverse().ToArray(),      // the highest first
                 changes = p.Changes.Select(c => new { kind = c.Kind.ToString(), mod = c.ModId, target = TargetOf(c.Archive), synced = c.Synced, mirrored = c.Mirrored, archive = c.Archive, entry = c.Entry, row = c.Row, name = c.Name, old = c.OldValue, @new = c.NewValue }).ToArray(),
-                errors = Msgs(p.Errors), conflicts = p.Conflicts.Select(m => new { mod = m.ModId, archive = m.Archive, entry = m.Entry, text = m.Text, winner = m.WinnerId }).ToArray(), warnings = Msgs(p.Warnings), notes = Msgs(p.Notes),
+                errors = Msgs(p.Errors), conflicts = p.Conflicts.Select(m => new { mod = m.ModId, archive = m.Archive, entry = m.Entry, text = m.Text, winner = m.WinnerId, loser = m.LoserId }).ToArray(), warnings = Msgs(p.Warnings), notes = Msgs(p.Notes),
                 archives = p.Archives.Select(a => new { archive = a.Archive, put = a.Put.Select(k => k.Key).ToArray(), delete = a.Delete.ToArray() }).ToArray(),
             };
         }

@@ -75,6 +75,8 @@ namespace MS2.ModKit
         public string ModId, Archive, Entry, Text;
         /// <summary>Conflicts only: the id of the mod whose change is in the plan; null when the conflict has no winner.</summary>
         public string WinnerId;
+        /// <summary>The mod whose part of the conflict is left out (null where there is no winner).</summary>
+        public string LoserId;
 
         internal const string WinsTail = " wins (it has the higher priority)";
 
@@ -167,11 +169,41 @@ namespace MS2.ModKit
         }
 
         /// <summary>A conflict between two mods; the text says which one is in the plan (the one with the higher priority).</summary>
-        internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner)
+        /// <param name="other">the other mod of the pair; needed where <paramref name="mod"/> may be the winner</param>
+        internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other = null)
         {
             int n = Conflicts.Count;
             Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + PlanMessage.WinsTail);
-            if (Conflicts.Count > n) Conflicts[n].WinnerId = winner.Id;
+            if (Conflicts.Count == n) return;
+            Conflicts[n].WinnerId = winner.Id;
+            Mod loser = winner != mod ? mod : other;
+            if (loser != null && loser != winner) Conflicts[n].LoserId = loser.Id;
+        }
+
+        /// <summary>
+        /// What the priority costs each mod: one line per mod that has a part left out, the highest mod first,
+        /// with the number of parts and the mods they are left out for.
+        /// </summary>
+        public List<string> LeftOut()
+        {
+            var lines = new List<string>();
+            for (int i = Mods.Count - 1; i >= 0; i--)
+            {
+                int total = 0;
+                var to = new List<string>(); var count = new List<int>();
+                foreach (PlanMessage m in Conflicts)
+                {
+                    if (m.LoserId != Mods[i].Id || m.WinnerId == null) continue;
+                    total++;
+                    int k = to.IndexOf(m.WinnerId);
+                    if (k < 0) { to.Add(m.WinnerId); count.Add(1); } else count[k]++;
+                }
+                if (total == 0) continue;
+                var sb = new StringBuilder("left out of " + Mods[i].Id + ": " + total + (total == 1 ? " part, for " : " parts, for "));
+                for (int k = 0; k < to.Count; k++) sb.Append(k > 0 ? ", " : "").Append(to[k]).Append(to.Count > 1 ? " (" + count[k] + ")" : "");
+                lines.Add(sb.ToString());
+            }
+            return lines;
         }
     }
 
@@ -388,7 +420,7 @@ namespace MS2.ModKit
                 if (st.BaseMod != null)
                 {
                     bool loses = run.Outranks(st.BaseMod, mod);
-                    plan.Conflict(mod, op.Archive, st.Name, "deletes the entry that " + Who(st.BaseMod, mod) + " " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod);
+                    plan.Conflict(mod, op.Archive, st.Name, "deletes the entry that " + Who(st.BaseMod, mod) + " " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
                     if (loses) return;
                     DropEntryChange(plan, st);
                 }
@@ -421,7 +453,7 @@ namespace MS2.ModKit
             if (st.DeletedBy != null)
             {
                 bool loses = run.Outranks(st.DeletedBy, mod);
-                plan.Conflict(mod, op.Archive, st.Name, "puts an entry where " + Who(st.DeletedBy, mod) + " deletes one", loses ? st.DeletedBy : mod);
+                plan.Conflict(mod, op.Archive, st.Name, "puts an entry where " + Who(st.DeletedBy, mod) + " deletes one", loses ? st.DeletedBy : mod, st.DeletedBy);
                 if (loses) return;
                 DropEntryChange(plan, st);
             }
@@ -429,7 +461,7 @@ namespace MS2.ModKit
             {
                 if (M2dWriter.BytesEqual(bytes, st.Base)) { plan.Msg(plan.Notes, mod, op.Archive, st.Name, "same entry content as " + Who(st.BaseMod, mod)); return; }
                 bool loses = run.Outranks(st.BaseMod, mod);
-                plan.Conflict(mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry that " + Who(st.BaseMod, mod) + " also " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod);
+                plan.Conflict(mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry that " + Who(st.BaseMod, mod) + " also " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
                 if (loses) return;
                 DropEntryChange(plan, st);
             }
@@ -464,11 +496,11 @@ namespace MS2.ModKit
                 if (st.Existed && st.Original != null && st.Doc == null)
                 {
                     // the edit is of the higher mod: it is made in the shipped entry, the other mod's file is left out
-                    plan.Conflict(mod, op.Archive, st.Name, text, mod);
+                    plan.Conflict(mod, op.Archive, st.Name, text, mod, st.BaseMod);
                     DropEntryChange(plan, st);
                     st.Base = st.Original; st.BaseMod = null;
                 }
-                else plan.Conflict(mod, op.Archive, st.Name, text + ": the edit is made in that entry", mod);
+                else plan.Conflict(mod, op.Archive, st.Name, text + ": the edit is made in that entry", mod, st.BaseMod);
             }
             if (!EnsureDoc(plan, mod, st)) return;
             foreach (RowOp r in op.Rows)
@@ -514,7 +546,7 @@ namespace MS2.ModKit
                 plan.Conflict(mod, st.Archive, st.Name, text, del);
                 return true;
             }
-            plan.Conflict(mod, st.Archive, st.Name, text, mod);
+            plan.Conflict(mod, st.Archive, st.Name, text, mod, del);
             DropEntryChange(plan, st);
             st.DeletedBy = null; st.Base = st.Original;
             return false;
@@ -535,7 +567,7 @@ namespace MS2.ModKit
                 XmlElem row = st.Deleted[i].Key;
                 Mod del = st.Deleted[i].Value;
                 if (!run.Outranks(mod, del)) { plan.Conflict(mod, st.Archive, st.Name, text, del); return true; }
-                plan.Conflict(mod, st.Archive, st.Name, text, mod);
+                plan.Conflict(mod, st.Archive, st.Name, text, mod, del);
                 st.Ed.Undelete(row);
                 st.Deleted.RemoveAt(i);
                 string name = RowPath.Canonical(row);
@@ -609,7 +641,7 @@ namespace MS2.ModKit
                 {
                     if (prev.Value == value) { plan.Msg(plan.Notes, mod, st.Archive, st.Name, row + " " + what + ": same value as " + Who(prev.Mod, mod)); continue; }
                     bool loses = run.Outranks(prev.Mod, mod);
-                    plan.Conflict(mod, st.Archive, st.Name, row + " " + what + ": " + Show(value) + " here, " + Show(prev.Value) + " in " + Who(prev.Mod, mod), loses ? prev.Mod : mod);
+                    plan.Conflict(mod, st.Archive, st.Name, row + " " + what + ": " + Show(value) + " here, " + Show(prev.Value) + " in " + Who(prev.Mod, mod), loses ? prev.Mod : mod, prev.Mod);
                     if (loses) continue;
                     RemoveChange(plan, st, row, a, prev);
                 }
@@ -672,7 +704,7 @@ namespace MS2.ModKit
                 string text = "deletes the row " + row + " that " + Who(other, mod) + " changes";
                 if (other == mod) { if (!kept && !said.ContainsKey(other)) plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); }
                 else if (kept ? run.Outranks(other, mod) && !said.ContainsKey(other) : !said.ContainsKey(other))
-                    plan.Conflict(mod, st.Archive, st.Name, text, kept ? other : mod);
+                    plan.Conflict(mod, st.Archive, st.Name, text, kept ? other : mod, other);
                 said[other] = true;
             }
             if (kept) return;
@@ -769,7 +801,7 @@ namespace MS2.ModKit
             {
                 bool loses = run.Outranks(other.Mod, mod);
                 if (other.Mod == mod) plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, "adds the row " + row + " that " + Who(other.Mod, mod) + " also adds");
-                else plan.Conflict(mod, st.Archive, st.Name, "adds the row " + row + " that " + Who(other.Mod, mod) + " also adds", loses ? other.Mod : mod);
+                else plan.Conflict(mod, st.Archive, st.Name, "adds the row " + row + " that " + Who(other.Mod, mod) + " also adds", loses ? other.Mod : mod, other.Mod);
                 if (loses) return;
                 if (other.Mod != mod)
                 {

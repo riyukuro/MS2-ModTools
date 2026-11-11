@@ -344,6 +344,7 @@ namespace MS2.ModKit
         static void Conflicts(StringBuilder sb, Plan p)
         {
             if (p.Conflicts.Count > 0 && p.Mods.Count > 1) sb.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append("\r\n");
+            foreach (string l in p.LeftOut()) sb.Append(l).Append("\r\n");
             foreach (PlanMessage m in p.Conflicts) sb.Append(m.ConflictLine()).Append("\r\n");
         }
 

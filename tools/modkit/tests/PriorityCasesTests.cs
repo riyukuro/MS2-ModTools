@@ -41,6 +41,9 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Conflicts, Is.Not.Empty, dump);
                 Assert.That(p.Conflicts.All(x => x.WinnerId == "c"), dump);
                 Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind + " " + x.Name), Is.EquivalentTo(new[] { "a SetAttr hp", "c SetAttr speed" }), dump);
+                // b is the one mod that has a part left out
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "left out of b: 1 part, for c" }), dump);
+                Assert.That(p.Conflicts.All(x => x.LoserId == "b"), dump);
                 // the same result as without b
                 Assert.That(Fake.Text(p, C, Pet), Is.EqualTo(Fake.Text(f.Plan(a, c), C, Pet)));
 
@@ -82,6 +85,7 @@ namespace MS2.ModKit.Tests
                 dump = Fake.Dump(p);
                 Assert.That(p.Find(S).Delete, Is.EqualTo(new[] { "pet/100.xml" }), dump);
                 Assert.That(p.Conflicts.Count(x => x.WinnerId == "mid"), Is.EqualTo(2), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "left out of hi: 1 part, for mid", "left out of lo: 1 part, for mid" }), dump);
                 Assert.That(p.Changes.Count(x => x.Archive == S), Is.EqualTo(1), dump);
             }
         }
@@ -119,6 +123,8 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Errors, Is.Empty, dump);
                 c = p.Conflicts.First(x => x.Archive == S);
                 Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("edit edit"), dump);
+                // the line is the edit's, the part left out is the other mod's
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "left out of file: 1 part, for edit" }), dump);
                 Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("name=\"Mossy\" kind=\"4\""), dump);
                 Assert.That(p.Changes.Any(x => x.ModId == "file" && x.Archive == S), Is.False, dump);
 
@@ -201,6 +207,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(r.Plan.Conflicts.Count(x => x.WinnerId == null), Is.EqualTo(1), dump);
                 Assert.That(r.Applied, Is.False, dump);
                 Assert.That(r.Reason, Is.EqualTo("1 conflict(s) that no priority decides"));
+                Assert.That(r.Plan.LeftOut(), Is.Empty);
                 Assert.That(Directory.Exists(Path.Combine(f.Dir, "ws")), Is.False, "nothing written");
 
                 // a mod that contradicts itself has no winner either (it does not win against itself)

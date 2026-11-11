@@ -69,6 +69,8 @@ conflict, example.rival-pets wins: [example.bigger-pets] client:Xml.m2d table/pe
 conflict, example.rival-pets wins: [example.bigger-pets] client:Xml.m2d table/pet.xml: changes the row pet[id=101]/skill[id=8] that mod example.rival-pets deletes
 conflict, no winner: [example.rival-pets] ids space "pet": the range 905-915 overlaps 900-909 of mod example.new-pet
 error: [example.rival-pets] client:Xml.m2d table/pet.xml: new id 905 of space "pet" is already used in the original data (server:Xml.m2d pet/{id}.xml)
+priority, the highest first: example.rival-pets > example.new-pet > example.bigger-pets
+left out of example.bigger-pets: 2 parts, for example.rival-pets
 ```
 
 ## The manifest: mod.xml
@@ -180,7 +182,9 @@ modkit status --game <game folder>
   that none of the given mods has is a usage error. Without the option the list is read from the setting
   `MS2_MOD_PRIORITY` (environment, then `modtools.toml`), which may also name mods that are not given this time.
   Every conflict line begins with the outcome (`conflict, X wins:` or `conflict, no winner:`), a line
-  `priority, the highest first: c > a > b` follows the conflicts, and `--json` has `priority` and a `winner` per
+  `priority, the highest first: c > a > b` follows the conflicts, then one line per mod that has something
+  left out (`left out of b: 2 parts, for c`: two things mod b asks for are not in the result, because mod c
+  has them; the conflict lines of mod b say which). `--json` has `priority`, and a `winner` and a `loser` per
   conflict. The mod a line names as the winner is the one whose part is written: its value, its delete, its new
   row or its entry; the lower mod's part of that conflict is left out, and the rest of the lower mod still
   applies. The mods are planned from the highest down, so what a mod gets never depends on a third mod that
@@ -319,8 +323,8 @@ Using it:
    not saved yet, is above all. **Higher mod wins a conflict** under the list decides what a conflict does: off,
    Apply writes nothing while mods conflict; on, Apply goes on and the higher mod's change is written (a conflict with no winner stops Apply
    either way). Either way
-   Plan shows the order and the conflicts first, every conflict line beginning with its winner
-   (`conflict, X wins:`). A click on a mod's box
+   Plan shows the order first, then per mod how many of its parts are left out and for which mod, then the
+   conflicts, every conflict line beginning with its winner (`conflict, X wins:`). A click on a mod's box
    checks or unchecks it; a click on its name selects it. The box is kept in the Toolbench settings and
    holds for the other MS2 views too. **Load mod** (or a double-click) loads the selected mod into the
    grid. The mod being edited is marked and always takes part, checked or not. The checks and the order are kept in

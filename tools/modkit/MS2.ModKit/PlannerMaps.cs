@@ -231,7 +231,7 @@ namespace MS2.ModKit
                 // shipped file where it can come back, and else (a map the other mod adds) in the other mod's file
                 bool wins = run.Outranks(mod, st.BaseMod), back = st.Original != null && st.Doc == null;
                 string text = "changes a map that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds") + " as a whole file";
-                plan.Conflict(mod, ar, st.Name, wins && !back ? text + ": the change is made in that file" : text, wins ? mod : st.BaseMod);
+                plan.Conflict(mod, ar, st.Name, wins && !back ? text + ": the change is made in that file" : text, wins ? mod : st.BaseMod, st.BaseMod);
                 if (!wins) return null;
                 if (back)
                 {
