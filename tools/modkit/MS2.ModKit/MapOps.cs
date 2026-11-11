@@ -119,7 +119,7 @@ namespace MS2.ModKit
                 Only(e, "xblock", "id");
                 var m = new MapOp { XBlock = Need(e, "xblock"), Line = e.Line };
                 if (m.XBlock.IndexOfAny(new[] { '/', '\\', '.' }) >= 0) throw Bad(e, "xblock=\"" + m.XBlock + "\" is the map file name without folder and extension");
-                if (e.Attr("id") != null) m.MapId = Num(e, "id");
+                if (e.Attr("id") != null) m.MapId = Num32(e, "id");
                 var names = new Dictionary<string, bool>();
                 foreach (XmlElem c in e.Children)
                 {
@@ -128,11 +128,11 @@ namespace MS2.ModKit
                     {
                         case "add": Only(c, "name", "model", "entity-name", "iterations"); op.Kind = MapOpKind.Add; break;
                         case "spawn":
-                            Only(c, "name", "model", "entity-name", "iterations", "point"); op.Kind = MapOpKind.Spawn; op.Number = Num(c, "point");
+                            Only(c, "name", "model", "entity-name", "iterations", "point"); op.Kind = MapOpKind.Spawn; op.Number = Num32(c, "point");
                             break;
                         case "portal":
                             Only(c, "name", "model", "entity-name", "iterations", "id", "to-map", "to-portal"); op.Kind = MapOpKind.Portal;
-                            op.Number = Num(c, "id"); op.ToMap = Num(c, "to-map"); op.ToPortal = Num(c, "to-portal");
+                            op.Number = Num32(c, "id"); op.ToMap = Num32(c, "to-map"); op.ToPortal = Num32(c, "to-portal");
                             break;
                         case "remove": Only(c, "id", "model", "position"); op.Kind = MapOpKind.Remove; break;
                         case "change": Only(c, "id", "model", "position"); op.Kind = MapOpKind.Change; break;
