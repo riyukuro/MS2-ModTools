@@ -94,6 +94,25 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AGroupWithoutAnIdIsOneLabelOnBothSides()
+        {
+            string final = FakeGroups.ServerFinal.Replace("</ms2>",
+                "  <dropBox dropBoxID=\"7200\">\n    <group>\n      <v itemID=\"5001\" weight=\"1\" />\n      <v itemID=\"5003\" weight=\"1\" />\n    </group>\n  </dropBox>\n</ms2>");
+            using (var f = new FakeGroups(final))
+            using (EditorSession s = Session(f.Dir))
+            {
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5001)), Does.Contain("drop box 7200: group ? item"));
+                TableDraft t = s.OpenTable(Planner.ServerTables, Planner.ServerDropEntry, "dropBox[dropBoxID=7200]/group");
+                foreach (TableRow r in t.Rows) if (t.Get(r, "itemID") == "5003") t.Set(r, "weight", "2");
+                Assert.That(s.Mod.Groups.Count, Is.EqualTo(0), "a raw row edit of the box");
+                List<UseHit> h = new WhereUsed(s).Of(IdLookup.Item, 5001);
+                Assert.That(Lines(h), Does.Contain("drop box 7200: group ? item"), "the box as the mod leaves it: the same label, so not new");
+                Assert.That(Lines(h), Does.Not.Contain("drop box 7200: group ? item (new)"));
+                Assert.That(h.Find(x => x.Id == 7200).Name, Is.EqualTo("changed"), "read from the mod's side");
+            }
+        }
+
+        [Test]
         public void QuestsNameNpcsAndItems_AsTheModLeavesThem()
         {
             using (var f = new FakeQuests(true, true, true))

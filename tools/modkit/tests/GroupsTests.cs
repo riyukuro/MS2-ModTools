@@ -92,7 +92,8 @@ namespace MS2.ModKit.Tests
 
         static readonly long[] Items = { 5001, 5002, 5003 };
 
-        public FakeGroups()
+        /// <param name="serverFinal">The server's nested drop table (default ServerFinal).</param>
+        public FakeGroups(string serverFinal = null)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-groups-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
@@ -119,7 +120,7 @@ namespace MS2.ModKit.Tests
             }
             M2dWriter.Create(Path.Combine(s, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                E(Planner.ShopStockEntry, ShopGame), E(Planner.ShopInfoEntry, ShopInfo), E(Planner.ServerDropEntry, ServerFinal),
+                E(Planner.ShopStockEntry, ShopGame), E(Planner.ShopInfoEntry, ShopInfo), E(Planner.ServerDropEntry, serverFinal ?? ServerFinal),
             });
             Data = new DataSet(k, g, s);
         }
