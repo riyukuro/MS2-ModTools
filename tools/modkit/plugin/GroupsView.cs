@@ -144,6 +144,11 @@ namespace MS2.Tables
             {
                 if (e.RowIndex >= removedFrom || e.ColumnIndex < 2) e.Cancel = true;
             };
+            IdPick.Attach(rowGrid, delegate(int row, int column)
+            {
+                if (view == null || RowAt(row) == null || row >= removedFrom || column < 2 || column - 2 >= columns.Count) return null;
+                return IdLookup.GroupRowFieldKind(view.Kind, columns[column - 2]);
+            }, delegate { return host.SharedSession(); });
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(rowGrid);
@@ -593,7 +598,13 @@ namespace MS2.Tables
             first.DefaultCellStyle.Padding = new Padding(IconRow + 2, 0, 0, 0);   // the item's icon is drawn at the left of the cell
             rowGrid.Columns.Add(first);
             rowGrid.Columns.Add(Col(side.Flat ? "split" : "entry", 170, true));
-            foreach (string c in columns) rowGrid.Columns.Add(Col(c, Math.Max(60, Math.Min(160, c.Length * 9)), false));
+            foreach (string c in columns)
+            {
+                // an item id column has the pick button at its right: room for 8 digits beside it
+                int w = Math.Max(60, Math.Min(160, c.Length * 9));
+                if (view != null && IdLookup.GroupRowFieldKind(view.Kind, c) != null) w = Math.Max(w, 110);
+                rowGrid.Columns.Add(Col(c, w, false));
+            }
             rowGrid.AutoSizeColumnsMode = DataGridViewAutoSizeColumnsMode.Fill;
             rowGrid.RowCount = gridRows.Count;
             rowGrid.Invalidate();

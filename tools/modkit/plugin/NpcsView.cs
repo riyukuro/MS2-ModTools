@@ -130,6 +130,12 @@ namespace MS2.Tables
                 GridRow r = RowAt(e.RowIndex);
                 if (r == null || r.Heading != null) e.Cancel = true;
             };
+            // the shop and the drop boxes are ids of the Shops and drop boxes view: picked by id
+            IdPick.Attach(grid, delegate(int row, int column)
+            {
+                GridRow r = RowAt(row);
+                return r != null && r.Heading == null && column == 1 && draft != null ? IdLookup.NpcFieldKind(r.Mapped ?? r.Field) : null;
+            }, delegate { return host.SharedSession(); });
 
             // the npc's portrait at the left of the two bars above the grid, as in the item form: 96 pixels, 64 in a
             // low window, and the bars never take more than the height that leaves the grid a header and four rows

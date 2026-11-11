@@ -136,6 +136,22 @@ namespace MS2.Tables
             Setup(fieldGrid, fieldLines, new[] { "field", "value", "shipped value", "where" }, new[] { 130, 150, 110, 100 }, SetField);
             Setup(conditionGrid, conditionLines, new[] { "#", "type", "code", "count", "shipped", "code is", "where" }, new[] { 28, 80, 70, 50, 90, 90, 80 }, SetCondition);
             Setup(rewardGrid, rewardLines, new[] { "#", "item id", "rank", "count", "shipped", "where" }, new[] { 28, 90, 40, 60, 110, 100 }, SetReward);
+            Func<EditorSession> session = delegate { return host.SharedSession(); };
+            IdPick.Attach(fieldGrid, delegate(int row, int column)
+            {
+                Line l = At(fieldLines, row);
+                return l != null && l.Heading == null && column == 1 && draft != null && (l.Field == "start@npc" || l.Field == "complete@npc") ? IdLookup.Npc : null;
+            }, session);
+            IdPick.Attach(conditionGrid, delegate(int row, int column)
+            {
+                Line l = At(conditionLines, row);
+                return l != null && l.Heading == null && column == 2 && draft != null ? IdLookup.QuestCodeKind(l.Cells[1]) : null;
+            }, session);
+            IdPick.Attach(rewardGrid, delegate(int row, int column)
+            {
+                Line l = At(rewardLines, row);
+                return l != null && l.Heading == null && column == 1 && draft != null ? IdLookup.Item : null;
+            }, session);
 
             FlowLayoutPanel rewardBar = Bar();
             rewardBar.Controls.Add(Lbl("List"));
@@ -143,6 +159,7 @@ namespace MS2.Tables
             tips.SetToolTip(listBox, "The reward list the buttons beside it work on; \"accept:\" lists are what the quest gives when it is accepted, the others when it is completed. v: the kms-client's table (what the Korean client shows). essentialItem and globalEssentialItem: the quest files (the server gives globalEssentialItem when it is not empty, else essentialItem). The two job lists: per job");
             rewardBar.Controls.Add(Lbl("item"));
             rewardBar.Controls.Add(itemBox);
+            rewardBar.Controls.Add(IdPick.ForBox(itemBox, IdLookup.Item, session, tips));
             rewardBar.Controls.Add(Lbl("rank"));
             rewardBar.Controls.Add(rankBox);
             rewardBar.Controls.Add(Lbl("count"));
@@ -152,14 +169,16 @@ namespace MS2.Tables
             rewardBar.Controls.Add(Btn("Same on every target", "Writes the rows of the chosen list to v, essentialItem and globalEssentialItem on every target, so the client shows what the server gives. The two job lists and the accept reward stay as they are", delegate { SameEverywhere(); }));
 
             // the three grids share the whole area: fields and texts at the left, conditions over rewards at the right
-            var conditionPane = Pane("Conditions (count: empty or 0 = once; a code that is another table's id is read-only)", null, conditionGrid);
+            var conditionPane = Pane("Conditions (count: empty or 0 = once; … or F4 picks an id)", null, conditionGrid);
             var rewardPane = Pane("Reward items", rewardBar, rewardGrid);
             var fieldPane = Pane("Fields and texts", null, fieldGrid);
-            var table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = new Padding(0) };
+            table = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 2, Margin = new Padding(0) };
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 52));
             table.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 48));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 38));
             table.RowStyles.Add(new RowStyle(SizeType.Percent, 62));
+            this.conditionPane = conditionPane;
+            table.Resize += delegate { FitConditionRow(); };
             table.Controls.Add(fieldPane, 0, 0);
             table.SetRowSpan(fieldPane, 2);
             table.Controls.Add(conditionPane, 1, 0);
@@ -642,7 +661,7 @@ namespace MS2.Tables
             foreach (QuestCondition c in conditions)
             {
                 QuestCondition was = wasConditions != null && c.Index < wasConditions.Count ? wasConditions[c.Index] : null;
-                string table = QuestDraft.CodeTable(c.Type);
+                string table = QuestDraft.CodeTable(c.Type), pick = IdLookup.QuestCodeKind(c.Type);
                 conditionLines.Add(new Line
                 {
                     Index = c.Index,
@@ -650,11 +669,11 @@ namespace MS2.Tables
                     {
                         (c.Index + 1).ToString(CultureInfo.InvariantCulture), c.Type, c.Code, c.Value,
                         was != null ? was.Type + " " + was.Code + " x" + (was.Value.Length > 0 ? was.Value : "1") : shipped != null ? "(new row)" : "",
-                        table == null ? "free text" : table + " id, read-only",
+                        pick != null ? pick + " id" : table == null ? "free text" : table + " id",
                         c.Places + " place(s)" + (c.Differs ? ", they differ" : ""),
                     },
                     Shipped = shipped != null ? new[] { null, was != null ? was.Type : "", was != null ? was.Code : "", was != null ? was.Value : "", null, null, null } : null,
-                    Editable = new[] { false, true, table == null, true, false, false, false },
+                    Editable = new[] { false, true, true, true, false, false, false },
                 });
             }
 
@@ -687,8 +706,29 @@ namespace MS2.Tables
             fieldGrid.RowCount = fieldLines.Count;
             conditionGrid.RowCount = conditionLines.Count;
             rewardGrid.RowCount = rewardLines.Count;
+            FitConditionRow();
             questLabel.Text = "Quest " + d.Id.ToString(CultureInfo.InvariantCulture) + (d.IsNew ? " (new)" : "") + "  " + d.Name;
             cloneIdBox.Text = "";
+        }
+
+        TableLayoutPanel table;
+        Control conditionPane;
+
+        // the conditions get the height of their lines (two at least), between a fifth and 45 % of the area; the
+        // rewards the rest
+        void FitConditionRow()
+        {
+            if (table == null || conditionPane == null || table.ClientSize.Height < 100) return;
+            int lines = Math.Max(2, conditionGrid.RowCount);
+            int want = (conditionPane.Height - conditionGrid.Height) + conditionGrid.ColumnHeadersHeight + lines * conditionGrid.RowTemplate.Height + SystemInformation.HorizontalScrollBarHeight + 6;
+            int h = table.ClientSize.Height;
+            want = Math.Max(h / 5, Math.Min(h * 45 / 100, want));
+            RowStyle top = table.RowStyles[0];
+            if (top.SizeType == SizeType.Absolute && Math.Abs(top.Height - want) < 1) return;
+            table.SuspendLayout();
+            table.RowStyles[0] = new RowStyle(SizeType.Absolute, want);
+            table.RowStyles[1] = new RowStyle(SizeType.Percent, 100);
+            table.ResumeLayout();
         }
 
         static long Number(string text, string what)
