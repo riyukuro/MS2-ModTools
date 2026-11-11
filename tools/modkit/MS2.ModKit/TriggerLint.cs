@@ -25,6 +25,8 @@ namespace MS2.ModKit
         /// <summary>The script (trigger/&lt;xblock&gt;/&lt;file&gt;.xml) and the line; 0 for the whole file.</summary>
         public string Entry;
         public int Line;
+        /// <summary>The element's name the finding is about (several elements can share a line); null when none.</summary>
+        public string Tag;
         /// <summary>error, warning or allowed.</summary>
         public string Level;
         public string Code, Message;
@@ -863,13 +865,13 @@ namespace MS2.ModKit
 
             public Run(TriggerLint lt, string entry, TriggerPacks packs, bool scanImporters) { this.lt = lt; schema = lt.schema; this.entry = entry; this.packs = packs; this.scanImporters = scanImporters; }
 
-            void Add(string level, string code, LintEl el, string msg) { Add(level, code, el == null ? 0 : el.Line, el == null ? null : el.Src, msg); }
+            void Add(string level, string code, LintEl el, string msg) { Add(level, code, el == null ? 0 : el.Line, el == null ? null : el.Src, msg, el == null ? null : el.Tag); }
 
-            void Add(string level, string code, int line, string src, string msg)
+            void Add(string level, string code, int line, string src, string msg, string tag = null)
             {
                 if (code == "maple2-gap" && !msg.StartsWith("Maple2 server (WIP) currently", StringComparison.Ordinal) && !msg.StartsWith("Maple2’s parser", StringComparison.Ordinal))
                     msg = "Maple2 server (WIP) currently " + char.ToLowerInvariant(msg[0]) + msg.Substring(1);
-                outl.Add(new TriggerFinding { Entry = entry, Line = line, Level = level, Code = code, ImportedFrom = src, Message = msg + (src != null ? " [in imported " + src + "]" : "") });
+                outl.Add(new TriggerFinding { Entry = entry, Line = line, Level = level, Code = code, ImportedFrom = src, Tag = tag, Message = msg + (src != null ? " [in imported " + src + "]" : "") });
             }
 
             static bool IsRaw(LintEl doc)

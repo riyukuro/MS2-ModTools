@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Text;
 using NUnit.Framework;
@@ -65,6 +66,30 @@ namespace MS2.ModKit.Tests
                 Assert.That(t.NodeAt(cond.Line), Is.SameAs(cond));
                 Assert.That(t.State("Open"), Is.SameAs(st[1]));
             }
+        }
+
+        [Test]
+        public void AFindingOnALineOfTwoElements_MarksTheOneItIsAbout()
+        {
+            string text = FakeIdTables.Door
+                .Replace("        <condition name=\"time_expired\" arg1=\"1\">\n            <transition state=\"Wait\" />\n        </condition>\n",
+                         "        <condition name=\"time_expired\" arg1=\"1\"><transition state=\"Nowhere\" /></condition>\n")
+                .Replace("        <onExit>\n            <action name=\"reset_timer\" arg1=\"1\" />\n        </onExit>\n",
+                         "        <onExit><action name=\"no_such_action\" /></onExit>\n");
+            byte[] b = Encoding.UTF8.GetBytes(text);
+            TriggerScript t = TriggerScript.Parse(EntityEditor.ServerXml, "trigger/fake_meadow/door.xml", b);
+            List<TriggerFinding> fs = TriggerLint.Shipped.Lint(t.Entry, b, null);
+            TriggerFinding bad = fs.Single(x => x.Code == "bad-transition");
+            TriggerNode cond = t.State("Open").Children[1];
+            Assert.That(bad.Tag, Is.EqualTo("transition"));
+            Assert.That(bad.Line, Is.EqualTo(cond.Line));
+            Assert.That(t.NodeAt(bad.Line, bad.Tag), Is.SameAs(cond.Children[0]));
+            Assert.That(t.NodeAt(bad.Line), Is.SameAs(cond), "with no tag: the first element on the line");
+
+            TriggerNode exit = t.State("Open").Children[2];
+            List<TriggerFinding> onExit = fs.Where(x => x.Line == exit.Line).ToList();
+            Assert.That(onExit, Is.Not.Empty, string.Join("\n", fs.Select(x => x.ToString()).ToArray()));
+            foreach (TriggerFinding f in onExit) Assert.That(t.NodeAt(f.Line, f.Tag), Is.SameAs(exit.Children[0]), f.ToString());
         }
 
         [Test]

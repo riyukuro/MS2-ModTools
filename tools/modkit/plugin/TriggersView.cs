@@ -488,7 +488,7 @@ namespace MS2.Tables
         TreeNode NodeOf(TriggerFinding f)
         {
             if (script == null || f.Line <= 0 || f.ImportedFrom != null) return null;
-            TriggerNode n = script.NodeAt(f.Line);
+            TriggerNode n = script.NodeAt(f.Line, f.Tag);
             TreeNode t;
             return n != null && treeNodes.TryGetValue(n, out t) ? t : null;
         }

@@ -117,20 +117,28 @@ namespace MS2.ModKit
         }
 
         /// <summary>The node of an element of the document, or null.</summary>
-        public TriggerNode NodeAt(int line)
+        public TriggerNode NodeAt(int line) { return NodeAt(line, null); }
+
+        /// <summary>
+        /// The node of the element named tag on the line (&lt;onExit&gt;&lt;transition/&gt;&lt;/onExit&gt; puts two on one
+        /// line); the first node on the line when no tag is given or none has that name.
+        /// </summary>
+        public TriggerNode NodeAt(int line, string tag)
         {
-            return Root == null ? null : Find(Root, line);
+            if (Root == null) return null;
+            var on = new List<TriggerNode>();
+            Find(Root, line, on);
+            if (on.Count == 0) return null;
+            if (tag != null)
+                foreach (TriggerNode n in on)
+                    if (string.Equals(n.Elem.Name, tag, StringComparison.OrdinalIgnoreCase)) return n;
+            return on[0];
         }
 
-        static TriggerNode Find(TriggerNode n, int line)
+        static void Find(TriggerNode n, int line, List<TriggerNode> on)
         {
-            if (n.Elem != null && n.Kind != TriggerKind.Script && n.Line == line) return n;
-            foreach (TriggerNode c in n.Children)
-            {
-                TriggerNode hit = Find(c, line);
-                if (hit != null) return hit;
-            }
-            return null;
+            if (n.Elem != null && n.Kind != TriggerKind.Script && n.Line == line) on.Add(n);
+            foreach (TriggerNode c in n.Children) Find(c, line, on);
         }
 
         public static TriggerScript Parse(string archive, string entry, byte[] bytes)
