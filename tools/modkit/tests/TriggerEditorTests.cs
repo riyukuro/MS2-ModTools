@@ -353,5 +353,75 @@ namespace MS2.ModKit.Tests
                 Assert.That(File.ReadAllText(Path.Combine(f.Dir, "outside.xml")), Is.EqualTo(FakeIdTables.Door));
             }
         }
+
+        // a script as the edits get it: the line ends, a byte order mark and the encoding are the file's own
+        static byte[] Script(string nl, string encoding, bool bom, string state)
+        {
+            string text = "<?xml version=\"1.0\" encoding=\"" + encoding + "\"?>" + nl + "<ms2>" + nl
+                + "    <state name=\"" + state + "\">" + nl + "        <onEnter>" + nl
+                + "            <action name=\"set_mesh\" arg1=\"1\" />" + nl + "        </onEnter>" + nl
+                + "    </state>" + nl + "</ms2>" + nl;
+            Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+            byte[] body = Encoding.GetEncoding(encoding).GetBytes(text);
+            return bom ? new byte[] { 0xEF, 0xBB, 0xBF }.Concat(body).ToArray() : body;
+        }
+
+        static TriggerScript AddTimer(TriggerEditor ed, byte[] bytes, string state)
+        {
+            TriggerScript t = ed.Store(S, Door, bytes);
+            t = ed.Add(t, t.State(state).Children[0], TriggerKind.Action, "set_timer", null);
+            return ed.SetAttr(t, t.State(state).Children[0].Children[1], "arg1", state);
+        }
+
+        [Test]
+        public void AnInsertedElement_TakesTheLineEndsOfTheFile()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                var ed = new TriggerEditor(s.Data, s.NewMod("t.nl"));
+                foreach (string nl in new[] { "\r\n", "\n" })
+                {
+                    string got = Encoding.UTF8.GetString(AddTimer(ed, Script(nl, "utf-8", false, "Wait"), "Wait").Bytes);
+                    Assert.That(got, Is.EqualTo(Encoding.UTF8.GetString(Script(nl, "utf-8", false, "Wait")).Replace(
+                        "arg1=\"1\" />" + nl + "        </onEnter>",
+                        "arg1=\"1\" />" + nl + "            <action name=\"set_timer\" arg1=\"Wait\" />" + nl + "        </onEnter>")));
+                    if (nl == "\r\n") Assert.That(got.Replace("\r\n", ""), Does.Not.Contain("\n"), "no lone LF in a CRLF file");
+                }
+            }
+        }
+
+        [Test]
+        public void AByteOrderMark_IsKept()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                var ed = new TriggerEditor(s.Data, s.NewMod("t.bom"));
+                byte[] b = AddTimer(ed, Script("\r\n", "utf-8", true, "Wait"), "Wait").Bytes;
+                Assert.That(b.Take(3).ToArray(), Is.EqualTo(new byte[] { 0xEF, 0xBB, 0xBF }));
+                Assert.That(b.Skip(3).Take(5).ToArray(), Is.EqualTo(Encoding.ASCII.GetBytes("<?xml")), "one mark, not two");
+                Assert.That(ed.Current(S, Door).State("Wait").Children[0].Children.Count, Is.EqualTo(2));
+            }
+        }
+
+        [Test]
+        public void AFileInItsOwnEncoding_StaysInIt()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                var ed = new TriggerEditor(s.Data, s.NewMod("t.enc"));
+                const string state = "\uB300\uAE30";      // two hangul syllables, two bytes each in the Korean code page
+                Encoding ks = Encoding.GetEncoding("ks_c_5601-1987");
+                byte[] b = AddTimer(ed, Script("\r\n", "ks_c_5601-1987", false, state), state).Bytes;
+                string want = ks.GetString(Script("\r\n", "ks_c_5601-1987", false, state)).Replace(
+                    "arg1=\"1\" />\r\n        </onEnter>",
+                    "arg1=\"1\" />\r\n            <action name=\"set_timer\" arg1=\"" + state + "\" />\r\n        </onEnter>");
+                Assert.That(b, Is.EqualTo(ks.GetBytes(want)), "the new value is written in the file's code page");
+                Assert.Throws<DecoderFallbackException>(() => new UTF8Encoding(false, true).GetString(b), "not UTF-8");
+                Assert.That(ed.Current(S, Door).State(state), Is.Not.Null);
+            }
+        }
     }
 }
