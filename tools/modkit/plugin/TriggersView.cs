@@ -55,8 +55,8 @@ namespace MS2.Tables
         readonly Label findingsLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly Dictionary<TriggerNode, TreeNode> treeNodes = new Dictionary<TriggerNode, TreeNode>();
         List<TriggerFinding> findings = new List<TriggerFinding>();
-        TriggerPacks packs;
-        string packsArchive;
+        // the importers of the packs are found once, as a job of the Tables view; until then a script is linted without them
+        TriggerPacks importersJob;
         List<TriggerFolder> folders = new List<TriggerFolder>();
 
         readonly ComboBox attrBox = new ComboBox { Width = 120 };
@@ -282,15 +282,25 @@ namespace MS2.Tables
         void OnHostChanged()
         {
             lookup = null;
-            packs = null;
             string keep = script != null ? script.Entry : null;
             try
             {
                 FillMaps(mapId);
                 if (mapId != 0) ShowMap(mapId, keep);
             }
-            catch (ModKitException) { ShowScript(null); }
-            catch (System.IO.IOException) { ShowScript(null); }
+            catch (ModKitException ex) { ShowScript(null); host.SayOutside(ex.Message); }
+            catch (System.IO.IOException ex) { ShowScript(null); host.SayOutside(ex.Message); }
+            catch (System.IO.InvalidDataException ex) { ShowScript(null); host.SayOutside(ex.Message); }
+            // a mod loaded or made: its "lint errors only warn" choice shows at once, with or without a script
+            RefreshWarnBox();
+        }
+
+        void RefreshWarnBox()
+        {
+            filling = true;
+            try { lintWarnBox.Checked = host != null && Session().Mod.TriggerLintWarn; }
+            catch (ModKitException) { lintWarnBox.Checked = false; }
+            finally { filling = false; }
         }
 
         EditorSession Session() { return host.SharedSession(); }
@@ -345,7 +355,6 @@ namespace MS2.Tables
         {
             mapId = id;
             archive = Triggers.ArchiveOf(Session().Data);
-            if (archive != packsArchive) packs = null;
             folders = archive == null ? new List<TriggerFolder>() : Triggers.FoldersOf(Session().Data, archive, id);
             TriggerEditor ed = archive == null ? null : Editor();
             if (ed != null) foreach (TriggerFolder f in folders) f.Scripts.AddRange(ed.Added(archive, f.XBlock));
@@ -394,17 +403,48 @@ namespace MS2.Tables
 
         TriggerEditor Editor() { return new TriggerEditor(Session().Data, Session().Mod); }
 
+        /// <summary>The shipped trigger entries of the archive, kept in the data set (a mod edit does not change them).</summary>
         TriggerPacks Packs()
         {
-            if (packs == null && archive != null) { packs = TriggerPacks.OfArchive(Session().Data, archive); packsArchive = archive; }
-            return packs;
+            return archive == null ? null : TriggerPacks.Shipped(Session().Data, archive);
+        }
+
+        /// <summary>
+        /// A raw script names its importers in the lint: they are found once per archive, by a job (every script is
+        /// read), and the script is linted again when it is done.
+        /// </summary>
+        void FindImportersLater(TriggerPacks p, string format)
+        {
+            if (p == null || p.HasImporters || format != "raw" || importersJob == p || host == null || host.Busy) return;
+            importersJob = p;
+            bool started = host.RunOutside("finding the trigger scripts' imports", delegate { p.BuildImporters(); }, delegate
+            {
+                if (script != null && Packs() == p) Relint();
+                host.SayOutside("the imports of " + p.Names.Count + " trigger scripts are read; the lint names a library script's importers");
+            });
+            if (!started) importersJob = null;
+        }
+
+        /// <summary>The script shown again (the lint again), with the same node chosen.</summary>
+        void Relint()
+        {
+            TriggerNode was = tree.SelectedNode != null ? tree.SelectedNode.Tag as TriggerNode : null;
+            int line = was != null ? was.Line : 0;
+            string tag = was != null && was.Elem != null ? was.Elem.Name : null;
+            string name = was != null ? was.Name : null;
+            ShowScript(script);
+            if (was == null) return;
+            foreach (KeyValuePair<TriggerNode, TreeNode> kv in treeNodes)
+                if (kv.Key.Line == line && kv.Key.Name == name && (kv.Key.Elem != null ? kv.Key.Elem.Name : null) == tag) { tree.SelectedNode = kv.Value; kv.Value.EnsureVisible(); break; }
         }
 
         void ShowScript(TriggerScript s)
         {
             script = s;
             treeNodes.Clear();
-            findings = s == null ? new List<TriggerFinding>() : TriggerLint.Shipped.Lint(s.Entry, s.Bytes, Packs());
+            string format = null;
+            TriggerPacks p = s == null ? null : Packs();
+            findings = s == null ? new List<TriggerFinding>() : TriggerLint.Shipped.Lint(s.Entry, s.Bytes, p, false, out format);
             tree.BeginUpdate();
             try
             {
@@ -428,10 +468,9 @@ namespace MS2.Tables
                 tree.EndUpdate();
                 FillFindings();
                 FillAttrs();
-                filling = true;
-                try { lintWarnBox.Checked = host != null && Session().Mod.TriggerLintWarn; }
-                finally { filling = false; }
+                RefreshWarnBox();
             }
+            FindImportersLater(p, format);
         }
 
         TreeNode Node(TriggerNode n)

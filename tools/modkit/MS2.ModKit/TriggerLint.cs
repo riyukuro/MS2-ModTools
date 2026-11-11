@@ -50,7 +50,10 @@ namespace MS2.ModKit
         readonly List<string> names;
         readonly HashSet<string> exact;
         readonly Func<string, byte[]> read;
-        Dictionary<string, List<string>> importers;
+        // an overlay: the packs it is made from, and the entries it changes (null bytes: deleted)
+        readonly TriggerPacks under;
+        readonly Dictionary<string, byte[]> changed;
+        volatile Dictionary<string, List<string>> importers;
 
         public TriggerPacks(IEnumerable<string> names, Func<string, byte[]> read)
         {
@@ -60,6 +63,109 @@ namespace MS2.ModKit
         }
 
         public IList<string> Names { get { return names; } }
+
+        /// <summary>
+        /// The trigger entries of an archive as shipped, kept in the data set (a mod does not change the shipped
+        /// archive), so the importers are found once per archive.
+        /// </summary>
+        public static TriggerPacks Shipped(DataSet data, string archive)
+        {
+            string key = "trigger-packs\n" + archive;
+            object o;
+            lock (data.Cache)
+                if (data.Cache.TryGetValue(key, out o)) return (TriggerPacks)o;
+            TriggerPacks p = OfArchive(data, archive);
+            lock (data.Cache)
+            {
+                if (data.Cache.TryGetValue(key, out o)) return (TriggerPacks)o;
+                data.Cache[key] = p;
+            }
+            return p;
+        }
+
+        /// <summary>
+        /// These packs with the entries a plan changes: bytes for an entry put or added (a new one goes after the
+        /// others, as the archive writer appends it), null for one deleted.
+        /// </summary>
+        public TriggerPacks Overlay(IDictionary<string, byte[]> changes)
+        {
+            if (changes == null || changes.Count == 0) return this;
+            var ch = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+            foreach (KeyValuePair<string, byte[]> c in changes) ch[c.Key] = c.Value;
+            var l = new List<string>();
+            foreach (string n in names) { byte[] b; if (!ch.TryGetValue(n, out b) || b != null) l.Add(n); }
+            var news = new List<string>();
+            foreach (KeyValuePair<string, byte[]> c in ch) if (c.Value != null && !exact.Contains(c.Key)) news.Add(c.Key);
+            news.Sort(StringComparer.Ordinal);
+            l.AddRange(news);
+            return new TriggerPacks(l, delegate(string n) { byte[] b; return ch.TryGetValue(n, out b) ? b : Read(n); }, this, ch);
+        }
+
+        TriggerPacks(List<string> names, Func<string, byte[]> read, TriggerPacks under, Dictionary<string, byte[]> changed)
+            : this(names, read)
+        {
+            this.under = under;
+            this.changed = changed;
+        }
+
+        /// <summary>The importers are known (BuildImporters or an ImportersOf has run).</summary>
+        public bool HasImporters { get { return importers != null; } }
+
+        /// <summary>Reads every script once for its &lt;import&gt;s (slow on a whole archive: run it off the UI thread).</summary>
+        public void BuildImporters()
+        {
+            if (importers != null) return;
+            Dictionary<string, List<string>> tg;
+            if (under == null) tg = ScanImports(names);
+            else
+            {
+                // the shipped importers, without what the changed entries imported there, and those entries read again
+                under.BuildImporters();
+                tg = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+                foreach (KeyValuePair<string, List<string>> kv in under.importers)
+                {
+                    if (!exact.Contains(kv.Key)) continue;
+                    var l = new List<string>();
+                    foreach (string n in kv.Value) if (!changed.ContainsKey(n)) l.Add(n);
+                    if (l.Count > 0) tg[kv.Key] = l;
+                }
+                var again = new List<string>();
+                foreach (string n in names) if (changed.ContainsKey(n)) again.Add(n);
+                // in the order of the packs, as a scan of all of them has it
+                var at = new Dictionary<string, int>(StringComparer.Ordinal);
+                for (int i = 0; i < names.Count; i++) at[names[i]] = i;
+                foreach (KeyValuePair<string, List<string>> kv in ScanImports(again))
+                {
+                    List<string> l;
+                    if (!tg.TryGetValue(kv.Key, out l)) tg[kv.Key] = l = new List<string>();
+                    l.AddRange(kv.Value);
+                    l.Sort(delegate(string x, string y) { return at[x].CompareTo(at[y]); });
+                }
+            }
+            importers = tg;
+        }
+
+        Dictionary<string, List<string>> ScanImports(IEnumerable<string> which)
+        {
+            var tg = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            foreach (string n in which)
+            {
+                byte[] b = Read(n);
+                if (b == null) continue;
+                string text = Encoding.UTF8.GetString(b);
+                if (text.IndexOf("<import", StringComparison.Ordinal) < 0) continue;
+                text = CommentRe.Replace(text, "");
+                foreach (Match m in ImportRe.Matches(text))
+                {
+                    string hit = Resolve(TriggerNormalizer.ImportPackPath(m.Groups[1].Value));
+                    if (hit == null) continue;
+                    List<string> l;
+                    if (!tg.TryGetValue(hit, out l)) tg[hit] = l = new List<string>();
+                    l.Add(n);
+                }
+            }
+            return tg;
+        }
 
         /// <summary>The entries trigger/... of an archive.</summary>
         public static TriggerPacks OfArchive(DataSet data, string archive)
@@ -133,27 +239,7 @@ namespace MS2.ModKit
         /// <summary>The scripts whose &lt;import&gt; names the entry (comments left out).</summary>
         public List<string> ImportersOf(string name)
         {
-            if (importers == null)
-            {
-                var tg = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-                foreach (string n in names)
-                {
-                    byte[] b = Read(n);
-                    if (b == null) continue;
-                    string text = Encoding.UTF8.GetString(b);
-                    if (text.IndexOf("<import", StringComparison.Ordinal) < 0) continue;
-                    text = CommentRe.Replace(text, "");
-                    foreach (Match m in ImportRe.Matches(text))
-                    {
-                        string hit = Resolve(TriggerNormalizer.ImportPackPath(m.Groups[1].Value));
-                        if (hit == null) continue;
-                        List<string> l;
-                        if (!tg.TryGetValue(hit, out l)) tg[hit] = l = new List<string>();
-                        l.Add(n);
-                    }
-                }
-                importers = tg;
-            }
+            BuildImporters();
             List<string> r;
             return importers.TryGetValue(name, out r) ? r : new List<string>();
         }
@@ -725,7 +811,16 @@ namespace MS2.ModKit
 
         public List<TriggerFinding> Lint(string entry, byte[] bytes, TriggerPacks packs, out string format)
         {
-            List<TriggerFinding> l = new Run(this, entry, packs).File(bytes, out format);
+            return Lint(entry, bytes, packs, true, out format);
+        }
+
+        /// <summary>
+        /// As Lint; with scanImporters false the importers are used only when the packs know them already
+        /// (TriggerPacks.HasImporters), so the call does not read the whole archive.
+        /// </summary>
+        public List<TriggerFinding> Lint(string entry, byte[] bytes, TriggerPacks packs, bool scanImporters, out string format)
+        {
+            List<TriggerFinding> l = new Run(this, entry, packs, scanImporters).File(bytes, out format);
             foreach (TriggerFinding f in l)
             {
                 TriggerAllow a = Allowed(f);
@@ -746,7 +841,9 @@ namespace MS2.ModKit
             List<string> importers = new List<string>();
             Dictionary<string, LintEl> states;
 
-            public Run(TriggerLint lt, string entry, TriggerPacks packs) { this.lt = lt; schema = lt.schema; this.entry = entry; this.packs = packs; }
+            readonly bool scanImporters;
+
+            public Run(TriggerLint lt, string entry, TriggerPacks packs, bool scanImporters) { this.lt = lt; schema = lt.schema; this.entry = entry; this.packs = packs; this.scanImporters = scanImporters; }
 
             void Add(string level, string code, LintEl el, string msg) { Add(level, code, el == null ? 0 : el.Line, el == null ? null : el.Src, msg); }
 
@@ -787,7 +884,7 @@ namespace MS2.ModKit
                 var issues = new List<TriggerNormalizer.Issue>();
                 if (fmt == "raw")
                 {
-                    if (packs != null) importers = packs.ImportersOf(entry);
+                    if (packs != null && (scanImporters || packs.HasImporters)) importers = packs.ImportersOf(entry);
                     if (packs == null && doc.FindDeep("import") != null)
                         Add("warning", "import-root", 0, null, "cannot find the trigger/ root for <import>: pass --root");
                     lt.norm.MergeImports(doc, packs, issues);

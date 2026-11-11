@@ -273,6 +273,12 @@ namespace MS2.Tables
                 Say(ex.Message);
                 Logger.Warning("MS2 Tables: " + ex.Message);
             }
+            catch (InvalidDataException ex)
+            {
+                // a damaged archive or a file that is not what its name says (System.IO, not an IOException)
+                Say(ex.Message);
+                Logger.Warning("MS2 Tables: " + ex.Message);
+            }
             finally
             {
                 Cursor.Current = old;

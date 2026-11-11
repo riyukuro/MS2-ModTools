@@ -196,5 +196,68 @@ namespace MS2.ModKit.Tests
                 Assert.Throws<ModKitException>(() => Mod.Parse("<mod id=\"x\" trigger-lint=\"maybe\" />", "t"));
             }
         }
+
+        static Mod ModFolder(string dir, string id, string body, params string[] files)
+        {
+            string root = Path.Combine(dir, "mods", id);
+            Directory.CreateDirectory(root);
+            File.WriteAllText(Path.Combine(root, "mod.xml"), "<mod id=\"" + id + "\" name=\"\" version=\"1\" modkit=\"1\">" + body + "</mod>");
+            for (int i = 0; i + 1 < files.Length; i += 2)
+            {
+                string path = Path.Combine(root, files[i].Replace('/', Path.DirectorySeparatorChar));
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                File.WriteAllText(path, files[i + 1]);
+            }
+            return Mod.Load(root);
+        }
+
+        [Test]
+        public void ARowEditOfAScript_IsLintedOnItsFinalBytes()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                s.Adopt(ModFolder(f.Dir, "t.rows", "<edit archive=\"" + S + "\" entry=\"" + Door + "\"><change at=\"state[name=Wait]/condition/transition\"><set name=\"state\" value=\"Nowhere\"/></change></edit>"));
+                Plan p = s.Plan();
+                Assert.That(p.HasErrors, Is.True, EditorSession.Report(p));
+                Assert.That(EditorSession.Report(p), Does.Contain("[bad-transition] transition to state 'Nowhere'"));
+            }
+            // the same edit to a state the script has: clean
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                s.Adopt(ModFolder(f.Dir, "t.rows2", "<edit archive=\"" + S + "\" entry=\"" + Door + "\"><change at=\"state[name=Wait]/condition/transition\"><set name=\"state\" value=\"Wait\"/></change></edit>"));
+                Plan p = s.Plan();
+                Assert.That(p.HasErrors, Is.False, EditorSession.Report(p));
+            }
+        }
+
+        const string Lib = "trigger/fake_meadow/lib.xml";
+        const string Main = "trigger/fake_meadow/main.xml";
+        const string LibText = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ms2>\n    <state name=\"Shared\">\n        <onEnter>\n            <action name=\"SetMesh\" arg1=\"3001\" arg2=\"0\" />\n        </onEnter>\n    </state>\n</ms2>\n";
+        const string MainText = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ms2>\n    <import path=\"Data/Xml/Trigger/fake_meadow/lib.xml\" />\n    <state name=\"Start\">\n        <onEnter>\n            <action name=\"SetMesh\" arg1=\"3001\" arg2=\"1\" />\n        </onEnter>\n        <condition name=\"UserDetected\" arg1=\"101\">\n            <transition state=\"Shared\" />\n        </condition>\n    </state>\n</ms2>\n";
+
+        [Test]
+        public void AModsOwnLibrary_ResolvesTheImportsOfItsScripts()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                string entries = "<entry archive=\"" + S + "\" name=\"" + Lib + "\" file=\"files/lib.xml\" />" +
+                    "<entry archive=\"" + S + "\" name=\"" + Main + "\" file=\"files/main.xml\" />";
+                s.Adopt(ModFolder(f.Dir, "t.lib", entries, "files/lib.xml", LibText, "files/main.xml", MainText));
+                Plan p = s.Plan();
+                Assert.That(p.HasErrors, Is.False, EditorSession.Report(p));
+            }
+            // without the library the import does not resolve
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                s.Adopt(ModFolder(f.Dir, "t.nolib", "<entry archive=\"" + S + "\" name=\"" + Main + "\" file=\"files/main.xml\" />", "files/main.xml", MainText));
+                Plan p = s.Plan();
+                Assert.That(p.HasErrors, Is.True);
+                Assert.That(EditorSession.Report(p), Does.Contain("does not resolve"));
+            }
+        }
     }
 }
