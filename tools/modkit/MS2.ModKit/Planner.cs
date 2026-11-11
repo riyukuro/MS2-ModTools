@@ -311,7 +311,7 @@ namespace MS2.ModKit
     {
         sealed class Claim { internal Mod Mod; internal XmlElem Elem; internal string What, Value; internal bool Synced, Mirrored; }
 
-        sealed class AddClaim { internal Mod Mod; internal object Edit; internal PlanChange Change; internal NewId NewId; internal XmlElem Parent; internal string Key; }
+        sealed class AddClaim { internal Mod Mod; internal object Edit; internal PlanChange Change; internal NewId NewId; internal XmlElem Parent; internal string Key, Copy; }
 
         sealed class EntryState
         {
@@ -1131,6 +1131,8 @@ namespace MS2.ModKit
             string key = parent.Start + "\n" + RowKey(made);
             AddClaim other;
             if (r.Grouped) { }
+            // two different rows the mod copies come out equal where the data itself holds twins: both are added
+            else if (st.AddKeys.TryGetValue(key, out other) && other.Mod == mod && r.Copy != null && other.Copy != null && other.Copy != r.Copy) { }
             else if (st.AddKeys.TryGetValue(key, out other))
             {
                 bool loses = run.Outranks(other.Mod, mod);
@@ -1170,7 +1172,7 @@ namespace MS2.ModKit
             else if (before) edit = st.Ed.InsertBefore(anchor, frag, fromIndent);
             else edit = st.Ed.InsertAfter(anchor, frag, fromIndent);
 
-            var claim = new AddClaim { Mod = mod, Edit = edit, Parent = parent, Key = r.Grouped ? null : key };
+            var claim = new AddClaim { Mod = mod, Edit = edit, Parent = parent, Key = r.Grouped ? null : key, Copy = r.Copy };
             st.Adds.Add(claim);
             if (!r.Grouped) st.AddKeys[key] = claim;
             plan.Changes.Add(claim.Change = Mark(run, new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, NewValue = frag, Elem = made, Source = src, State = st, Op = r, Mod = mod }));

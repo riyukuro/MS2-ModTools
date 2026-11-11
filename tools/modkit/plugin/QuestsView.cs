@@ -528,17 +528,6 @@ namespace MS2.Tables
             return sb.ToString();
         }
 
-        /// <summary>The shipped row a row stands for: the one of the same item, else the one at its index when that item is gone.</summary>
-        static QuestReward Shipped(List<QuestReward> shipped, List<QuestReward> now, QuestReward w)
-        {
-            if (shipped == null) return null;
-            foreach (QuestReward x in shipped) if (x.Code == w.Code) return x;
-            if (w.Index >= shipped.Count) return null;
-            QuestReward at = shipped[w.Index];
-            foreach (QuestReward x in now) if (x.Code == at.Code) return null;
-            return at;
-        }
-
         /// <summary>"3 place(s)", or each place with its value when they do not agree.</summary>
         static string Where(QuestDraft d, string field)
         {
@@ -620,7 +609,7 @@ namespace MS2.Tables
             foreach (QuestCondition c in conditions)
             {
                 QuestCondition was = wasConditions != null && c.Index < wasConditions.Count ? wasConditions[c.Index] : null;
-                string table = QuestDraft.CodeTable(c.Type, c.Code);
+                string table = QuestDraft.CodeTable(c.Type);
                 conditionLines.Add(new Line
                 {
                     Index = c.Index,
@@ -628,7 +617,7 @@ namespace MS2.Tables
                     {
                         (c.Index + 1).ToString(CultureInfo.InvariantCulture), c.Type, c.Code, c.Value,
                         was != null ? was.Type + " " + was.Code + " x" + (was.Value.Length > 0 ? was.Value : "1") : shipped != null ? "(new row)" : "",
-                        table == null ? "free text" : table == "id" ? "an id, read-only" : table + " id, read-only",
+                        table == null ? "free text" : table + " id, read-only",
                         c.Places + " place(s)" + (c.Differs ? ", they differ" : ""),
                     },
                     Shipped = shipped != null ? new[] { null, was != null ? was.Type : "", was != null ? was.Code : "", was != null ? was.Value : "", null, null, null } : null,
@@ -646,9 +635,10 @@ namespace MS2.Tables
                     if (accept && list != "v" && list != "essentialItem" && rows.Count == 0) continue;
                     listBox.Items.Add(ListName(reward, list));
                     rewardLines.Add(new Line { Heading = (accept ? "On accept: " : "On complete: ") + list + (list == "v" ? "  (kms-client table)" : "  (quest files)"), Reward = reward, List = list, Index = -1 });
+                    QuestReward[] wasOf = QuestDraft.PairShipped(wasRows, rows);
                     foreach (QuestReward w in rows)
                     {
-                        QuestReward was = Shipped(wasRows, rows, w);
+                        QuestReward was = wasOf[w.Index];
                         rewardLines.Add(new Line
                         {
                             Reward = reward, List = list, Index = w.Index,
@@ -786,7 +776,10 @@ namespace MS2.Tables
             host.EditedOutside();
             FillHits(id);
             ShowQuest(made);
-            host.SayOutside("quest " + id + " added as a copy of quest " + source + ". Save mod, then Plan shows it per target.\r\n\r\n" + Describe(made));
+            // a mod folder that could not be read when the id was checked: its reserved ids are not known
+            string warn = "";
+            foreach (string w in host.SharedSession().ModWarnings) warn += "warning: " + w + "\r\n";
+            host.SayOutside(warn + "quest " + id + " added as a copy of quest " + source + ". Save mod, then Plan shows it per target.\r\n\r\n" + Describe(made));
         }
 
         void RemoveClone()

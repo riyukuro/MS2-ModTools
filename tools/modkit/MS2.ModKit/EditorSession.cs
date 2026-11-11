@@ -134,15 +134,39 @@ namespace MS2.ModKit
         {
             var ed = new QuestEditor(Data, Mod);
             // the ids the other enabled mods reserve are not offered for a new quest; read when an id is asked for
-            ed.Others = delegate
-            {
-                var others = new List<Mod>();
-                if (ModsDir == null || !System.IO.Directory.Exists(ModsDir)) return others;
-                try { foreach (Mod m in ActiveMods()) if (m != Mod) others.Add(m); }
-                catch (ModKitException) { }
-                return others;
-            };
+            ed.Others = delegate { return OtherMods(); };
             return ed;
+        }
+
+        /// <summary>
+        /// What the last look at the other mods could not read, one line per mod folder: the ids such a mod
+        /// reserves are not known, so a new id may clash with it (the plan would say so).
+        /// </summary>
+        public readonly List<string> ModWarnings = new List<string>();
+
+        /// <summary>
+        /// The other enabled mods of the mods folder, each read on its own: one that cannot be read is left out and
+        /// named in ModWarnings, the others still count.
+        /// </summary>
+        public List<Mod> OtherMods()
+        {
+            ModWarnings.Clear();
+            var others = new List<Mod>();
+            if (ModsDir == null || !Directory.Exists(ModsDir)) return others;
+            ModList list;
+            try { list = ModList(); }
+            catch (ModKitException ex) { ModWarnings.Add("the mod list cannot be read, so the ids other mods reserve are not known: " + ex.Message); return others; }
+            foreach (ModListItem it in list.Items)
+            {
+                if (!it.Enabled) continue;
+                if (it.Error == null && Mod != null && it.Id == Mod.Id) continue;
+                string error = it.Error;
+                if (error == null)
+                    try { others.Add(Mod.Load(Path.Combine(list.Dir, it.Folder))); }
+                    catch (ModKitException ex) { error = ex.Message; }
+                if (error != null) ModWarnings.Add("mod folder " + it.Folder + " cannot be read, so the ids it reserves are not known: " + error);
+            }
+            return others;
         }
 
         /// <summary>The skill and effect editor over the data and the mod being edited (see SkillEditor.cs). Ask again after the mod is replaced.</summary>

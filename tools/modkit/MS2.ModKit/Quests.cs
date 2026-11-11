@@ -341,6 +341,38 @@ namespace MS2.ModKit
             return l;
         }
 
+        /// <summary>
+        /// The shipped row each row of a list stands for (null: a new row), paired as the places of a list are:
+        /// a shipped row of the same item, rank and count first, then one of the same item, each shipped row once;
+        /// a row whose item no shipped row has takes the shipped row at its index when that item is gone.
+        /// </summary>
+        public static QuestReward[] PairShipped(IList<QuestReward> shipped, IList<QuestReward> now)
+        {
+            var was = new QuestReward[now.Count];
+            if (shipped == null) return was;
+            var taken = new bool[shipped.Count];
+            for (int pass = 0; pass < 2; pass++)
+                for (int i = 0; i < now.Count; i++)
+                {
+                    if (was[i] != null) continue;
+                    for (int j = 0; j < shipped.Count; j++)
+                    {
+                        if (taken[j] || shipped[j].Code != now[i].Code) continue;
+                        if (pass == 0 && (Norm(shipped[j].Rank) != Norm(now[i].Rank) || Norm(shipped[j].Count) != Norm(now[i].Count))) continue;
+                        was[i] = shipped[j]; taken[j] = true;
+                        break;
+                    }
+                }
+            for (int i = 0; i < now.Count; i++)
+            {
+                if (was[i] != null || i >= shipped.Count || taken[i]) continue;
+                bool kept = false;
+                foreach (QuestReward x in now) if (x.Code == shipped[i].Code) kept = true;
+                if (!kept) { was[i] = shipped[i]; taken[i] = true; }
+            }
+            return was;
+        }
+
         QuestReward RewardRow(string reward, string list, int index)
         {
             List<QuestReward> l = Rewards(reward, list);
@@ -431,7 +463,12 @@ namespace MS2.ModKit
                 {
                     if (Editor.Attr(row, a) != row.Orig.Attr(a)) Editor.SetAttr(row, a, row.Orig.Attr(a));
                 }
-            else Editor.Remove(row);
+            else
+            {
+                Editor.Remove(row);
+                // the reward element the mod added for the row alone goes with its last row
+                Editor.RemoveIfEmptyAdd(row);
+            }
         }
 
         /// <summary>Removes row index of a list (as Rewards numbers them) in every place that has that row.</summary>
@@ -515,36 +552,29 @@ namespace MS2.ModKit
             return n;
         }
 
-        // The table a condition's code is an id of, by the condition type; null: the code is free text (a trigger
-        // name, a word, a small number).
+        // The table a condition's code is an id of, by the condition type alone (the full type name; a type that is
+        // not listed takes free text: a trigger name, a word, an amount, however long the number is).
         static readonly string[][] CodeTables =
         {
             new[] { "npc", "npc", "talk_in", "dialogue", "skill_damage_npc" },
-            new[] { "item", "item*", "openitembox", "equip_exist", "install_item", "uninstall_item" },
+            new[] { "item", "item_add", "item_exist", "item_inven", "item_move", "item_pickup", "openitembox", "equip_exist", "install_item", "uninstall_item" },
             new[] { "map", "map", "stay_map", "survive_map" },
             new[] { "skill", "skill", "buff" },
             new[] { "quest", "quest", "quest_daily", "quest_clear" },
-            new[] { "interact object", "interact_object*" },
-            new[] { "dungeon", "dungeon_clear", "dungeon_rank*" },
+            new[] { "interact object", "interact_object", "interact_object_rep" },
+            new[] { "dungeon", "dungeon_clear", "dungeon_rank", "dungeon_rank_clear" },
         };
 
         /// <summary>
-        /// The table whose id the code of a condition is ("npc", "item", "map", "skill", "quest", "interact object",
-        /// "dungeon"; "id" for a number of 7 digits or more under a type not listed), or null when the code is free.
-        /// Such a code is not edited here: the editor has no list of that table to pick from.
+        /// The table whose id the code of a condition of this type is ("npc", "item", "map", "skill", "quest",
+        /// "interact object", "dungeon"), or null when the code is free. Such a code is not edited here: the editor
+        /// has no list of that table to pick from.
         /// </summary>
-        public static string CodeTable(string type, string code)
+        public static string CodeTable(string type)
         {
-            type = type ?? "";
             foreach (string[] t in CodeTables)
                 for (int i = 1; i < t.Length; i++)
-                    if (t[i].EndsWith("*", StringComparison.Ordinal) ? type.StartsWith(t[i].Substring(0, t[i].Length - 1), StringComparison.Ordinal) : type == t[i]) return t[0];
-            int run = 0;
-            foreach (char c in code ?? "")
-            {
-                run = c >= '0' && c <= '9' ? run + 1 : 0;
-                if (run >= 7) return "id";
-            }
+                    if (string.Equals(type, t[i], StringComparison.OrdinalIgnoreCase)) return t[0];
             return null;
         }
 
@@ -582,7 +612,7 @@ namespace MS2.ModKit
             QuestCondition c = Condition(index);
             List<string> known = Editor.ConditionTypes();
             if (known.Count > 0 && !known.Contains(type)) throw new ModKitException("no shipped quest has a condition of type \"" + type + "\"");
-            string was = CodeTable(c.Type, c.Code), now = CodeTable(type, c.Code);
+            string was = CodeTable(c.Type), now = CodeTable(type);
             if (was != now)
                 throw new ModKitException("the code " + c.Code + " of this condition is " + (was != null ? "an id of the " + was + " table" : "free text") + "; type \"" + type + "\" takes " + (now != null ? "an id of the " + now + " table" : "free text"));
             return EachCondition(index, delegate(QuestNode row) { if (Editor.Attr(row, "type") != type) Editor.SetAttr(row, "type", type); });
@@ -590,15 +620,14 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Sets the code of condition index in every place that has it. A code that is an id of another table
-        /// (CodeTable) is refused, and so is a new code that would be one.
+        /// (CodeTable of the type) is refused.
         /// </summary>
         public int SetConditionCode(int index, string code)
         {
             code = (code ?? "").Trim();
             QuestCondition c = Condition(index);
-            string table = CodeTable(c.Type, c.Code);
+            string table = CodeTable(c.Type);
             if (table != null) throw new ModKitException("the code of a \"" + c.Type + "\" condition is an id of the " + table + " table; it is not edited here");
-            if (CodeTable(c.Type, code) != null) throw new ModKitException("\"" + code + "\" holds an id of another table; it is not set here");
             return EachCondition(index, delegate(QuestNode row) { if ((Editor.Attr(row, "code") ?? "") != code) Editor.SetAttr(row, "code", code); });
         }
 
@@ -1052,6 +1081,22 @@ namespace MS2.ModKit
             if (e.Children.Count > 0) return false;
             foreach (XmlAttr a in e.Attrs) if (a.Name != attr) return false;
             return true;
+        }
+
+        /// <summary>
+        /// After a row inside an element the mod adds was removed: takes that element out too when it is left with
+        /// no attribute and no child (it was added to hold the row).
+        /// </summary>
+        internal void RemoveIfEmptyAdd(QuestNode removed)
+        {
+            if (!removed.Literal || removed.Path.Length == 0) return;
+            var path = new int[removed.Path.Length - 1];
+            Array.Copy(removed.Path, path, path.Length);
+            var parent = new QuestNode { Place = removed.Place, Add = removed.Add, Path = path };
+            // the row of a new quest itself stays, whatever it holds
+            if (path.Length == 0 && removed.Add.In == null) return;
+            XmlElem e = Frag(parent);
+            if (e.Children.Count == 0 && e.Attrs.Count == 0) Remove(parent);
         }
 
         /// <summary>Adds a child element (literal XML) as the last one.</summary>

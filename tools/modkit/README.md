@@ -804,14 +804,17 @@ The fields of the view, with the element and attribute they are in the table row
    language** ticked it goes to the quest's row in every language.
 5. In **Conditions** the type, the code and the count can be typed. The type must be one that a shipped quest
    uses (the tooltip of the cell lists them). The column **code is** says what the code stands for:
-   - `free text`: a trigger name, a word or a small number. It can be typed.
+   - `free text`: a trigger name, a word or a number such as an amount. It can be typed.
    - `<table> id, read-only`: the code is an id of another table, and the view has no list of that table to pick
      from, so it is not edited here. Which table follows from the type: **npc** (`npc`, `talk_in`, `dialogue`,
-     `skill_damage_npc`), **item** (every type that starts with `item`, `openitembox`, `equip_exist`,
-     `install_item`, `uninstall_item`), **map** (`map`, `stay_map`, `survive_map`), **skill** (`skill`, `buff`),
-     **quest** (`quest`, `quest_daily`, `quest_clear`), **interact object** (types that start with
-     `interact_object`), **dungeon** (`dungeon_clear`, types that start with `dungeon_rank`).
-   - `an id, read-only`: a number of 7 digits or more under any other type.
+     `skill_damage_npc`), **item** (`item_add`, `item_exist`, `item_inven`, `item_move`, `item_pickup`,
+     `openitembox`, `equip_exist`, `install_item`, `uninstall_item`), **map** (`map`, `stay_map`, `survive_map`),
+     **skill** (`skill`, `buff`), **quest** (`quest`, `quest_daily`, `quest_clear`), **interact object**
+     (`interact_object`, `interact_object_rep`), **dungeon** (`dungeon_clear`, `dungeon_rank`,
+     `dungeon_rank_clear`).
+
+   Only the type decides this, by its full name. A type that is not in the list takes free text, also when its
+   name starts like a listed one or its code is a long number.
 
    A type can only be changed to one whose code is of the same kind (`npc` to `talk_in` is taken, `npc` to `item`
    is not). To change such an id, edit the `<condition>` in the MS2 Tables view.
@@ -833,7 +836,11 @@ Select a shipped quest and press **Clone to new id**. An empty id box takes the 
 
 - The id must be free in the data and in the mod, and at most 8 digits. It is written into the mod's
   `<ids space="quest">`, so two mods that take the same id are reported as a conflict. An id that another enabled
-  mod reserves in its `<ids space="quest">` is not offered and not taken.
+  mod reserves in its `<ids space="quest">` is not offered and not taken. When the `mod.xml` of an enabled mod
+  folder cannot be read, the other mods still count, and the output starts with a warning that names the folder:
+  the ids of that mod are not known.
+- Rows of the source that are equal to each other (two equal lines in a server script table) are copied as they
+  are: the clone gets two rows too.
 - The clone gets a copy of the source's table row, of its quest file on every target (with `basic@questID` set to
   the new id), and of its text row in every language, in the file the source's row is in.
 - The copies are the source as shipped, not as your mod has changed it.

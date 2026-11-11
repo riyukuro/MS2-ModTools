@@ -114,6 +114,8 @@ namespace MS2.ModKit.Tests
             "\t<condition questID=\"702\" scriptID=\"100\" item=\"9003\" />\n" +
             "\t<condition questID=\"701\" scriptID=\"200\" item=\"9004\" />\n" +
             "</ms2>\n";
+        // with twins the server ships this row twice
+        const string Twin = "\t<condition questID=\"701\" scriptID=\"200\" item=\"9004\" />\n";
         const string ScriptFunction = Head + "<ms2>\n" +
             "\t<function questID=\"701\" scriptID=\"100\" functionID=\"1\" presentItemID=\"9001\" />\n" +
             "\t<function questID=\"701\" scriptID=\"100\" functionID=\"2\" emoticon=\"wave\" />\n" +
@@ -134,7 +136,7 @@ namespace MS2.ModKit.Tests
         }
 
         /// <summary>Languages: kms-client en (group files) and zz (one file), gms-client en, server en and zz.</summary>
-        public FakeQuests(bool kms, bool gms, bool server, string dir = null)
+        public FakeQuests(bool kms, bool gms, bool server, string dir = null, bool twins = false)
         {
             ownDir = dir == null;
             Dir = dir ?? Path.Combine(Path.GetTempPath(), "modkit-quests-" + Guid.NewGuid().ToString("N"));
@@ -158,7 +160,7 @@ namespace MS2.ModKit.Tests
                 Listed(l, false);
                 if (server2)
                     M2dWriter.Create(Path.Combine(d, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> {
-                        E("table/Server/QuestScriptCondition_final.xml", ScriptCondition), E("table/Server/QuestScriptFunction_final.xml", ScriptFunction) });
+                        E("table/Server/QuestScriptCondition_final.xml", twins ? ScriptCondition.Replace(Twin, Twin + Twin) : ScriptCondition), E("table/Server/QuestScriptFunction_final.xml", ScriptFunction) });
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, l);
             }
             Data = new DataSet(k, g, s);
@@ -545,6 +547,60 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        [Test]
+        public void Session_NewIds_AnUnreadableModHidesOnlyItself()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            using (var s = new EditorSession(Path.Combine(f.Dir, "kms"), Path.Combine(f.Dir, "gms"), Path.Combine(f.Dir, "server"), Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+            {
+                s.Adopt(f.Mod);
+                string mods = Path.Combine(f.Dir, "mods");
+                foreach (string name in new[] { "a.bad", "other.mod", "z.bad" }) Directory.CreateDirectory(Path.Combine(mods, name));
+                File.WriteAllText(Path.Combine(Path.Combine(mods, "other.mod"), "mod.xml"), "<mod id=\"other.mod\" name=\"o\" version=\"1\">\n  <ids space=\"quest\" from=\"703\" to=\"704\"/>\n</mod>\n", new UTF8Encoding(false));
+                QuestEditor e = s.Quests();
+                Assert.That(e.NextFreeId(701), Is.EqualTo(705));
+                Assert.That(s.ModWarnings, Is.Empty);
+                // a mod.xml that is cut off, before and behind the good mod in the list
+                File.WriteAllText(Path.Combine(Path.Combine(mods, "a.bad"), "mod.xml"), "<mod id=\"a.bad\" name=\"b\" version=\"1\">\n  <ids space=\"quest\" fr", new UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(Path.Combine(mods, "z.bad"), "mod.xml"), "<mod id=\"z.bad\"", new UTF8Encoding(false));
+                Assert.That(e.NextFreeId(701), Is.EqualTo(705), "the readable mod still reserves its ids");
+                Assert.That(s.ModWarnings.Count, Is.EqualTo(2), string.Join("\n", s.ModWarnings.ToArray()));
+                Assert.That(s.ModWarnings[0], Does.StartWith("mod folder a.bad cannot be read, so the ids it reserves are not known: "));
+                Assert.That(s.ModWarnings[1], Does.StartWith("mod folder z.bad cannot be read"));
+                Assert.Throws<ModKitException>(delegate { e.Clone(701, 703); });
+                e.Clone(701, 705);
+                Assert.That(s.ModWarnings.Count, Is.EqualTo(2), "said again with the clone");
+            }
+        }
+
+        [Test]
+        public void ShippedRows_ArePairedByItemRankAndCount()
+        {
+            Func<string, string, string, QuestReward> row = (c, r, n) => new QuestReward { Code = c, Rank = r, Count = n };
+            var shipped = new List<QuestReward> { row("9001", "1", "1"), row("9001", "4", "1"), row("9002", "1", "5") };
+            // nothing changed: each row has its own shipped row, also the second of the same item
+            QuestReward[] was = QuestDraft.PairShipped(shipped, new List<QuestReward> { row("9001", "1", "1"), row("9001", "4", "1"), row("9002", "1", "5") });
+            Assert.That(was, Is.EqualTo(new[] { shipped[0], shipped[1], shipped[2] }));
+            // the rank 4 row first, the count of the other changed: still the exact one, then the one of the item that is left
+            was = QuestDraft.PairShipped(shipped, new List<QuestReward> { row("9001", "4", "1"), row("9001", "1", "3"), row("9002", "1", "5") });
+            Assert.That(was, Is.EqualTo(new[] { shipped[1], shipped[0], shipped[2] }));
+            // a third row of the item is new; an item that replaced one takes the row at its index
+            was = QuestDraft.PairShipped(shipped, new List<QuestReward> { row("9001", "1", "1"), row("9001", "4", "1"), row("9007", "1", "5"), row("9001", "2", "1") });
+            Assert.That(was, Is.EqualTo(new[] { shipped[0], shipped[1], shipped[2], null }));
+            Assert.That(QuestDraft.PairShipped(null, new List<QuestReward> { row("9001", "1", "1") }), Is.EqualTo(new QuestReward[] { null }));
+
+            // on a draft: one edit in a list with two rows of one item marks that row only
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestDraft d = f.Editor().Open(701);
+                d.AddReward("essentialItem", new QuestItem(9001, 4, 1));
+                List<QuestReward> ship = new QuestEditor(f.Data, new Mod { Id = "shipped", Name = "shipped" }).Open(701).Rewards("essentialItem"), now = d.Rewards("essentialItem");
+                QuestReward[] w = QuestDraft.PairShipped(ship, now);
+                for (int i = 0; i < now.Count; i++)
+                    Assert.That(w[i] == null, Is.EqualTo(now[i].Rank == "4"), "row " + i + ": only the added row is new");
+            }
+        }
+
         /// <summary>The text of an entry in the archive an apply wrote (LF line ends), or null when it is not there.</summary>
         static string Applied(ApplyResult r, string archive, string entry)
         {
@@ -749,6 +805,70 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void Clone_OfTwinListRows_MakesTwoRows()
+        {
+            using (var f = new FakeQuests(true, true, true, null, true))
+            {
+                QuestEditor e = f.Editor();
+                e.Clone(701, 750);
+                Assert.That(e.ListedRows(750), Has.Some.Contains(M + "  " + MC + "  <condition questID=\"750\"> 4 rows (script condition)"));
+                Plan p = f.Plan();     // no conflict: the two copies are two rows, as in the source
+                string c = FakeQuests.Out(p, M, MC);
+                Assert.That(Count(c, "<condition questID=\"750\" scriptID=\"200\" item=\"9004\" />"), Is.EqualTo(2), c);
+                Assert.That(Count(c, "<condition questID=\"701\" scriptID=\"200\" item=\"9004\" />"), Is.EqualTo(2), c);
+                Assert.That(Count(c, "questID=\"750\""), Is.EqualTo(4));
+                e.RemoveClone(750);
+                Assert.That(f.Mod.Ops, Is.Empty);
+            }
+            // the same row copied twice from one source row is still one line twice: a conflict
+            using (var f = new FakeQuests(true, true, true))
+            {
+                f.Mod = Mod.Parse("<mod id=\"quests.test\" name=\"t\" version=\"1\"><edit archive=\"" + M + "\" entry=\"" + MC + "\">" +
+                    "<add copy=\"condition[item=9004]\"><set name=\"questID\" value=\"750\"/></add><add copy=\"condition[item=9004]\"><set name=\"questID\" value=\"750\"/></add></edit></mod>", "twice");
+                Plan p = Planner.Build(f.Data, new[] { f.Mod }, new PlanOptions());
+                Assert.That(p.Conflicts.Count, Is.EqualTo(1), Fake.Dump(p));
+            }
+        }
+
+        // ---- reward rows the mod adds to a quest without the list ----
+
+        [Test]
+        public void AddThenRemoveReward_OnAQuestWithoutTheList_WritesNothing()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestDraft d = f.Editor().Open(702);
+                d.AddReward("essentialItem", new QuestItem(9005, 1, 1));
+                d.AddReward("v", new QuestItem(9005, 1, 1));
+                d.AddReward(QuestDraft.AcceptReward, "v", new QuestItem(9006, 1, 1));
+                f.Reload();
+                d = f.Editor().Open(702);
+                d.RemoveReward("essentialItem", 0);
+                d.RemoveReward("v", 0);
+                d.RemoveReward(QuestDraft.AcceptReward, "v", 0);
+                Assert.That(f.Mod.Ops, Is.Empty, f.Mod.ToXml());
+
+                // an element that was added for a field keeps the field when its last row goes
+                d.SetExp(40);
+                d.AddReward("v", new QuestItem(9005, 1, 1));
+                d.RemoveReward("v", 0);
+                Assert.That(d.Exp, Is.EqualTo("40"));
+                Assert.That(d.Rewards("v"), Is.Empty);
+                d.SetExp(0);
+                Assert.That(f.Mod.Ops, Is.Empty, f.Mod.ToXml());
+
+                // and in a new quest: the clone's own row and files stay, without an empty element
+                QuestEditor e = f.Editor();
+                QuestDraft c = e.Clone(702, 750, false);
+                string before = f.Mod.ToXml();
+                c.AddReward("v", new QuestItem(9005, 1, 1));
+                c.RemoveReward("v", 0);
+                Assert.That(f.Mod.ToXml(), Is.EqualTo(before));
+                f.Plan();
+            }
+        }
+
+        [Test]
         public void Clone_TwoQuests_RemoveTakesOnlyItsOwnRows()
         {
             using (var f = new FakeQuests(true, true, true))
@@ -877,12 +997,18 @@ namespace MS2.ModKit.Tests
         [Test]
         public void ConditionTypeAndCode()
         {
-            Assert.That(QuestDraft.CodeTable("npc", "41"), Is.EqualTo("npc"));
-            Assert.That(QuestDraft.CodeTable("item_exist", "9001"), Is.EqualTo("item"));
-            Assert.That(QuestDraft.CodeTable("interact_object_rep", "5"), Is.EqualTo("interact object"));
-            Assert.That(QuestDraft.CodeTable("trigger", "door_open"), Is.Null);
-            Assert.That(QuestDraft.CodeTable("trigger", "a1234567"), Is.EqualTo("id"));
-            Assert.That(QuestDraft.CodeTable("talk", "32"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("npc"), Is.EqualTo("npc"));
+            Assert.That(QuestDraft.CodeTable("item_exist"), Is.EqualTo("item"));
+            Assert.That(QuestDraft.CodeTable("interact_object_rep"), Is.EqualTo("interact object"));
+            Assert.That(QuestDraft.CodeTable("dungeon_rank_clear"), Is.EqualTo("dungeon"));
+            Assert.That(QuestDraft.CodeTable("trigger"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("talk"), Is.Null);
+            // the type itself decides, not how it starts: these take amounts
+            Assert.That(QuestDraft.CodeTable("item_gear_score"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("item_break"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("dungeon_rank_x"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("interact_object_count"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("meso"), Is.Null);
             using (var f = new FakeQuests(true, true, true))
             {
                 QuestEditor e = f.Editor();
@@ -898,7 +1024,9 @@ namespace MS2.ModKit.Tests
                 Assert.That(f.Mod.Ops, Is.Empty, "the same type writes nothing");
                 // condition 2 is talk 32: free
                 Assert.That(d.SetConditionCode(1, "hello"), Is.EqualTo(3));
-                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(1, "12345678"); });
+                // a long number is a code like any other: the length says nothing
+                Assert.That(d.SetConditionCode(1, "1000000"), Is.EqualTo(3));
+                Assert.That(d.SetConditionCode(1, "hello"), Is.EqualTo(3));
                 Assert.Throws<ModKitException>(delegate { d.SetConditionType(1, "npc"); }, "free text is not an npc id");
                 f.Reload();
                 d = f.Editor().Open(701);
@@ -915,9 +1043,13 @@ namespace MS2.ModKit.Tests
             {
                 QuestDraft d = f.Editor().Open(701);
                 Assert.That(d.SetConditionType(0, "talk_in"), Is.EqualTo(1));
-                Assert.That(d.SetConditionType(1, "emotion"), Is.EqualTo(1));
+                // an amount under a type that starts like an item type, and a long one, can be typed
+                Assert.That(d.SetConditionType(1, "item_gear_score"), Is.EqualTo(1));
+                Assert.That(d.SetConditionCode(1, "3000"), Is.EqualTo(1));
+                Assert.That(d.SetConditionCode(1, "1000000"), Is.EqualTo(1));
+                Assert.Throws<ModKitException>(delegate { d.SetConditionType(1, "item_exist"); }, "an amount is not an item id");
                 Plan p = f.Plan();
-                Assert.That(FakeQuests.Out(p, S, F1), Does.Contain("<condition type=\"talk_in\" code=\"41\" value=\"3\" />").And.Contain("<condition type=\"emotion\" code=\"32\""));
+                Assert.That(FakeQuests.Out(p, S, F1), Does.Contain("<condition type=\"talk_in\" code=\"41\" value=\"3\" />").And.Contain("<condition type=\"item_gear_score\" code=\"1000000\""));
                 Assert.That(FakeQuests.Out(p, G, F1), Is.EqualTo(FakeQuests.Out(p, S, F1)));
             }
         }
