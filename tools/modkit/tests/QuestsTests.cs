@@ -629,17 +629,81 @@ namespace MS2.ModKit.Tests
                 // the text the kms-client lacks is reserved on the server alone
                 List<IdRange> ranges = f.Mod.Ids.FindAll(r => r.Space == QuestEditor.TalkIdSpace);
                 Assert.That(ranges.ConvertAll(r => r.From + "-" + r.To + ":" + string.Join(",", r.Places.ConvertAll(p => p.Archive).ToArray())),
-                    Is.EqualTo(new[] { "705001-705001:" + K + "," + S, "705002-705002:" + S, "705003-705003:" + K + "," + S }));
+                    Is.EqualTo(new[] { "705001-705002:" + K + "," + S, "705003-705003:" + S }));
                 f.Reload();
                 Plan p = f.Plan();     // asserts no warning
-                Assert.That(FakeQuests.Out(p, K, "string/en/scriptquest_final.xml"), Does.Not.Contain("705002").And.Contain("705001").And.Contain("705003"));
-                Assert.That(FakeQuests.Out(p, S, "string/en/scriptquest_a.xml"), Does.Contain("<key id=\"705002\" npc=\"0\" name=\"Tell me more\" />"));
-                Assert.That(FakeQuests.Out(p, G, "string/en/scriptquest_a.xml"), Does.Contain("<key id=\"705002\" npc=\"0\" name=\"Tell me more\" />"));
-                // the kms-client's script still names the new id, as its source names a text it has no row for
-                Assert.That(FakeQuests.Out(p, K, "script/quest/questscript_final.xml"), Does.Contain("<distractor text=\"$script:705002$\" goto=\"200\" />"));
+                Assert.That(FakeQuests.Out(p, K, "string/en/scriptquest_final.xml"), Does.Not.Contain("705003").And.Contain("705001").And.Contain("705002"));
+                Assert.That(FakeQuests.Out(p, S, "string/en/scriptquest_a.xml"), Does.Contain("<key id=\"705003\" npc=\"0\" name=\"Tell me more\" />"));
+                Assert.That(FakeQuests.Out(p, G, "string/en/scriptquest_a.xml"), Does.Contain("<key id=\"705003\" npc=\"0\" name=\"Tell me more\" />"));
+                // the kms-client's script keeps the source's name for the text it has no row for, as shipped
+                string ks = FakeQuests.Out(p, K, "script/quest/questscript_final.xml");
+                Assert.That(ks, Does.Not.Contain("705003"));
+                Assert.That(ks.Substring(ks.IndexOf("<quest id=\"705\">", StringComparison.Ordinal)), Does.Contain("<content text=\"$script:705001$\">\n\t\t\t\t<distractor text=\"$script:701101$\" goto=\"200\" />"));
+                Assert.That(FakeQuests.Out(p, S, "script/quest/questscript_a.xml"), Does.Contain("<distractor text=\"$script:705003$\" goto=\"200\" />"));
+                Assert.That(f.Editor().OwnTalkTexts(705), Is.EqualTo(0), "nothing more to copy");
                 f.Editor().RemoveClone(705);
                 Assert.That(f.Mod.Ops, Is.Empty);
                 Assert.That(f.Mod.Ids, Is.Empty);
+            }
+        }
+
+        // by hand, as in the Tables view: the first line of a quest's script says the given text
+        static void SayByHand(FakeQuests f, string quest, string name)
+        {
+            foreach (ModOp op in f.Mod.Ops)
+            {
+                var e = op as EditOp;
+                if (e == null || !e.Entry.StartsWith("script/quest/", StringComparison.Ordinal)) continue;
+                foreach (RowOp r in e.Rows)
+                    if (r.Attrs.Exists(x => x.Name == "id" && x.Value == quest))
+                    {
+                        r.Attrs.RemoveAll(x => x.Name == "text" && x.At == "script[id=100]/content");
+                        r.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "text", Value = name, At = "script[id=100]/content" });
+                    }
+            }
+        }
+
+        [Test]
+        public void Plan_ATalkNameSetByHandWithoutARow_Warns()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor ed = f.Editor();
+                ed.Clone(701, 705);
+                ed.OwnTalkTexts(705);
+                f.Plan();       // a quest's own texts: no warning
+                SayByHand(f, "705", "$script:999999$");
+                Plan p = Planner.Build(f.Data, new[] { Mod.Parse(f.Mod.ToXml(), "round trip") }, new PlanOptions());
+                Assert.That(p.Errors, Is.Empty);
+                Assert.That(p.Conflicts, Is.Empty);
+                List<string> w = p.Warnings.ConvertAll(m => m.ModId + "|" + m.Archive + "|" + m.Entry + "|" + m.Text);
+                const string tail = " has no row for it in any language (string/<language>/scriptquest*.xml); the game has no text to show there";
+                Assert.That(w, Is.EquivalentTo(new[]
+                {
+                    "quests.test|" + K + "|script/quest/questscript_final.xml|quest 705, script 100 names talk text 999999, and the kms-client" + tail,
+                    "quests.test|" + G + "|script/quest/questscript_a.xml|quest 705, script 100 names talk text 999999, and the gms-client" + tail,
+                    "quests.test|" + S + "|script/quest/questscript_a.xml|quest 705, script 100 names talk text 999999, and the server" + tail,
+                }));
+                // the name of a text that has a row (another quest's shipped one) is no warning
+                SayByHand(f, "705", "$script:701200$");
+                f.Plan();
+            }
+        }
+
+        [Test]
+        public void Plan_TalkNamesWithoutARowAsShipped_NoWarning()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                // quest 702 ships with a name that has no row
+                Assert.That(FakeQuests.Out(f.Plan(), K, "script/quest/questscript_final.xml"), Is.Null, "no mod: nothing planned, nothing warned");
+                QuestEditor ed = f.Editor();
+                Assert.That(ed.TalkLines(702).Exists(t => t.TextId == 702200 && t.Rows == 0));
+                // an edit of the file that leaves the shipped name alone, and a clone that says the same text
+                ed.Clone(701, 705);
+                f.Plan();
+                ed.Clone(702, 706);
+                f.Plan();
             }
         }
 

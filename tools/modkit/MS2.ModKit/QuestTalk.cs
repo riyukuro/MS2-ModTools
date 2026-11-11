@@ -54,12 +54,12 @@ namespace MS2.ModKit
         /// <summary>The most texts one quest can own: its text ids are the quest id followed by 001..999.</summary>
         public const int MaxOwnTalkTexts = 999;
         const string TalkEntries = "string/*/scriptquest*.xml";
-        static readonly Regex TalkRx = new Regex(@"^string/([^/]+)/scriptquest[^/]*\.xml$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        internal static readonly Regex TalkRx = new Regex(@"^string/([^/]+)/scriptquest[^/]*\.xml$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         static readonly Regex TalkRefRx = new Regex(@"^\$script:(\d+)\$$", RegexOptions.CultureInvariant);
 
         static string TalkRefOf(long textId) { return "$script:" + S(textId) + "$"; }
 
-        static bool TryTalkRef(string text, out long textId)
+        internal static bool TryTalkRef(string text, out long textId)
         {
             textId = 0;
             Match m = text == null ? Match.Empty : TalkRefRx.Match(text);
@@ -106,20 +106,21 @@ namespace MS2.ModKit
         // a place of a talk script row that names a text
         sealed class TalkRef
         {
+            internal string Archive;    // of the script, which is where the target's text rows are too
             internal RowOp Op;          // the mod's copy of the script row; null for a shipped row
             internal XmlElem Elem;
             internal string At;         // Elem from the row
             internal long TextId;       // what the quest names there now
         }
 
-        static bool IsTalkScript(string entry) { return SpecOf(entry) == Lists[0]; }
+        internal static bool IsTalkScript(string entry) { return SpecOf(entry) == Lists[0]; }
 
-        void TalkWalk(XmlElem row, XmlElem e, RowOp op, List<TalkRef> into)
+        void TalkWalk(string archive, XmlElem row, XmlElem e, RowOp op, List<TalkRef> into)
         {
             long id;
             if (e != row && TryTalkRef(e.Attr("text"), out id))
             {
-                var r = new TalkRef { Op = op, Elem = e, At = RowPath.Canonical(e).Substring(RowPath.Canonical(row).Length + 1), TextId = id };
+                var r = new TalkRef { Archive = archive, Op = op, Elem = e, At = RowPath.Canonical(e).Substring(RowPath.Canonical(row).Length + 1), TextId = id };
                 if (op != null)
                     foreach (AttrOp a in op.Attrs)
                     {
@@ -128,7 +129,7 @@ namespace MS2.ModKit
                     }
                 into.Add(r);
             }
-            foreach (XmlElem c in e.Children) TalkWalk(row, c, op, into);
+            foreach (XmlElem c in e.Children) TalkWalk(archive, row, c, op, into);
         }
 
         List<TalkRef> TalkRefs(long id)
@@ -143,7 +144,7 @@ namespace MS2.ModKit
                     if (doc == null) continue;
                     string err;
                     XmlElem row = RowPath.Parse(kv.Value.Copy).TryResolve(doc.Doc.Root, out err);
-                    if (row != null) TalkWalk(row, row, kv.Value, l);
+                    if (row != null) TalkWalk(kv.Key.Archive, row, row, kv.Value, l);
                 }
                 return l;
             }
@@ -152,7 +153,7 @@ namespace MS2.ModKit
                 {
                     List<XmlElem> rows;
                     if (!IsTalkScript(ld.Name) || !ld.Rows.TryGetValue(id, out rows)) continue;
-                    foreach (XmlElem row in rows) TalkWalk(row, row, null, l);
+                    foreach (XmlElem row in rows) TalkWalk(archive, row, row, null, l);
                 }
             return l;
         }
@@ -303,6 +304,9 @@ namespace MS2.ModKit
                 if (map.ContainsKey(r.TextId)) continue;
                 List<TalkRow> rows = TalkRows(r.TextId);
                 if (rows.Count == 0 || rows.Exists(delegate(TalkRow t) { return t.Add != null; })) continue;
+                // a target whose script names the text without having a row for it keeps that name: a new id
+                // would be one more name without a row there
+                if (!rows.Exists(delegate(TalkRow t) { return t.Archive == r.Archive; })) continue;
                 if (used == null) used = TalkIdsUsed(first, last);
                 do
                 {
@@ -312,9 +316,11 @@ namespace MS2.ModKit
                 map[r.TextId] = next;
                 copies.Add(new KeyValuePair<long, List<TalkRow>>(next, rows));
             }
+            var places = new Dictionary<long, List<string>>();
             foreach (KeyValuePair<long, List<TalkRow>> c in copies)
             {
                 var targets = new List<string>();
+                places[c.Key] = targets;
                 foreach (TalkRow t in c.Value)
                 {
                     var add = new RowOp { Kind = RowOpKind.Add, Copy = RowPath.Canonical(t.Source) };
@@ -327,7 +333,7 @@ namespace MS2.ModKit
             foreach (TalkRef r in refs)
             {
                 long to;
-                if (!map.TryGetValue(r.TextId, out to)) continue;
+                if (!map.TryGetValue(r.TextId, out to) || !places[to].Contains(r.Archive)) continue;
                 r.Op.Attrs.RemoveAll(delegate(AttrOp a) { return a.Kind == AttrOpKind.Set && a.Name == "text" && a.At == r.At; });
                 r.Op.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "text", Value = TalkRefOf(to), At = r.At });
             }
