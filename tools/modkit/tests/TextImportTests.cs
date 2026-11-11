@@ -201,11 +201,11 @@ namespace MS2.ModKit.Tests
                 Assert.That(text, Does.Contain("name=\"가짜 신발\""), "the ambiguous row is left");
                 Assert.That(File.Exists(Path.Combine(d.Dir, "ws", "gms-client", "Xml.m2d")), Is.False, "sync=false: nothing for the gms side");
 
-                // a scan with the mod: the attributes the mod sets are kept, not offered again
+                // a scan with the mod saved and loaded: the rows are listed again, and are in the mod
                 Mod back = Mod.Load(Path.Combine(d.Dir, "mods", "t.text"));
                 TextImport again = Scan(s, back);
-                Assert.That(again.Files[0].Kept, Is.EqualTo(4));
-                Assert.That(again.Rows.Count(x => x.Kind == TextKind.Fill), Is.EqualTo(0));
+                Assert.That(again.Files[0].Kept, Is.EqualTo(0));
+                Assert.That(again.InMod(back, again.Rows.Where(x => x.Kind == TextKind.Fill)), Is.EqualTo(9));
 
                 // take out the plain row (not in) and two fills
                 Assert.That(ti.Take(back, ti.Rows.Where(x => x.Kind == TextKind.Plain)), Is.EqualTo(0));

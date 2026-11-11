@@ -14,7 +14,8 @@
 //     where ours has one text with {0} for them ("form": left alone);
 //   - ours has no Hangul: never filled; when the source text is plainly different (word overlap under 15%) it is
 //     listed (Plain) so the user may take it row by row;
-//   - the mod sets the attribute already: kept as the mod has it.
+//   - the mod sets the attribute to another text already: kept as the mod has it (set to the source text, the row
+//     is listed: it is in the mod, see InMod).
 //
 // Put writes Change row ops with set attributes into the mod (sync="false": the field maps do not carry them to
 // the other client); Take removes the ops Put wrote (the attributes whose value is still the source text).
@@ -250,7 +251,8 @@ namespace MS2.ModKit
                         if (IsKorean(theirsText)) { if (korean) st.Korean++; continue; }
                         if (IsPlaceholder(theirsText)) { st.Placeholder++; continue; }
                         if (at == null) at = RowPath.Canonical(r);
-                        if (modSets.ContainsKey(at + "\n" + a.Name)) { st.Kept++; continue; }
+                        string modValue;
+                        if (modSets.TryGetValue(at + "\n" + a.Name, out modValue) && modValue != theirsText) { st.Kept++; continue; }
                         var row = new TextRow { File = file, Entry = entry, Id = id, Feature = feature, Locale = locale, Attr = a.Name, Ours = a.Value, Source = theirsText, At = at };
                         if (korean && Slots(a.Value) != Slots(theirsText)) { st.Form++; continue; }
                         if (korean) { row.Kind = TextKind.Fill; st.Fill++; ti.Rows.Add(row); continue; }
