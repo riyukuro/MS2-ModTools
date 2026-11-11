@@ -10,9 +10,10 @@ used, so the same code runs in the net35 plugin and in the net8 tests.
 
 ### What the files are
 
-- Models are Gamebryo `.nif` files. Every `.nif` in the client's `Resource/Model/Item.m2d` and `Npc.m2d`
-  starts with the line `Gamebryo File Format, Version 30.2.0.3`; the `[Explicit]` archive test counts the
-  version lines of both archives and fails on any other version.
+- Models are Gamebryo `.nif` files. The `.nif` files in the client's `Resource/Model/Item.m2d` and `Npc.m2d`
+  start with the line `Gamebryo File Format, Version 30.2.0.3`, but for a few item files that say `30.1.0.3`
+  and have the same layout. The `[Explicit]` archive test counts the version lines of both archives, fails on
+  any other version, and builds every file.
 - This version keeps geometry in `NiMesh` blocks. A mesh names `NiDataStream` blocks, and each stream holds
   elements with a name (`POSITION`, `NORMAL`, `TEXCOORD`, `INDEX`, ...) and a format. Skinned meshes carry
   `POSITION_BP` and `NORMAL_BP` (bind pose), `BLENDINDICES`, `BLENDWEIGHT`, `BONE_PALETTE`, and a
@@ -75,7 +76,7 @@ Nothing in this path may throw into the view.
   (normal, specular, the game's colour masks), so dyed parts show the plain base texture.
 - Item models are drawn as they are stored. Worn items are stored in the space of the bone they hang on, so a
   cap can lie on its side.
-- Only the base client version (30.2.0.3, the `NiMesh` generation) is read; `NiTriShape` files of older
+- Only the `NiMesh` generation (the client's 30.1.0.3 and 30.2.0.3) is read; `NiTriShape` files of older
   Gamebryo versions give `cannot show`.
 
 ### Tests
