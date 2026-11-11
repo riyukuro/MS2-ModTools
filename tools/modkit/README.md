@@ -856,9 +856,23 @@ Select a shipped quest and press **Clone to new id**. An empty id box takes the 
   | script conditions and functions, rows with `questID` | `table/Server/QuestScriptCondition*.xml` and `QuestScriptFunction*.xml` in the server's `Server.m2d` |
 
   The lines under the fields list what was copied. **Remove clone** takes these copies out too.
-- The copied talk script speaks the source's lines: its texts (`string/<language>/scriptquest*.xml`) have ids of
-  their own and are shared, not copied. Tables that name a quest without being keyed by it (quest masks of npcs
-  and portals, guide and learning entries) are not copied either; add such rows in the MS2 Tables view.
+- The copied talk script speaks the source's lines at first: its texts (`string/<language>/scriptquest*.xml`,
+  `<key id name>` rows) have ids of their own, and the copy names the same ids as the source. The grid lists them
+  under **Talk texts**, one section per language, read only: changing them would change what the source quest
+  says.
+- **Own talk texts** gives the new quest texts of its own. Every text its talk script names is copied under a new
+  text id, the quest id followed by `001`, `002`, ... (an id the data or the mod already has is skipped), in every
+  language and for every feature row, on every target; the copied script then names the new ids. Quest 705 cloned
+  from a quest whose script names three texts gets the texts 705001 to 705003. After that the Talk texts lines can
+  be edited like the other texts (one language, or every language with **texts to every language** ticked). The
+  new text ids are recorded in the mod as an id range, so Plan reports another mod that adds the same ids.
+  **Shared talk texts** undoes it: the copies leave the mod and the script names the source's texts again.
+  **Remove clone** takes the copies out too.
+- Limits: a text with a row per feature is one line in the grid, and typing in it sets every one of those rows. A
+  text the script names but no file has a row for stays the source's id. A quest holds at most 999 texts of its
+  own. The talk texts of a shipped quest are not edited here; use the MS2 Tables view.
+- Tables that name a quest without being keyed by it (quest masks of npcs and portals, guide and learning
+  entries) are not copied; add such rows in the MS2 Tables view.
 
 ### What the client shows and what the server decides
 

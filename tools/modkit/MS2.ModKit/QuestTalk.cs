@@ -216,6 +216,32 @@ namespace MS2.ModKit
             return l;
         }
 
+        /// <summary>
+        /// A talk text in one language: the text of its first row, the number of rows over the targets (and the
+        /// features), and whether the rows differ. Null when the language has no row.
+        /// </summary>
+        public string TalkText(long textId, string language, out int rows, out bool differs)
+        {
+            string first = null;
+            rows = 0; differs = false;
+            foreach (TalkRow t in TalkRows(textId))
+            {
+                if (!string.Equals(t.Lang, language, StringComparison.OrdinalIgnoreCase)) continue;
+                if (rows++ == 0) first = t.Text;
+                else if (t.Text != first) differs = true;
+            }
+            return first;
+        }
+
+        /// <summary>The languages the data has talk text files in, over the editor's targets.</summary>
+        public List<string> TalkLanguages()
+        {
+            var l = new List<string>();
+            foreach (string a in Sides())
+                foreach (string lang in TalkLanguagesIn(a)) if (!l.Contains(lang)) l.Add(lang);
+            return l;
+        }
+
         /// <summary>The number of talk texts a new quest has rows of its own for.</summary>
         public int OwnTalkTextCount(long id)
         {

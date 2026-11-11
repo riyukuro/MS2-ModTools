@@ -52,6 +52,7 @@ namespace MS2.Tables
             internal string[] Shipped;          // null: nothing to compare with (a new quest)
             internal bool[] Editable;
             internal string Field, Language;    // the fields grid
+            internal long Talk;                 // the fields grid: the text id of a talk text line
             internal string Reward, List;       // the rewards grid: the reward element and its list
             internal int Index;                 // rewards and conditions
             internal bool Changed
@@ -124,6 +125,8 @@ namespace MS2.Tables
             questBar.Controls.Add(cloneIdBox);
             questBar.Controls.Add(listedBox);
             tips.SetToolTip(listedBox, "Ticked: the clone also gets a copy of the source quest's talk script (what the NPC says when it offers the quest) and of its rows in the tables that list quests: the fields of the quest, the special type name, the server's script conditions and script functions. The talk texts themselves are shared with the source quest. Unticked: only the table row, the quest file and the text rows");
+            questBar.Controls.Add(Btn("Own talk texts", "Gives the chosen new quest talk texts of its own: every text its copied talk script names is copied under a new text id (the quest id followed by 001, 002, ...) in every language, and the script names the new ids. The texts can then be edited in the grid without changing what the source quest says", delegate { OwnTalk(true); }));
+            questBar.Controls.Add(Btn("Shared talk texts", "Takes the chosen new quest's own talk texts out of the mod again: it speaks the source quest's lines, as right after the clone", delegate { OwnTalk(false); }));
             questBar.Controls.Add(Btn("Remove clone", "Takes the chosen new quest out of the mod again, with every row and file the clone added", delegate { RemoveClone(); }));
             questBar.Controls.Add(allLanguagesBox);
             tips.SetToolTip(allLanguagesBox, "Ticked: a text typed in the grid is written to the quest's row in every language. Unticked: to the language of the grid line only, on every target that has it");
@@ -498,8 +501,11 @@ namespace MS2.Tables
             {
                 sb.Append("\r\n\r\nA new quest id is written to:");
                 foreach (string l in editor.Registration(d.Id)) sb.Append("\r\n  ").Append(l);
-                sb.Append(editor.ListedRows(d.Id).Count > 0
-                    ? "\r\nThe talk script rows are copies; the talk texts they name are shared with the source quest."
+                int own = editor.OwnTalkTextCount(d.Id);
+                sb.Append(own > 0
+                    ? "\r\nThe talk script rows are copies, and " + own + " talk text(s) are this quest's own (edit them under Talk texts)."
+                    : editor.ListedRows(d.Id).Count > 0
+                    ? "\r\nThe talk script rows are copies; the talk texts they name are shared with the source quest (Own talk texts makes copies to edit)."
                     : "\r\nThe talk script and the tables that list quests have no row for this quest (none copied, or the source had none); add them in the MS2 Tables view.");
             }
             return sb.ToString();
@@ -605,6 +611,27 @@ namespace MS2.Tables
                 }
             }
 
+            List<QuestTalkLine> talk = editor.TalkLines(d.Id);
+            if (talk.Count > 0)
+            {
+                bool own = talk.Exists(delegate(QuestTalkLine t) { return t.Own; });
+                foreach (string language in editor.TalkLanguages())
+                {
+                    fieldLines.Add(new Line { Heading = "Talk texts: " + language + (!d.IsNew ? " (shipped: read only)" : own ? " (this quest's own)" : " (the source quest's: read only)") });
+                    foreach (QuestTalkLine t in talk)
+                    {
+                        int rows; bool differs;
+                        string v = editor.TalkText(t.TextId, language, out rows, out differs);
+                        fieldLines.Add(new Line
+                        {
+                            Talk = t.TextId, Language = language,
+                            Cells = new[] { t.Script + " " + t.Element + " " + t.TextId, v ?? "", !d.IsNew ? v ?? "" : "", rows == 0 ? "no row" : rows + " row(s)" + (differs ? ", they differ" : "") + (t.Own ? "" : d.IsNew ? ", shared" : "") },
+                            Editable = new[] { false, t.Own && rows > 0, false, false },
+                        });
+                    }
+                }
+            }
+
             List<QuestCondition> conditions = d.Conditions(), wasConditions = shipped != null ? shipped.Conditions() : null;
             foreach (QuestCondition c in conditions)
             {
@@ -669,6 +696,12 @@ namespace MS2.Tables
         void SetField(Line l, int column, string value)
         {
             QuestDraft d = Draft();
+            if (l.Talk != 0)
+            {
+                int n = Editor().SetTalkText(d.Id, l.Talk, allLanguagesBox.Checked ? null : l.Language, value);
+                Edited("talk text " + l.Talk + " set in " + n + " row(s)" + (allLanguagesBox.Checked ? " (every language)" : " (" + l.Language + ")"));
+                return;
+            }
             if (l.Language != null)
             {
                 int n = d.SetText(allLanguagesBox.Checked ? null : l.Language, l.Field, value);
@@ -782,6 +815,25 @@ namespace MS2.Tables
             foreach (string w in host.SharedSession().ModWarnings) warn += "warning: " + w + "\r\n";
             host.SayOutside(warn + "quest " + id + " added as a copy of quest " + source
                 + (lines > 0 ? " as shipped: the " + lines + " line(s) this mod has on quest " + source + " are not in the copy" : "") + ". Save mod, then Plan shows it per target.\r\n\r\n" + Describe(made));
+        }
+
+        void OwnTalk(bool own)
+        {
+            QuestDraft d = Draft();
+            if (!d.IsNew) throw new ModKitException("quest " + d.Id + " is a shipped quest; only a quest the mod adds gets talk texts of its own (clone it first)");
+            EndEdits();
+            QuestEditor ed = Editor();
+            int n = own ? ed.OwnTalkTexts(d.Id) : ed.ShareTalkTexts(d.Id);
+            if (n == 0)
+            {
+                host.SayOutside(!own ? "quest " + d.Id + " has no talk texts of its own"
+                    : ed.OwnTalkTextCount(d.Id) > 0 ? "quest " + d.Id + " has its own talk texts already"
+                    : ed.TalkLines(d.Id).Count == 0 ? "quest " + d.Id + " has no talk script row (the clone was made without it, or the source has none)"
+                    : "the talk script of quest " + d.Id + " names no text the data has a row for");
+                return;
+            }
+            Edited(own ? n + " talk text(s) copied for quest " + d.Id + "; edit them under Talk texts. Save mod, then Plan shows the rows per target."
+                : n + " own talk text(s) of quest " + d.Id + " taken out of the mod; it speaks the source quest's lines again");
         }
 
         void RemoveClone()
