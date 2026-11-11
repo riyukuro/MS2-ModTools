@@ -232,6 +232,41 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AHigherDeleteOrFileDoesNotHideWhatAModDoesToItself()
+        {
+            using (var f = new Fake())
+            {
+                string hp5 = "<change at=\"pet[id=101]\"><set name=\"hp\" value=\"5\"/></change>", hp6 = hp5.Replace("\"5\"", "\"6\"");
+                string del = "<delete at=\"pet[id=101]\"/>", row = "<add in=\"pet[id=101]\"><xml><extra id=\"1\"/></xml></add>";
+                int n = 0;
+                foreach (string rows in new[] { hp5 + hp6, del + hp5, del + row, row + del, hp5 + del })
+                {
+                    Mod a = f.Mod("a" + n, Edit(C, Pet, rows));
+                    // the higher mod deletes the row, deletes the entry, or has a file for the entry
+                    Mod[] tops =
+                    {
+                        f.Mod("row" + n, Edit(C, Pet, del)),
+                        f.Mod("gone" + n, "<entry archive=\"" + C + "\" name=\"" + Pet + "\" delete=\"true\"/>"),
+                        FileMod(f, "file" + n, C, Pet, "<ms2><pet id=\"101\" hp=\"9\"/></ms2>"),
+                    };
+                    n++;
+                    foreach (Mod b in tops)
+                    {
+                        Plan p = f.Plan(a, b);
+                        string dump = rows + "\n" + Fake.Dump(p);
+                        Assert.That(p.Errors, Is.Empty, dump);
+                        Assert.That(p.Conflicts.Count(x => x.WinnerId == null && x.ModId == a.Id), Is.EqualTo(1), dump);
+                        Assert.That(p.Undecided, Is.EqualTo(1), dump);
+                    }
+                    Assert.That(f.Plan(a).Undecided, Is.EqualTo(1), rows);
+                }
+                // no contradiction: nothing is added, with or without the higher mod
+                Mod ok = f.Mod("ok", Edit(C, Pet, hp5 + hp5)), top = f.Mod("top", Edit(C, Pet, del));
+                Assert.That(f.Plan(ok, top).Undecided, Is.EqualTo(0));
+            }
+        }
+
+        [Test]
         public void ThePartsLeftOutAreCountedByWhatAModAsksFor()
         {
             using (var f = new Fake())
@@ -392,9 +427,11 @@ namespace MS2.ModKit.Tests
             }
         }
 
-        static Mod FileMod(Fake f, string id, string entry, string content)
+        static Mod FileMod(Fake f, string id, string entry, string content) { return FileMod(f, id, S, entry, content); }
+
+        static Mod FileMod(Fake f, string id, string archive, string entry, string content)
         {
-            string d = Path.Combine(f.ModDir(id, "<entry archive=\"" + S + "\" name=\"" + entry + "\" file=\"data/p.xml\"/>"), "data");
+            string d = Path.Combine(f.ModDir(id, "<entry archive=\"" + archive + "\" name=\"" + entry + "\" file=\"data/p.xml\"/>"), "data");
             Directory.CreateDirectory(d);
             File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(content));
             return Mod.Load(Path.GetDirectoryName(d));

@@ -133,6 +133,8 @@ namespace MS2.ModKit
         public FieldMaps Maps;
         /// <summary>true: nothing is written to the other side; every one-sided change of a mapped field is a warning.</summary>
         public bool NoSync;
+        /// <summary>The plan of one mod alone, made inside a plan of several mods.</summary>
+        internal bool Alone;
     }
 
     public sealed class Plan
@@ -172,9 +174,6 @@ namespace MS2.ModKit
             list.Add(new PlanMessage { ModId = id, Archive = archive, Entry = entry, Text = text });
         }
 
-        /// <summary>A conflict between two mods; the text says which one is in the plan (the one with the higher priority).</summary>
-        /// <param name="other">the other mod of the pair; needed where <paramref name="mod"/> may be the winner</param>
-        /// <param name="why">the reason where it is not the priority: " wins (...)"</param>
         /// <summary>A conflict about whole entries: what the loser has for the entry is left out as a whole.</summary>
         internal void EntryConflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other)
         {
@@ -183,6 +182,9 @@ namespace MS2.ModKit
             if (Conflicts.Count > n) Conflicts[n].Entire = true;
         }
 
+        /// <summary>A conflict between two mods; the text says which one is in the plan (the one with the higher priority).</summary>
+        /// <param name="other">the other mod of the pair; needed where <paramref name="mod"/> may be the winner</param>
+        /// <param name="why">the reason where it is not the priority: " wins (...)"</param>
         internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other = null, string why = null)
         {
             int n = Conflicts.Count;
@@ -452,7 +454,37 @@ namespace MS2.ModKit
 
             IdSpaces.Check(data, plan, options.Progress);
             if (options.Schemas != null) options.Schemas.Check(plan);
+            if (!options.Alone && mods.Count > 1) OwnContradictions(data, plan, options);
             return plan;
+        }
+
+        /// <summary>
+        /// Two lines of one mod that contradict each other are a conflict that no priority decides, also where a
+        /// higher mod (a delete of the row or of the entry, a file for the entry) has both lines left out and they
+        /// never meet in this plan. A mod that has lines left out is planned alone once more; a contradiction that
+        /// shows only there is added, for an entry where this plan has none of that mod.
+        /// </summary>
+        static void OwnContradictions(DataSet data, Plan plan, PlanOptions options)
+        {
+            foreach (Mod m in plan.Mods)
+            {
+                bool loses = false;
+                foreach (PlanMessage c in plan.Conflicts) if (c.LoserId == m.Id) { loses = true; break; }
+                if (!loses) continue;
+                Plan alone;
+                try { alone = Build(data, new[] { m }, new PlanOptions { Maps = options.Maps, NoSync = options.NoSync, Alone = true }); }
+                catch (ModKitException) { continue; }
+                var add = new List<PlanMessage>();
+                foreach (PlanMessage c in alone.Conflicts)
+                {
+                    if (c.WinnerId != null || c.ModId != m.Id) continue;
+                    bool has = false;
+                    foreach (PlanMessage q in plan.Conflicts)
+                        if (q.WinnerId == null && q.ModId == m.Id && q.Archive == c.Archive && q.Entry == c.Entry) { has = true; break; }
+                    if (!has) add.Add(c);
+                }
+                plan.Conflicts.AddRange(add);
+            }
         }
 
         // A line for a profile the data set does not have (a server line in a workspace of the two clients) is not
