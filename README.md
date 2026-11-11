@@ -56,13 +56,37 @@ Without `MS2_SERVER_DIR` the navmesh step is skipped with a note.
 | [tools/trigger](tools/trigger/README.md) | trigger script linter, checked against the server's trigger code and the map's objects |
 | [tools/tok](tools/tok/README.md) | PathEngine ground meshes: `tokgeom` (map to geometry), `tokbuild` (geometry to `.tok`), Toolbench plugin |
 | [tools/m2d](tools/m2d/README.md) | read and repack `.m2d` archives |
-| [tools/modkit](tools/modkit/README.md) | mods as folders of row changes to the game's XML tables, applied to copies of the client and server archives: diff, conflict report, reserved ids, revert. C# library (.NET 3.5 and 8) and a command line tool (.NET SDK 8+) |
-| [tools/modkit/plugin](tools/modkit/README.md#the-table-editor-in-toolbench) | MS2 Tables, a Toolbench plugin: a table of the archives as a grid, edits kept as a mod, plan / apply / revert into a workspace of copies. Its [MS2 Items](tools/modkit/README.md#the-item-editor-in-toolbench) and [MS2 NPCs](tools/modkit/README.md#the-npc-editor-in-toolbench) views edit and clone one item or npc on every target at once; [MS2 Shops and Drops](tools/modkit/README.md#shops-and-drops) edits a shop's stock and a drop box's rows, and makes new ones under reserved ids |
+| [tools/modkit](tools/modkit/README.md) | mods as folders of row changes to the game's XML tables, applied to copies of the client and server archives: diff, conflict report, reserved ids, revert. Also map mods and the `map-*` commands that convert maps for the map editor, `trigger-lint` (trigger scripts, with `--strict` and the map's object ids with `--xblock` / `--exported`), `text-import` and `field-rows`. C# library (.NET 3.5 and 8) and a command line tool (.NET SDK 8+) |
+| [tools/modkit/plugin](tools/modkit/README.md#the-table-editor-in-toolbench) | MS2 Tables, a Toolbench plugin: a table of the archives as a grid, edits kept as a mod, plan / apply / revert into a workspace of copies. Its other views edit items, npcs, skills, quests, shops and drops, trigger scripts, texts and field rows into the same mod: see [Toolbench views](#toolbench-views) |
 | [tools/mapedit](tools/mapedit/README.md) | shipped map to Toolbench project and back; scripted map edits |
 | [tools/toolbench](tools/toolbench/README.md) | run Gamebryo Toolbench / World Builder under Wine |
 | [glue/pathengine](glue/pathengine/README.md) | frozen client code that tokbuild compiles |
 
 Tests, which need no game data: `python3 -m unittest discover tests`.
+
+## Toolbench views
+
+The [modkit plugin](tools/modkit/README.md#the-table-editor-in-toolbench) adds a menu, **MS2 Mods**, to Toolbench. Every
+view writes into the same mod. The pictures are of a made-up data set, not of game data.
+
+| view | what it edits | side | picture |
+|---|---|---|---|
+| [Tables](tools/modkit/README.md#the-table-editor-in-toolbench) | any XML table of an archive, as a grid; the list of mods and their order | the archive you pick: client or server | [shot](docs/shots/tables.png) |
+| [Items](tools/modkit/README.md#the-item-editor-in-toolbench) | one item: its file, name and texts, with a picture of its model; clone to a new id | both | [shot](docs/shots/items.png) |
+| [NPCs](tools/modkit/README.md#the-npc-editor-in-toolbench) | one npc: its file and name, with a picture of its model; clone to a new id | both | [shot](docs/shots/npcs.png) |
+| [Skills](tools/modkit/README.md#skills-and-effects) | one skill or effect with its levels and texts; clone to a new id | both | [shot](docs/shots/skills.png) |
+| [Quests](tools/modkit/README.md#quests) | one quest: its file, texts and scripts; clone to a new id | both | [shot](docs/shots/quests.png) |
+| [Shops and Drops](tools/modkit/README.md#shops-and-drops) | a shop's stock and a drop box's rows; new ones under reserved ids | shops: server; drops: both | [shot](docs/shots/shops-drops.png) |
+| [Triggers](tools/modkit/README.md#triggers) | a map's trigger scripts as a tree, linted as shown | server (the clients carry copies) | [shot](docs/shots/triggers.png) |
+| [Text import](tools/modkit/README.md#text-import) | texts of the Korean client that are still Korean, filled from another client's string files | client | [shot](docs/shots/text-import.png) |
+| [Field rows](tools/modkit/README.md#field-rows) | `fielddata.xml` rows for maps the Korean client has but cannot open, built from another client's map files | client | [shot](docs/shots/field-rows.png) |
+
+![The MS2 Triggers view](docs/shots/triggers.png)
+
+The menu also has **Plan** (what the enabled mods and the pending edits would change; writes nothing), **Apply** (saves
+the mod and writes the changes: loose files into the game folder, or patched copies of the archives into the workspace
+folder), **Revert** (removes what Apply wrote) and **Use the whole window** (folds Toolbench's own left and bottom panes
+away when a view is opened).
 
 ## Server side
 

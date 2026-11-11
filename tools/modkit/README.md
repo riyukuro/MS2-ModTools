@@ -321,6 +321,9 @@ Using it:
    entry name into **Entry filter** and press Enter, or double-click an entry in the list. Each child element of the
    root element is a row and each attribute a column. For rows that sit deeper, put a selector of their parent into
    **Rows under** (for example `pet[id=101]` to see that pet's `<skill>` rows).
+   The first time one of the MS2 views is opened in a Toolbench session, Toolbench's own Game Solution pane (left)
+   and Output View pane (bottom) are folded away to their edge tabs, so the view has the window. A pane you pin
+   open again stays open; **MS2 Mods > Use the whole window** turns this off, and the choice is kept.
 2. Edit cells. An edited cell turns yellow, and the **Pending changes** pane shows the `mod.xml` the edits make.
    Typing the original value back takes the change out again. **Clone row** adds a row that starts as a copy of the
    selected one (green; change its id), **Delete / restore row** deletes a row or takes the delete back, **Remove
@@ -445,6 +448,19 @@ section is missing and the mod holds the client half only.
    own output box; the Tables view does not have to be open. The **MS2 Mods** menu commands write to the output
    box of the view you used last.
 
+### The model picture
+
+To the right of the form is a still picture of the picked item's model, drawn by the plugin itself from the model
+(`.nif`) and texture (`.dds`) files of the Korean client's data folder; no Gamebryo renderer or graphics device is
+used. The files are the ones the item's slots name: the client's `itemmodel/` row of the item, else the slots of
+the server's item file. An item is shown alone, not on a
+character; a part that hangs on a character's node (a hat on the head) is put where that node is in the character's
+skeleton. When the item has a model for each gender, a **Male** / **Female** button switches between them.
+
+The box says `no model` when the item names none, and `cannot show: <reason>` when a file is missing or does not
+read; a missing texture only leaves that part plain. The picture is the bind pose, with no animation. The box is
+left out when the view is too narrow for it.
+
 ### A new item: Clone to new id
 
 Select a shipped item and press **Clone to new id**. With the id box empty the next free id after the source is
@@ -517,6 +533,13 @@ Each target has its own set of language folders, and the editor writes to each t
 6. **Plan** lists every change, entry by entry, under one line per target. **Apply** writes them, **Revert** takes
    them back. **Sync report** and **All fields** show the mapped fields where the Korean client and the server
    disagree (see [The sync report](#the-sync-report)).
+
+7. To the right of the form is a still picture of the npc's model, drawn as in the Items view (see
+   [The model picture](#the-model-picture)). The model is the one `model@kfm` names: the `.kfm` file of that name
+   in the Korean client's `Resource/Model/Npc.m2d` and the `.nif` it points to. It is the bind pose; an edit of
+   `model@kfm` shows the new model.
+
+![The MS2 NPCs view on a made-up data set](../../docs/shots/npcs.png)
 
 ### A new npc: Clone to new id
 
@@ -906,6 +929,158 @@ Select a shipped quest and press **Clone to new id**. An empty id box takes the 
 - The Korean client's table has no field map to the server's quest files; the view keeps the sides together by
   writing each edit to all of them. A quest edit made by hand on one side only is a warning in Plan (see
   [What the warnings mean](#what-the-warnings-mean-2)).
+
+## Triggers
+
+A view, **MS2 Triggers** (menu **MS2 Mods > Triggers**), shows the trigger scripts of a map and edits them into the
+mod the other views are editing. A script is server data: the server runs it, and the clients only carry copies.
+The scripts are read from the first of the server, the global client and the Korean client that has any
+(`trigger/<xblock>/<name>.xml` in its `Xml.m2d`, one folder per map file).
+
+![The MS2 Triggers view on a made-up data set](../../docs/shots/triggers.png)
+
+### Using it
+
+1. Type a map id, or part of a name, into **Map id or name** and press Enter or **Find**, and pick a map. The list
+   below it has the scripts of the map's folder; `*` marks a script the mod changes. A map with no map file says
+   `no map file` and has no folder to add to.
+2. Pick a script. It is shown as a tree: its states, each with its **on enter** actions, its conditions (with their
+   actions and the state each goes to) and its **on exit** actions. **Expand all** and **Collapse** open and close
+   the tree.
+3. To edit, pick a node. **Attribute** with **Set** sets one of its attributes (an empty value removes it). **Add**
+   adds an action, a condition (with **goes to**, the state it leads to), a transition, a state or an on enter / on
+   exit block under it. **Remove** takes the node out.
+4. **New script** with **Add script** adds a script of that name to the map's folder. **Revert script** takes the
+   script's changes out of the mod.
+5. **Plan**, **Apply** and **Save mod** are the Tables view's.
+
+A trigger file has no rows, so each edit makes the whole script a file of the mod (`<entry>` with the file under
+`files/<root>/trigger/<xblock>/`). Outside of the change the file's bytes stay as they were, and a script edited
+back to the shipped bytes leaves the mod.
+
+### The lint
+
+The script is checked as it is shown, by a port of [tools/trigger](../trigger/README.md)'s `lint.py` with the same
+schema, the same list of known shipped problems and the same findings: an unknown action or condition, an unknown,
+bad or missing argument, a transition to a state that is not there, a state nothing leads to, a group condition
+without its group, and what the server ignores. A node with a problem is coloured and names it; the list under the
+tree has every problem of the script with its level, line and code, and **Go to** picks its node.
+
+- **strict** (`lint.py --strict`): what the Maple2 server does not run correctly yet is an error instead of a
+  warning.
+- A finding the list of known shipped problems names is counted as a known issue, not as a warning.
+- Plan lints every trigger file of a mod. An error blocks Apply, unless **lint errors only warn** is ticked for
+  the mod.
+
+### Object ids
+
+A script names objects of its map by id: boxes, meshes, actors, effects, portals, spawn points and so on. The lint
+checks those ids against the map file (`lint.py --xblock`): the objects of `xblock/<name>.xblock` in
+`Resource/Exported.m2d`, each with the kind its model's mixins give it (the `flat/` files of the same archive). The
+archive is the one beside the scripts' `Xml.m2d`, else the Korean client's.
+
+| code | what it says |
+|---|---|
+| `ref-missing` | the script names an id of a kind (a box, say) that the map has no such object for |
+| `ref-kind` | the id is in the map, as an object of another kind |
+| `no-trigger-model` | no trigger model of the map names this script file, so the game never loads it |
+| `xblock-missing` | the map file is not in the archive: the ids are not checked |
+| `xblock-unreadable` | the map file does not read: the ids are not checked |
+
+The map files are read once per data set, after the first script is shown, and the line above the findings ends in
+`object ids checked` when they were used. Reading every map file of a real client takes a while, so what was read
+is kept as one index file in the workspace folder's `cache/` and reused until the archive changes. Nothing is
+written into a data folder or the game folder; without a workspace folder there is no cache.
+
+On the command line:
+
+```sh
+modkit trigger-lint server:Xml.m2d                      # every script of the archive
+modkit trigger-lint <folder> --xblock auto              # with the object ids, each script against its folder's map
+modkit trigger-lint <folder> --xblock NAME --exported <Exported.m2d or extract folder> --strict --json
+```
+
+`--xblock` takes a map file name, `auto` (the script's folder) or a `.xblock` file; `--exported` names the archive or
+an extract folder with `flat/` and `xblock/` (default: `Resource/Exported.m2d` of the same root); `--cache DIR` or
+`-w <workspace>` keeps the index.
+
+## Text import
+
+A view, **MS2 Text import** (menu **MS2 Mods > Text import**), fills the texts of our client that are still Korean
+from another client's string files, as row edits of the mod. It changes the Korean client's `string/<lang>/` files
+only (`sync="false"`: nothing is carried to the other targets).
+
+![The MS2 Text import view on a made-up data set](../../docs/shots/text-import.png)
+
+1. **Ours** is our archive and language folder (`client:Xml.m2d`, `kr`), **from** the source's
+   (`gms-client:Xml.m2d`, `en`). **Scan** compares them file by file. A file of ours is matched to the source file
+   of the same name, or to the files the global client splits it over (quest scripts and descriptions, npc scripts,
+   skill names and descriptions).
+2. The upper list has one line per file with what the scan found for its text attributes:
+
+   | column | the attribute |
+   |---|---|
+   | fill | is Korean in ours and has a text in the source: it would be filled |
+   | plain | is not Korean in ours, and the source text is plainly different (few words in common) |
+   | near, same | is not Korean in ours and close to, or the same as, the source text |
+   | korean | is Korean in the source too |
+   | placeholder | has only a placeholder name in the source |
+   | form | has other `{0}` slots in the source than in ours |
+   | missing | has no text in the source row |
+   | ambiguous | has several source rows that give different texts |
+   | kept | is set to another text by the mod already |
+   | in mod | is in the mod as this view wrote it |
+
+3. Pick a file: its rows are listed below, ours beside the source text. A fill starts ticked. A plainly different
+   row starts unticked and is only taken when you tick it; a text of ours that is not Korean is never changed
+   otherwise. The tick of a file ticks or unticks all its fills. **Find**, **plainly different only**, **Tick
+   shown** and **Untick shown** work on the listed rows.
+4. **Put into mod** writes the ticked rows into the mod: the attribute set to the source text. **Take out** removes
+   the sets that still have the source text. **Plan**, **Apply** and **Save mod** are the Tables view's.
+
+The shot shows plainly different rows only: a fill needs a Korean text, and the made-up data set has none.
+
+On the command line: `modkit text-import gms-client:Xml.m2d` lists the files, `--list` one line per attribute,
+`--put MOD` writes the fills into the mod folder and `--take MOD` takes them out; `--plain` also takes the plainly
+different ones, `--files a.xml,b.xml` keeps to these files, `--target`, `--lang` and `--source-lang` name the other
+archive and languages.
+
+## Field rows
+
+A view, **MS2 Field rows** (menu **MS2 Mods > Field rows**), is for the maps our client has but cannot open. The
+client opens a map only when the map's row in `table/fielddata.xml` has an environment with an xblock name. Where
+that row is empty or missing and another client has the map's own file (`map/<8-digit id>.xml`, the global
+client's form), the view builds the row our table would have and writes it into the mod. It changes the Korean
+client's table only (`sync="false"`).
+
+![The MS2 Field rows view on a made-up data set](../../docs/shots/field-rows.png)
+
+1. **Ours** is the archive with our table, **from** the source archive, **server** the server's pack and
+   **locale** the locale whose environment is taken from the source file. **Scan** lists the maps:
+
+   | kind | what it is | written |
+   |---|---|---|
+   | Fill | our row is there with no environment | the environment goes into it |
+   | Add | we have no row | a new row after the row with the next lower id |
+   | FillBeside | our row has an environment, none with an xblock name | the environment goes beside it; not ticked by default |
+   | Several | the source has several environments for the locale | no |
+   | NoMap | our client has no map file (xblock) of that name | no |
+   | NoXBlock | the source environment names no xblock | no |
+   | Error | the source file does not parse | no |
+
+2. A row starts ticked when the server has the map and the map is not behind the `Develop` feature (the client's
+   own test maps). The **feature**, **on** and **on server** columns say which feature the source puts the map
+   behind, whether our client has it on, and whether the server has the map. The feature is not written into the
+   row, so a map behind a feature that is off opens anyway. **Default ticks** puts the ticks back.
+3. Pick a row: the lower box shows the row as it would be written. It is the compact form our table's rows have:
+   only the elements and attributes the client reads, with the values it takes by default left out.
+4. **Put into mod** writes the ticked rows into the mod, **Take out** removes them. **Plan**, **Apply** and **Save
+   mod** are the Tables view's.
+
+On the command line: `modkit field-rows gms-client:Xml.m2d` lists the maps, `--put MOD` writes rows into the mod
+folder and `--take MOD` takes them out; `--rows default`, `ticked` (every row that can be written) or `id,id,...`
+picks them, `--target`, `--pack` (`none` for no server check) and `--locale` name the other archives and the
+locale.
 
 ## Maps
 
@@ -1412,6 +1587,16 @@ The real-archive tests copy your archives to a temporary folder (`MS2_MODKIT_TMP
 there: read every entry and compare with `tools/m2d`'s reader, rewrite and compare with its repack, and change one
 attribute of one table on both sides and check that every other entry is unchanged. Without the two settings they
 are skipped.
+
+The pictures in `docs/shots/` are of a made-up data set (invented names and ids, drawn icons, a model of boxes), so
+they show no game data. `tests/DemoDataWriter.cs` writes it:
+
+```sh
+MS2_DEMO_OUT=<folder> dotnet test --filter "FullyQualifiedName~DemoDataWriter"
+```
+
+It makes `kms/`, `gms/` and `server/` under the folder. Point `MS2_CLIENT_DATA`, `MS2_GMS_CLIENT_DATA` and
+`MS2_SERVER_DATA` at them and start Toolbench to take the pictures again.
 
 ## Limits
 
