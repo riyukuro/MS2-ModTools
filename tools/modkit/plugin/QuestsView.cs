@@ -630,7 +630,7 @@ namespace MS2.Tables
                             {
                                 Talk = t.TextId, Language = language, Feature = x.Feature,
                                 // the third column: the shipped text, for a quest's own text the source's
-                                Cells = new[] { label + (x.Feature.Length > 0 ? " [" + x.Feature + "]" : ""), x.Text, x.Source, x.Rows + " row(s)" + (x.Differs ? ", the targets differ" : "") + (t.Own ? "" : d.IsNew ? ", shared" : "") },
+                                Cells = new[] { label, x.Text, x.Source, x.Where + (t.Own ? "" : d.IsNew ? ", shared" : "") },
                                 Shipped = t.Own ? new[] { null, x.Source, null, null } : null,
                                 Editable = new[] { false, t.Own, false, false },
                             });

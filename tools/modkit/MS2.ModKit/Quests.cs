@@ -1520,6 +1520,7 @@ namespace MS2.ModKit
         public void RemoveClone(long id)
         {
             if (!AddedIds().Contains(id)) throw new ModKitException("the mod adds no quest " + id);
+            ShareTalkTexts(id);     // first: it refuses, with nothing changed, while another quest names one of the own texts
             if (TableXml != null)
                 foreach (RowOp r in TableAdds(id))
                     foreach (EditOp ed in Edits(TableXml, TableEntry))
@@ -1538,7 +1539,6 @@ namespace MS2.ModKit
                         ed.Rows.RemoveAll(delegate(RowOp r) { long v; return r.Kind == RowOpKind.Add && r.Copy != null && TryId(KeyValue(r, "questID"), out v) && v == id; });
                         if (ed.Rows.Count == 0) Mod.Ops.Remove(ed);
                     }
-            ShareTalkTexts(id);
             foreach (KeyValuePair<EditOp, RowOp> kv in ListedOps(id))
             {
                 kv.Key.Rows.Remove(kv.Value);

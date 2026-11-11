@@ -44,6 +44,8 @@ namespace MS2.ModKit
         /// <summary>The text of the row the first row is a copy of (a quest's own text), else the row's own text.</summary>
         public string Source = "";
         public bool Own;
+        /// <summary>For a grid's narrow last column: the feature first, then the rows, e.g. "F1, 2 row(s)".</summary>
+        public string Where { get { return (Feature.Length > 0 ? Feature + ", " : "") + Rows + " row(s)" + (Differs ? ", the targets differ" : ""); } }
     }
 
     public sealed partial class QuestEditor
@@ -343,8 +345,21 @@ namespace MS2.ModKit
                 for (int i = 0; i < targets.Count; i++) if (r.Places[i].Archive != targets[i]) same = false;
                 if (!same) continue;
                 if (textId >= r.From && textId <= r.To) return;
-                if (r.To + 1 == textId) { r.To = textId; return; }
-                if (r.From - 1 == textId) { r.From = textId; return; }
+                if (r.To + 1 != textId && r.From - 1 != textId) continue;
+                if (r.To + 1 == textId) r.To = textId; else r.From = textId;
+                // the id may have closed the gap to the next range of the same targets
+                IdRange next = Mod.Ids.Find(delegate(IdRange q)
+                {
+                    if (q == r || q.Space != TalkIdSpace || q.Places.Count != targets.Count || (q.From != r.To + 1 && q.To != r.From - 1)) return false;
+                    for (int i = 0; i < targets.Count; i++) if (q.Places[i].Archive != targets[i]) return false;
+                    return true;
+                });
+                if (next != null)
+                {
+                    r.From = Math.Min(r.From, next.From); r.To = Math.Max(r.To, next.To);
+                    Mod.Ids.Remove(next);
+                }
+                return;
             }
             var made = new IdRange { Space = TalkIdSpace, From = textId, To = textId };
             foreach (string a in targets) made.Places.Add(new IdPlace { Archive = a, Entry = TalkEntries, Rows = "key", Key = "id" });
@@ -378,9 +393,29 @@ namespace MS2.ModKit
         /// Takes a new quest's own talk texts out of the mod again: the quest speaks the source's lines as it did
         /// right after the clone. Returns the number of texts taken out. Read from the mod alone; a text name set
         /// by hand that is not one of the quest's own ids (the quest id followed by 001..999) is left as it is.
+        /// Refused, with nothing changed, while another row of the mod names one of the quest's own texts: that
+        /// name would be left without a text row.
         /// </summary>
         public int ShareTalkTexts(long id)
         {
+            var mine = new List<RowOp>();
+            foreach (KeyValuePair<EditOp, RowOp> kv in ListedOps(id)) mine.Add(kv.Value);
+            foreach (ModOp op in Mod.Ops)
+            {
+                var ed = op as EditOp;
+                if (ed == null || !IsTalkScript(ed.Entry)) continue;
+                foreach (RowOp r in ed.Rows)
+                {
+                    if (mine.Contains(r)) continue;
+                    foreach (AttrOp a in r.Attrs)
+                    {
+                        long t, other;
+                        if (a.Kind != AttrOpKind.Set || a.Name != "text" || !TryTalkRef(a.Value, out t) || !InOwnRange(id, t)) continue;
+                        throw new ModKitException((TryId(KeyValue(r, "id"), out other) ? "quest " + other : "another talk script row of the mod") + " names talk text " + t +
+                            ", one of quest " + id + "'s own texts; give it another text first (MS2 Tables view), or it would name a text without a row");
+                    }
+                }
+            }
             var ids = new HashSet<long>();
             foreach (KeyValuePair<EditOp, RowOp> kv in ListedOps(id))
             {

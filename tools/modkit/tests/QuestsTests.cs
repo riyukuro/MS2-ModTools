@@ -564,6 +564,36 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void OwnTalkTexts_MergesRangesThatMeet()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                Mod other = Mod.Parse("<mod id=\"other\" name=\"o\" version=\"1\">\n" +
+                    "<ids space=\"questtalk\" from=\"705002\" to=\"705002\"><where archive=\"server:Xml.m2d\" entry=\"string/*/scriptquest*.xml\" rows=\"key\" key=\"id\" /></ids>\n</mod>", "other mod");
+                var others = new List<Mod> { other };
+                QuestEditor ed = f.Editor();
+                ed.Others = delegate { return others; };
+                ed.Clone(701, 705);
+                ed.OwnTalkTexts(705);
+                Func<string> ranges = () => string.Join(" ", f.Mod.Ids.FindAll(r => r.Space == QuestEditor.TalkIdSpace).ConvertAll(r => r.From + "-" + r.To).ToArray());
+                Assert.That(ranges(), Is.EqualTo("705001-705001 705003-705004"));
+                // the other mod is gone and one line is given a shipped text by hand: its copy takes the free id between
+                others.Clear();
+                foreach (ModOp op in f.Mod.Ops)
+                {
+                    var e = op as EditOp;
+                    if (e == null || !e.Entry.StartsWith("script/quest/", StringComparison.Ordinal)) continue;
+                    foreach (RowOp r in e.Rows)
+                        foreach (AttrOp a in r.Attrs) if (a.Value == "$script:705004$") a.Value = "$script:702100$";
+                }
+                Assert.That(ed.OwnTalkTexts(705), Is.EqualTo(1));
+                Assert.That(ed.TalkLines(705).ConvertAll(t => t.TextId), Is.EqualTo(new long[] { 705001, 705003, 705002 }));
+                Assert.That(ranges(), Is.EqualTo("705001-705004"));
+                Assert.That(f.Mod.Ids.FindAll(r => r.Space == QuestEditor.TalkIdSpace)[0].Places.Count, Is.EqualTo(2));
+            }
+        }
+
+        [Test]
         public void OwnTalkTexts_WhenTheIdsRunOut_AddsNothing()
         {
             using (var f = new FakeQuests(true, true, true))
@@ -671,6 +701,15 @@ namespace MS2.ModKit.Tests
                 Assert.That(f.Mod.ToXml(), Is.EqualTo(before));
                 Assert.That(ed.TalkLines(705).ConvertAll(t => t.Own), Is.All.True);
                 f.Plan();
+                // while 706 names 705's text, 705's texts stay: without them 706 would name a text without a row
+                ModKitException x = Assert.Throws<ModKitException>(delegate { ed.ShareTalkTexts(705); });
+                Assert.That(x.Message, Does.Contain("quest 706 names talk text 705001"));
+                Assert.Throws<ModKitException>(delegate { ed.RemoveClone(705); });
+                Assert.That(f.Mod.ToXml(), Is.EqualTo(before), "a refusal changes nothing");
+                ed.RemoveClone(706);
+                ed.RemoveClone(705);
+                Assert.That(f.Mod.Ops, Is.Empty);
+                Assert.That(f.Mod.Ids, Is.Empty);
             }
         }
 
@@ -683,6 +722,7 @@ namespace MS2.ModKit.Tests
                 List<QuestTalkText> t = ed.TalkTexts(701200, "en");
                 Assert.That(t.ConvertAll(x => x.Feature + "|" + x.Text + "|" + x.Source + "|" + x.Rows + "|" + x.Own + "|" + x.Differs),
                     Is.EqualTo(new[] { "|Bring clay|Bring clay|2|False|False", "F1|Bring fine clay|Bring fine clay|2|False|False" }));
+                Assert.That(t.ConvertAll(x => x.Where), Is.EqualTo(new[] { "2 row(s)", "F1, 2 row(s)" }), "the feature leads, so a narrow column still shows it");
                 Assert.That(ed.TalkTexts(701101, "zz"), Is.Empty);
                 ed.Clone(701, 705);
                 ed.OwnTalkTexts(705);
@@ -707,6 +747,7 @@ namespace MS2.ModKit.Tests
                     if (e != null && e.Archive == K && e.Entry == "string/en/scriptquest_final.xml") e.Rows[0].Attrs.RemoveAll(a => a.Name == "name");
                 }
                 Assert.That(ed.TalkTexts(705001, "en")[0].Differs, Is.True);
+                Assert.That(ed.TalkTexts(705001, "en")[0].Where, Is.EqualTo("2 row(s), the targets differ"));
             }
         }
 
