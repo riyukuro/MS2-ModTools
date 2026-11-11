@@ -128,6 +128,7 @@ namespace MS2.Tables
             tips.SetToolTip(listedBox, "Ticked: the clone also gets a copy of the source quest's talk script (what the NPC says when it offers the quest) and of its rows in the tables that list quests: the fields of the quest, the special type name, the server's script conditions and script functions. The talk texts themselves are shared with the source quest. Unticked: only the table row, the quest file and the text rows");
             questBar.Controls.Add(Btn("Own talk texts", "Gives the chosen new quest talk texts of its own: every text its copied talk script names is copied under a new text id (the quest id followed by 001, 002, ...) in every language, and the script names the new ids. The texts can then be edited in the grid without changing what the source quest says", delegate { OwnTalk(true); }));
             questBar.Controls.Add(Btn("Shared talk texts", "Takes the chosen new quest's own talk texts out of the mod again: it speaks the source quest's lines, as right after the clone", delegate { OwnTalk(false); }));
+            questBar.Controls.Add(Btn("Where used", "Lists the quests and items that name this quest, the mod's first, with Go to", delegate { WhereUsedJump.Show(this, host.SharedSession(), IdLookup.Quest, Draft().Id); }));
             questBar.Controls.Add(Btn("Remove clone", "Takes the chosen new quest out of the mod again, with every row and file the clone added", delegate { RemoveClone(); }));
             questBar.Controls.Add(allLanguagesBox);
             tips.SetToolTip(allLanguagesBox, "Ticked: a text typed in the grid is written to the quest's row in every language. Unticked: to the language of the grid line only, on every target that has it");
@@ -888,6 +889,39 @@ namespace MS2.Tables
                 : n + " own talk text(s) of quest " + d.Id + " taken out of the mod; it speaks the source quest's lines again");
         }
 
+        /// <summary>Where used's jump: the quest, and the line of the place: a field ("start@npc"), "condition" (index) or "reward/list" (index).</summary>
+        public void OpenUse(long id, string field, int index)
+        {
+            Guard(delegate
+            {
+                EndEdits();
+                filling = true;
+                searchBox.Text = id.ToString(CultureInfo.InvariantCulture);
+                filling = false;
+                FillHits(id);
+                ShowQuest(Editor().Open(id));
+                host.SayOutside(Describe(draft));
+                if (field == "condition") Select(conditionGrid, conditionLines, l => l.Heading == null && l.Index == index);
+                else if (field.IndexOf('/') > 0)
+                {
+                    string reward = field.Substring(0, field.IndexOf('/')), list = field.Substring(field.IndexOf('/') + 1);
+                    Select(rewardGrid, rewardLines, l => l.Heading == null && l.Reward == reward && l.List == list && l.Index == index);
+                    if (listBox.Items.Contains(ListName(reward, list))) listBox.SelectedItem = ListName(reward, list);
+                }
+                else Select(fieldGrid, fieldLines, l => l.Heading == null && l.Field == field);
+            });
+        }
+
+        static void Select(DataGridView grid, List<Line> lines, Predicate<Line> match)
+        {
+            int i = lines.FindIndex(match);
+            if (i < 0 || i >= grid.RowCount) return;
+            int c = 0;
+            for (int k = 0; k < lines[i].Editable.Length && k < grid.ColumnCount; k++) if (lines[i].Editable[k]) { c = k; break; }
+            grid.CurrentCell = grid[c, i];
+            grid.FirstDisplayedScrollingRowIndex = Math.Max(0, i - 2);
+        }
+
         void RemoveClone()
         {
             QuestDraft d = Draft();
@@ -897,7 +931,7 @@ namespace MS2.Tables
             ShowQuest(null);
             host.EditedOutside();
             FillHits(0);
-            host.SayOutside("quest " + d.Id + " taken out of the mod");
+            host.SayOutside("quest " + d.Id + " taken out of the mod" + WhereUsedJump.LeftBehind(host.SharedSession(), IdLookup.Quest, d.Id));
         }
     }
 }

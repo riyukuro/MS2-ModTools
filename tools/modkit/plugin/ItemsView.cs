@@ -87,6 +87,7 @@ namespace MS2.Tables
             itemBar.Controls.Add(itemLabel);
             itemBar.Controls.Add(Btn("Clone to new id", "Adds a new item that starts as a copy of this one, under the id in the box (empty = the next free id of the item's block of 100000)", delegate { Clone(); }));
             itemBar.Controls.Add(cloneIdBox);
+            itemBar.Controls.Add(Btn("Where used", "Lists the quests (conditions, rewards), shops, drop boxes and items that name this item, the mod's first, with Go to", delegate { ShowWhereUsed(); }));
             itemBar.Controls.Add(Btn("Remove clone", "Takes the chosen new item out of the mod again", delegate { RemoveClone(); }));
             itemBar.Controls.Add(Btn("Own stat row", "Stat rows are shared between items. This copies the item's stat row to the code in the box and points the item at the copy, so a stat change touches this item only", delegate { OwnOption(); }));
             itemBar.Controls.Add(optionBox);
@@ -590,6 +591,35 @@ namespace MS2.Tables
                 + (ed.HasServer ? "" : "\nno server data folder is set: a server will not know the item"));
         }
 
+        void ShowWhereUsed()
+        {
+            WhereUsedJump.Show(this, host.SharedSession(), IdLookup.Item, Draft().Id);
+        }
+
+        /// <summary>Where used's jump: the item, its grid row of the field ("element@attribute"; else the first row of that attribute).</summary>
+        public void OpenUse(long id, string field)
+        {
+            Guard(delegate
+            {
+                grid.EndEdit();
+                filling = true;
+                searchBox.Text = id.ToString(CultureInfo.InvariantCulture);
+                filling = false;
+                FillHits(id);
+                ShowItem(Editor().Open(id));
+                int at = field.IndexOf('@');
+                string attr = at >= 0 ? field.Substring(at + 1) : field;
+                int hit = -1;
+                for (int i = 0; i < rows.Count && hit < 0; i++)
+                    if (FieldOf(rows[i]) == field) hit = i;
+                for (int i = 0; i < rows.Count && hit < 0; i++)
+                    if (FieldOf(rows[i]).EndsWith("@" + attr, StringComparison.Ordinal)) hit = i;
+                if (hit < 0) return;
+                grid.CurrentCell = grid[1, hit];
+                grid.FirstDisplayedScrollingRowIndex = Math.Max(0, hit - 3);
+            });
+        }
+
         void RemoveClone()
         {
             ItemDraft d = Draft();
@@ -599,7 +629,7 @@ namespace MS2.Tables
             ShowItem(null);
             Edited();
             FillHits(0);
-            host.SayOutside("item " + d.Id + " taken out of the mod");
+            host.SayOutside("item " + d.Id + " taken out of the mod" + WhereUsedJump.LeftBehind(host.SharedSession(), IdLookup.Item, d.Id));
         }
 
         void OwnOption()

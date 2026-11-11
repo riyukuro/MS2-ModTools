@@ -99,6 +99,7 @@ namespace MS2.Tables
             groupBar.Controls.Add(Btn("Clone to new id", "Adds a copy of this shop or box under the id in the box (empty = the next free id of the mod's reserved range)", delegate { Clone(); }));
             groupBar.Controls.Add(cloneIdBox);
             groupBar.Controls.Add(Btn("New", "Adds an empty shop or box under the id in the box (empty = the next free reserved id); add rows to it below", delegate { New(); }));
+            groupBar.Controls.Add(Btn("Where used", "Lists the npcs that name this shop or drop box (shopId, the drop box fields), the mod's first, with Go to", delegate { ShowWhereUsed(); }));
             groupBar.Controls.Add(Btn("Discard", "Takes the mod's changes to this shop or box out again (a new or cloned one goes away)", delegate { Discard(); }));
             groupBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
@@ -216,6 +217,33 @@ namespace MS2.Tables
                 ShowGroup(v);
                 host.SayOutside(Describe(v));
             });
+        }
+
+        void ShowWhereUsed()
+        {
+            if (view == null) throw new ModKitException("choose a shop or a drop box first");
+            WhereUsedJump.Show(this, host.SharedSession(), view.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, view.Id);
+        }
+
+        /// <summary>Where used's jump: the shop or box, its first row whose field names the id, on the first side that has one.</summary>
+        public void OpenUse(GroupKind kind, long id, string field, long named)
+        {
+            OpenGroup(kind, id);
+            if (view == null) return;
+            string want = named.ToString(CultureInfo.InvariantCulture);
+            for (int s = 0; s < sideBox.Items.Count; s++)
+            {
+                if (sideBox.SelectedIndex != s) sideBox.SelectedIndex = s;
+                for (int i = 0; i < gridRows.Count; i++)
+                    foreach (KeyValuePair<string, string> kv in gridRows[i].Fields)
+                        if ((kv.Key == field || IdLookup.GroupRowFieldKind(kind, kv.Key) == IdLookup.Item) && Array.IndexOf((kv.Value ?? "").Replace(" ", "").Split(','), want) >= 0)
+                        {
+                            int c = 2 + columns.IndexOf(kv.Key);
+                            rowGrid.CurrentCell = rowGrid[c >= 2 && c < rowGrid.ColumnCount ? c : 0, i];
+                            rowGrid.FirstDisplayedScrollingRowIndex = Math.Max(0, i - 2);
+                            return;
+                        }
+            }
         }
 
         // ---- small builders ----
@@ -787,7 +815,8 @@ namespace MS2.Tables
             ShowGroup(null);
             FillHits(Editor().Exists(v.Kind, v.Id) ? v.Id : 0);
             if (Editor().Exists(v.Kind, v.Id)) ShowGroup(Editor().Open(v.Kind, v.Id));
-            host.SayOutside(v.Noun + " " + v.Id + ": the mod's changes are taken out");
+            string left = Editor().Exists(v.Kind, v.Id) ? "" : WhereUsedJump.LeftBehind(host.SharedSession(), v.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, v.Id);
+            host.SayOutside(v.Noun + " " + v.Id + ": the mod's changes are taken out" + left);
         }
 
         void Opened(GroupKind kind, long id, string said)

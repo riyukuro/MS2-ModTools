@@ -136,6 +136,11 @@ namespace MS2.Tables
             cloneBar.Controls.Add(cloneOwnBox);
             cloneBar.Controls.Add(cloneGroupBox);
             tips.SetToolTip(cloneGroupBox, "Skills only. Ticked: the clone gets its own cooldown group (cooldownGroupID = the new id). Not ticked: it keeps the source's group, so using one starts the other's cooldown too; Plan warns when that group is not 0");
+            cloneBar.Controls.Add(Btn("Where used", "Lists the npcs and items that name this skill or effect (npc skills, item skill and additional effects), the mod's first, with Go to", delegate
+            {
+                if (shownId == 0) throw new ModKitException("choose a skill or an effect first");
+                WhereUsedJump.Show(this, host.SharedSession(), Kind == SkillKind.Effect ? IdLookup.Effect : IdLookup.Skill, shownId);
+            }));
             cloneBar.Controls.Add(Btn("Remove clone", "Takes the chosen new skill or effect out of the mod again", delegate { RemoveClone(); }));
 
             jobBar.Controls.Add(Lbl("Job"));
@@ -895,6 +900,8 @@ namespace MS2.Tables
             Edited();
             ShowSkill(0, null);
             FillHits(0);
+            host.SayOutside((op.Kind == SkillKind.Effect ? "effect " : "skill ") + op.Id + " taken out of the mod"
+                + WhereUsedJump.LeftBehind(host.SharedSession(), op.Kind == SkillKind.Effect ? IdLookup.Effect : IdLookup.Skill, op.Id));
         }
 
         void JobRow()

@@ -93,6 +93,7 @@ namespace MS2.Tables
             npcBar.Controls.Add(cloneLevelBox);
             npcBar.Controls.Add(Lbl("hp"));
             npcBar.Controls.Add(cloneHpBox);
+            npcBar.Controls.Add(Btn("Where used", "Lists the quests (start, complete npc, conditions) that name this npc, the mod's first, with Go to", delegate { ShowWhereUsed(); }));
             npcBar.Controls.Add(Btn("Remove clone", "Takes the chosen new npc out of the mod again, with every row and file the clone added", delegate { RemoveClone(); }));
             npcBar.Controls.Add(Btn("Open shop", "Opens the npc's shop (shopId, as the mod leaves it) in the MS2 Shops and Drops view", delegate { OpenShop(); }));
             npcBar.Controls.Add(Btn("Open drop box", "Opens the npc's first drop box (individualDropBoxId, else the other drop box ids, as the mod leaves them) in the MS2 Shops and Drops view", delegate { OpenBox(); }));
@@ -644,6 +645,35 @@ namespace MS2.Tables
             if (said.Count > 1) host.SayOutside(outputBox.Text + "\r\n\r\nnpc " + d.Id + " names more than one box:\r\n  " + string.Join("\r\n  ", said.ToArray()));
         }
 
+        void ShowWhereUsed()
+        {
+            WhereUsedJump.Show(this, host.SharedSession(), IdLookup.Npc, Draft().Id);
+        }
+
+        /// <summary>Where used's jump: the npc, its grid row of the field ("element@attribute"; else the first row of that attribute).</summary>
+        public void OpenUse(long id, string field)
+        {
+            Guard(delegate
+            {
+                grid.EndEdit();
+                filling = true;
+                searchBox.Text = id.ToString(CultureInfo.InvariantCulture);
+                filling = false;
+                FillHits(id);
+                ShowNpc(Editor().Open(id));
+                int at = field.IndexOf('@');
+                string attr = at >= 0 ? field.Substring(at + 1) : field;
+                int hit = -1;
+                for (int i = 0; i < rows.Count && hit < 0; i++)
+                    if (rows[i].Heading == null && FieldOf(rows[i]) == field) hit = i;
+                for (int i = 0; i < rows.Count && hit < 0; i++)
+                    if (rows[i].Heading == null && FieldOf(rows[i]).EndsWith("@" + attr, StringComparison.Ordinal)) hit = i;
+                if (hit < 0) return;
+                grid.CurrentCell = grid[1, hit];
+                grid.FirstDisplayedScrollingRowIndex = Math.Max(0, hit - 3);
+            });
+        }
+
         void RemoveClone()
         {
             NpcDraft d = Draft();
@@ -653,7 +683,7 @@ namespace MS2.Tables
             ShowNpc(null);
             Edited();
             FillHits(0);
-            host.SayOutside("npc " + d.Id + " taken out of the mod");
+            host.SayOutside("npc " + d.Id + " taken out of the mod" + WhereUsedJump.LeftBehind(host.SharedSession(), IdLookup.Npc, d.Id));
         }
     }
 }
