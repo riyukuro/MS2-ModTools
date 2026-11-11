@@ -134,6 +134,13 @@ namespace MS2.ModKit
         {
             foreach (M2dArchive a in open.Values) a.Dispose();
             open.Clear();
+            // what the planner keeps here may hold files open (the image archives of the icon check)
+            foreach (object o in Cache.Values)
+            {
+                IDisposable d = o as IDisposable;
+                if (d != null) d.Dispose();
+            }
+            Cache.Clear();
         }
     }
 }

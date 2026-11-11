@@ -409,6 +409,20 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void TheIconCheckLeavesNoArchiveOpenAfterDispose()
+        {
+            using (var f = new FakeSkills())
+            {
+                Plan p = f.Plan("<skill id=\"70000099\" clone=\"70000001\" levels=\"1\"/>");
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string image = Path.Combine(Path.Combine(Path.Combine(f.Dir, "kms"), "Resource"), "Image.m2d");
+                Assert.Throws<IOException>(() => new FileStream(image, FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose(), "the check reads the archive");
+                f.Data.Dispose();
+                new FileStream(image, FileMode.Open, FileAccess.ReadWrite, FileShare.None).Dispose();
+            }
+        }
+
+        [Test]
         public void ChecksWarnAboutIdsFilesSequencesIconsAndRanges()
         {
             using (var f = new FakeSkills())
