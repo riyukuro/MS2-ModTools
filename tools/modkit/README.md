@@ -1086,8 +1086,9 @@ locale.
 
 A map mod changes a map the game already ships: it adds, moves or removes props, monster spawn places, NPC spawn
 places and portals. The **MS2 Maps** view (menu MS2 Mods > Maps) edits the entities a map ships: it sets or unsets
-their properties and removes them (see [The Maps view](#the-maps-view)). New entities, spawn places and portals are
-still written by hand in `mod.xml`. Plan and Apply take both the same way. All names and numbers below are made up.
+their properties and removes them, and it adds spawn places and portals (see [The Maps view](#the-maps-view)). Other
+new entities (`<add>`) are still written by hand in `mod.xml`. Plan and Apply take both the same way. All names and
+numbers below are made up.
 
 ### What a shipped map is
 
@@ -1204,8 +1205,11 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   files below it: the ones its row in the map table names, with the feature and locale of each.
 - Choosing a map file reads its entities from `Resource/Exported.m2d` of the first data root that has it (a big
   file takes a moment; the job runs like the other jobs of the Tables view). The list shows each entity's name,
-  model, position and id; **edit** says `changed` or `removed` for an entity the mod edits. **Filter** (Enter) keeps
-  the entities whose name, model or id has the text; **edited only** keeps the ones the mod edits.
+  model, position and id; **edit** says `changed` or `removed` for an entity the mod edits and `new` for one it adds.
+  The new ones come first. A mark before the name says the same and stays readable on the selected row: blue for
+  changed, grey with a dash for removed, green with a plus for new (the changed property items carry the blue or
+  green mark too). **Filter** (Enter) keeps the entities whose name, model or id has the text; **edited only** keeps
+  the ones the mod edits.
 - Choosing an entity lists its property items: the value as shipped, the value in the mod (when the mod sets or
   unsets it), the model's default and the type. The properties the map does not store, with the model's default,
   are listed after the stored ones in grey.
@@ -1213,6 +1217,20 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   `<set>` with the shipped value as `old`; Set with the shipped value again takes it out. **Unset** writes an
   `<unset>`: the entity then takes the model's default. **Remove entity** writes a `<remove>` in place of the
   entity's `<change>`; **Restore entity** takes every edit of the entity out of the mod.
+- **Add spawn point** and **Add portal** ask for a name (the op's name, unique in the map file), a model, a position
+  and, for a portal, the map and the portal it leads to. The models offered are the spawn or portal models of the
+  map file's entities, most used first; on a file without one, the models of the listing named like one. The
+  position starts as the chosen entity's. The number (`point` or `id`) is the next free one of the mod range (see
+  [Reserved numbers](#reserved-numbers)). The new entity is written as a `<spawn>` or `<portal>` and listed as
+  `new`; choosing it lists the values it writes (the number, for a portal `TargetFieldSN` and `TargetPortalID`,
+  the properties) and, for a spawn point, its server rows. Set and Unset edit them the same way as on a shipped
+  entity, but on the mod's own values: there is no shipped value and no `old`. The numbers can be set to another
+  one, not unset. **Remove entity** takes the new entity out of the mod again; Restore entity has nothing to undo
+  on it. Hand-written `<add>` entities of the mod are listed and edited the same way.
+- A spawn place spawns nothing without a server row. The property `(server row)` holds them: index 0 is the first
+  row, the value is the row's attributes as `key=value` pairs (`tag=wolf population=3 coolTime=20`); the map and
+  the number are filled in. Set at the index after the last row adds one, Unset drops one. After a spawn point is
+  added the view says so in the output.
 - **Plan**, **Apply** and **Save mod** are the Tables view's. Plan makes each edit on every target that ships the
   same entity and warns where one does not (see [Expected old values](#expected-old-values)); a target without
   `Resource/Exported.m2d` is named in a note and left alone.
