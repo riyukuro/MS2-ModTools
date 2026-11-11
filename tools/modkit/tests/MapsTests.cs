@@ -19,7 +19,7 @@ namespace MS2.ModKit.Tests
         public const string MapA = "90000001_ab", MapB = "90000002_ab";
         public const string K = "client:Resource/Exported.m2d", G = "gms-client:Resource/Exported.m2d", S = "server:Resource/Exported.m2d";
         public const string EntryA = "xblock/" + MapA + ".xblock", EntryB = "xblock/" + MapB + ".xblock";
-        public const string Tags = "server:Xml.m2d", TagEntry = "table/mapspawntag.xml";
+        public const string Tags = "server:Xml.m2d", TagsK = "client:Xml.m2d", TagEntry = "table/mapspawntag.xml";
 
         public readonly string Dir, KmsDir, GmsDir, ServerDir;
         public DataSet Data;
@@ -85,6 +85,9 @@ namespace MS2.ModKit.Tests
         }
 
         public const string TagRow = "<region mapCode=\"90000001\" spawnPointID=\"7\" difficulty=\"1\" tag=\"wolf\" coolTime=\"20\" population=\"3\" />";
+        // a row of another map after it: new rows of the first map go between the two
+        public const string TagRowOther = "<region mapCode=\"90000003\" spawnPointID=\"1\" difficulty=\"1\" tag=\"crow\" coolTime=\"20\" population=\"2\" />";
+        public const string TagTable = Head + "<ms2>\n\t" + TagRow + "\n\t" + TagRowOther + "\n</ms2>\n";
 
         public FakeMaps(bool serverLinksToKms = false)
         {
@@ -106,6 +109,7 @@ namespace MS2.ModKit.Tests
             {
                 E("table/fielddata.xml", Head + "<ms2>\n\t<fieldData id=\"90000001\" />\n\t<fieldData id=\"90000002\" />\n</ms2>\n"),
                 E("npcdata/990.xml", Head + "<ms2>\n\t<npc id=\"99000001\" />\n</ms2>\n"),
+                E(TagEntry, TagTable),      // the Korean client ships the table too; the made-up global client does not
             });
             var perId = new List<KeyValuePair<string, byte[]>>
             {
@@ -114,7 +118,7 @@ namespace MS2.ModKit.Tests
                 E("npc/9/90/99000001.xml", Head + "<ms2 />\n"),
             };
             M2dWriter.Create(Path.Combine(GmsDir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, perId);
-            perId.Add(E(TagEntry, Head + "<ms2>\n\t" + TagRow + "\n</ms2>\n"));
+            perId.Add(E(TagEntry, TagTable));
             M2dWriter.Create(Path.Combine(ServerDir, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, perId);
             Data = new DataSet(KmsDir, GmsDir, ServerDir);
         }
@@ -328,13 +332,25 @@ namespace MS2.ModKit.Tests
                 foreach (string ar in new[] { K, G, S })
                     Assert.That(Encoding.UTF8.GetString(Bytes(p, ar, FakeMaps.EntryB)), Does.Contain("id=\"" + MapValues.NewEntityId("ops", FakeMaps.MapB, "west") + "\""));
 
-                // the server rows of the spawn point: after the shipped row, the map and the point filled in
-                string tags = Fake.Text(p, FakeMaps.Tags, FakeMaps.TagEntry);
-                Assert.That(tags, Does.Contain("\t" + FakeMaps.TagRow + "\r\n" +
-                    "\t<region mapCode=\"90000001\" spawnPointID=\"140000\" difficulty=\"1\" tag=\"wolf\" coolTime=\"20\" population=\"3\" />\r\n" +
-                    "\t<region mapCode=\"90000001\" spawnPointID=\"140000\" difficulty=\"2\" tag=\"bear\" coolTime=\"40\" population=\"1\" />\r\n</ms2>"));
-                Assert.That(p.Find("client:Xml.m2d"), Is.Null);
+                // the rows of the spawn point: after the map's last shipped row and before the next map's row, the map
+                // and the point filled in, in the order of the mod; the same on every target that ships the table
+                foreach (string ar in new[] { FakeMaps.Tags, FakeMaps.TagsK })
+                    Assert.That(Fake.Text(p, ar, FakeMaps.TagEntry), Does.Contain("\t" + FakeMaps.TagRow + "\r\n" +
+                        "\t<region mapCode=\"90000001\" spawnPointID=\"140000\" difficulty=\"1\" tag=\"wolf\" coolTime=\"20\" population=\"3\" />\r\n" +
+                        "\t<region mapCode=\"90000001\" spawnPointID=\"140000\" difficulty=\"2\" tag=\"bear\" coolTime=\"40\" population=\"1\" />\r\n" +
+                        "\t" + FakeMaps.TagRowOther + "\r\n</ms2>"), ar);
+                Assert.That(Fake.Text(p, FakeMaps.TagsK, FakeMaps.TagEntry), Is.EqualTo(Fake.Text(p, FakeMaps.Tags, FakeMaps.TagEntry)));
+                // a target without the table is left alone, with a note
                 Assert.That(p.Find("gms-client:Xml.m2d"), Is.Null);
+                Assert.That(Lines(p.Notes).Count(n => n.Contains("gms-client:Xml.m2d") && n.Contains("this target has no such table")), Is.EqualTo(1), Fake.Dump(p));
+
+                // a map without rows: its rows go to the end of the table
+                Plan pe = f.Plan(f.Mod("end", MapB(Spawn("s9", 140001, "<row tag=\"wolf\" /><row tag=\"bear\" />"))));
+                Assert.That(pe.Errors, Is.Empty, Fake.Dump(pe));
+                foreach (string ar in new[] { FakeMaps.Tags, FakeMaps.TagsK })
+                    Assert.That(Fake.Text(pe, ar, FakeMaps.TagEntry), Does.Contain("\t" + FakeMaps.TagRowOther + "\r\n" +
+                        "\t<region mapCode=\"90000002\" spawnPointID=\"140001\" tag=\"wolf\" />\r\n" +
+                        "\t<region mapCode=\"90000002\" spawnPointID=\"140001\" tag=\"bear\" />\r\n</ms2>"), ar);
 
                 // the plan ends its map part with what the server needs
                 Assert.That(Lines(p.Notes).Count(n => n.Contains("maps changed: 90000001_ab, 90000002_ab") && n.Contains("ingest again") && n.Contains("navigation meshes")), Is.EqualTo(1), Fake.Dump(p));
@@ -467,7 +483,7 @@ namespace MS2.ModKit.Tests
 
                 // a spawn point the server has a row for already
                 p = f.Plan(f.Mod("c", Map("<remove id=\"" + FakeMaps.Spawn1 + "\" model=\"SpawnPoint_A\" position=\"150, 150, 150\" />" + Spawn("again", 7, "<row tag=\"wolf\" />"))));
-                Assert.That(Lines(p.Errors).Count(x => x.Contains("the server already has a row for spawn point 7")), Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(Lines(p.Errors).Count(x => x.Contains("this target already has a row for spawn point 7")), Is.EqualTo(2), Fake.Dump(p));
 
                 // a map a target does not have
                 p = f.Plan(f.Mod("d", "<map xblock=\"90000009_zz\">" + AddCrate + "</map>"));
@@ -517,7 +533,7 @@ namespace MS2.ModKit.Tests
                 Mod m = f.Mod("ops", Map(AllOps) + MapB(WayBack));
                 ApplyResult r = ws.Apply(f.Data, new[] { m }, new ApplyOptions { VerifyAll = true });
                 Assert.That(r.Applied, Is.True, Fake.Dump(r.Plan));
-                Assert.That(r.Outputs.Select(o => o.Archive).ToArray(), Is.EquivalentTo(new[] { K, G, S, FakeMaps.Tags }));
+                Assert.That(r.Outputs.Select(o => o.Archive).ToArray(), Is.EquivalentTo(new[] { K, G, S, FakeMaps.Tags, FakeMaps.TagsK }));
 
                 foreach (string ar in new[] { K, G, S })
                     using (M2dArchive orig = M2dArchive.Open(f.Data.Resolve(ar)))
@@ -539,7 +555,7 @@ namespace MS2.ModKit.Tests
                 Dictionary<string, byte[]> first = Files(ws.Dir);
                 r = ws.Apply(f.Data, new[] { m }, new ApplyOptions());
                 Assert.That(r.Applied, Is.True, Fake.Dump(r.Plan));
-                foreach (string ar in new[] { K, G, S, FakeMaps.Tags }) Assert.That(File.ReadAllBytes(ws.PathOf(ar)), Is.EqualTo(first[ws.PathOf(ar)]), ar);
+                foreach (string ar in new[] { K, G, S, FakeMaps.Tags, FakeMaps.TagsK }) Assert.That(File.ReadAllBytes(ws.PathOf(ar)), Is.EqualTo(first[ws.PathOf(ar)]), ar);
 
                 // revert: the copies go away, the shipped files were never written to
                 ws.Revert(f.Data, null, null);

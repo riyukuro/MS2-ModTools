@@ -28,7 +28,7 @@ namespace MS2.ModKit
     public static partial class Planner
     {
         public const string MapArchivePath = "Resource/Exported.m2d";
-        public const string SpawnTagArchive = "server:Xml.m2d", SpawnTagEntry = "table/mapspawntag.xml";
+        public const string SpawnTagArchiveName = "Xml.m2d", SpawnTagEntry = "table/mapspawntag.xml";
         public const string MapIngestNote = "the server does not read map files while it runs: after this apply, remove the stored navigation meshes of the changed maps and run the server's ingest again (this tool does neither)";
 
         sealed class MapEnt
@@ -486,25 +486,55 @@ namespace MS2.ModKit
                 plan.Msg(plan.Warnings, mod, null, null, what + " has no <row>: the server gets no line that says what spawns there, so nothing will (mod.xml line " + op.Line + ")");
                 return;
             }
-            if (!run.Data.Has(Profile.Server)) { plan.Msg(plan.Notes, mod, null, null, what + ": the server is not a target of this data set, its spawn rows are not written"); return; }
             long map = mop.EffectiveMapId;
             if (map < 0) { plan.Msg(plan.Errors, mod, null, null, what + ": the map id is not known; give <map id=\"...\"> (mod.xml line " + mop.Line + ")"); return; }
-            if (!run.Data.Exists(SpawnTagArchive)) { plan.Msg(plan.Warnings, mod, SpawnTagArchive, SpawnTagEntry, what + ": the server has no such archive, the spawn rows are not written"); return; }
             string code = map.ToString("D8", CultureInfo.InvariantCulture), point = D(op.Number);
 
-            M2dArchive arch = run.Open(mod, SpawnTagArchive);
-            if (arch == null) return;
-            EntryState st = run.State(arch, SpawnTagArchive, SpawnTagEntry);
-            if (st.Base != null && st.DeletedBy == null && EnsureDoc(plan, mod, st))
-                foreach (XmlElem r in st.Doc.Root.Children)
-                    if (r.Name == "region" && r.Attr("spawnPointID") == point && (r.Attr("mapCode") ?? "").TrimStart('0') == code.TrimStart('0') && DeletedBy(st, r) == null)
-                    {
-                        plan.Msg(plan.Errors, mod, SpawnTagArchive, SpawnTagEntry, "the server already has a row for " + what + " (line " + r.Line + "); nothing is added (mod.xml line " + op.Line + ")");
-                        return;
-                    }
-            var ed = new EditOp { Archive = SpawnTagArchive, Entry = SpawnTagEntry, Line = op.Line };
-            foreach (List<KeyValuePair<string, string>> row in op.Rows)
+            // The table ships in the server's and in each client's Xml archive: every copy gets the rows, so they stay equal.
+            bool server = false;
+            foreach (Profile p in run.Data.Profiles)
             {
+                string ar = p.Root + ":" + SpawnTagArchiveName;
+                if (!run.Data.Exists(ar))
+                {
+                    if (p.IsServer) plan.Msg(plan.Warnings, mod, ar, SpawnTagEntry, what + ": the server has no such archive, the spawn rows are not written");
+                    continue;
+                }
+                if (p.IsServer) server = true;
+                SpawnRowsOn(run, mod, op, ar, p, what, code, point);
+            }
+            if (!server && !run.Data.Has(Profile.Server)) plan.Msg(plan.Notes, mod, null, null, what + ": the server is not a target of this data set, its spawn rows are not written");
+        }
+
+        static void SpawnRowsOn(Run run, Mod mod, MapEntityOp op, string ar, Profile p, string what, string code, string point)
+        {
+            Plan plan = run.Plan;
+            M2dArchive arch = run.Open(mod, ar);
+            if (arch == null) return;
+            EntryState st = run.State(arch, ar, SpawnTagEntry);
+            if (st.Base == null || st.DeletedBy != null)
+            {
+                plan.Msg(p.IsServer ? plan.Warnings : plan.Notes, mod, ar, SpawnTagEntry, what + ": this target has no such table, the spawn rows are not written there");
+                return;
+            }
+            if (!EnsureDoc(plan, mod, st)) return;
+            XmlElem last = null;
+            foreach (XmlElem r in st.Doc.Root.Children)
+            {
+                if (r.Name != "region" || (r.Attr("mapCode") ?? "").TrimStart('0') != code.TrimStart('0') || DeletedBy(st, r) != null) continue;
+                if (r.Attr("spawnPointID") == point)
+                {
+                    plan.Msg(plan.Errors, mod, ar, SpawnTagEntry, "this target already has a row for " + what + " (line " + r.Line + "); nothing is added (mod.xml line " + op.Line + ")");
+                    return;
+                }
+                last = r;
+            }
+            // after the map's last row, or at the end of the table when the map has no row yet; rows added at one
+            // place keep the order of the mod
+            string after = last == null ? null : RowPath.Canonical(last);
+            for (int k = 0; k < op.Rows.Count; k++)
+            {
+                List<KeyValuePair<string, string>> row = op.Rows[k];
                 var sb = new System.Text.StringBuilder("<region mapCode=\"" + code + "\"");
                 bool put = false;
                 foreach (KeyValuePair<string, string> a in row)
@@ -515,9 +545,10 @@ namespace MS2.ModKit
                 }
                 if (!put) sb.Append(" spawnPointID=\"" + point + "\"");
                 sb.Append(" />");
-                ed.Rows.Add(new RowOp { Kind = RowOpKind.Add, Xml = sb.ToString(), Sync = false, Grouped = true, NoNewId = true, Line = op.Line });
+                var ro = new RowOp { Kind = RowOpKind.Add, Xml = sb.ToString(), FromIndent = "", After = after, Sync = false, Grouped = true, NoNewId = true, Line = op.Line };
+                try { DoAdd(run, mod, st, ro); }
+                catch (ModKitException ex) { plan.Msg(plan.Errors, mod, ar, SpawnTagEntry, ex.Message + " (mod.xml line " + op.Line + ")"); return; }
             }
-            DoEditOp(run, mod, ed);
         }
 
         // ---- checks (warnings) ----

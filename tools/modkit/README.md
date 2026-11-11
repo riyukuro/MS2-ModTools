@@ -763,9 +763,12 @@ operations, and each copy gets the same operations applied to its own file.
   `<unset name="..." old="..."/>`. A property with several values takes `index="..."` to name one of them.
 - `<remove>` takes an existing entity out.
 - `<spawn>` adds a place where monsters appear. `point` is its number on this map. The place alone spawns nothing:
-  what appears there is decided by a row in the server's table `table/mapspawntag.xml`, keyed by the map and that
-  number. Each `<row>` inside the `<spawn>` becomes such a row on the server (the map and the number are filled in
-  for you). Copy its attributes from the row of a shipped spawn place whose monsters you want.
+  what appears there is decided by a row in the table `table/mapspawntag.xml`, keyed by the map and that number.
+  The server reads it; the clients ship a copy of it too. Each `<row>` inside the `<spawn>` becomes such a row in
+  every copy of the table you have set up (server, Korean client, global client), so the copies stay equal. The map
+  and the number are filled in for you, and the rows are put right after the map's last existing row (at the end
+  of the table when the map has none). Copy the attributes from the row of a shipped spawn place whose monsters
+  you want.
 - `<portal>` adds a portal. `id` is its number on this map, `to-map` and `to-portal` say where it leads. A portal
   works one way; for a way back, add a second portal on the other map that points here, as in the example.
 - An NPC spawn place is a plain `<add>` of the map's NPC spawn model with its `NpcList` property:
@@ -802,8 +805,8 @@ modkit revert -w workspace                 # remove them again
 
 One mod is applied to every copy you have set up (see [Profiles](#profiles-which-data-you-have)): the Korean
 client, the global client and the server. Your original archives are only read. Apply writes modded copies into
-the workspace, `Resource/Exported.m2d` for each client and for the server, plus the server's `Xml.m2d` when the mod
-has spawn rows. Every other entry of an archive is carried over exactly as stored, and every entity you did not
+the workspace, `Resource/Exported.m2d` for each client and for the server, plus the `Xml.m2d` of every copy that
+ships the spawn table when the mod has spawn rows. Every other entry of an archive is carried over exactly as stored, and every entity you did not
 name keeps its bytes. Revert removes the copies; the originals were never changed.
 
 Many private servers do not keep their own map archive: their `Resource` folder is a link to a client's. The tool
@@ -838,6 +841,7 @@ The `.tok` files (the client's own walkable-ground data) are not touched.
 | `NPC ... of the NPC list is not in the NPC data of this target` | No NPC with that id on this copy | Use an existing NPC id, or add the NPC in a mod of the same apply |
 | `has no <row>` | A spawn place without a server row spawns nothing | Add a `<row>` |
 | `the server has no such archive, the spawn rows are not written` | The server data has no `Xml.m2d` | Set the server data folder up first |
+| `this target has no such table, the spawn rows are not written there` | That copy does not ship `table/mapspawntag.xml`. A warning on the server, a note on a client | On the server: set the data folder up first. On a client: nothing to do |
 | `this target's map table has no map ...` | The portal leads to a map id this copy does not know | Fix `to-map` |
 | `that map has no such portal after this plan` | With all mods applied, the target map has no portal with the number of `to-portal` | Add the portal on the other map, or fix the number |
 | `no portal of that map leads back to map ...` | There is no way back | Fine for a one-way door; else add one |
