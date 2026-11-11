@@ -320,6 +320,8 @@ namespace MS2.ModKit
             internal byte[] Original, Base;
             internal Mod BaseMod, DeletedBy;
             internal XmlDoc Doc;
+            // Final as parsed, for an entry with edits (the check that it still parses); kept for the checks after it
+            internal XmlDoc FinalDoc;
             internal XmlEditor Ed;
             internal bool DocFailed;
             /// <summary>The bytes after the edits (set when the plan is built; null = Base).</summary>
@@ -327,6 +329,8 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, Claim> Claims = new Dictionary<string, Claim>();
             internal readonly List<KeyValuePair<XmlElem, Mod>> Deleted = new List<KeyValuePair<XmlElem, Mod>>();
             internal readonly Dictionary<string, AddClaim> AddKeys = new Dictionary<string, AddClaim>();
+            // the keys of the children of a row of Doc, made at the first row a mod adds there (SameKey)
+            internal readonly Dictionary<XmlElem, Dictionary<string, List<XmlElem>>> RowKeys = new Dictionary<XmlElem, Dictionary<string, List<XmlElem>>>();
             /// <summary>Every row a mod adds, for a delete of the row it is added in.</summary>
             internal readonly List<AddClaim> Adds = new List<AddClaim>();
             /// <summary>Mods whose whole file for this entry is left out, with the mod that has the entry instead.</summary>
@@ -499,7 +503,7 @@ namespace MS2.ModKit
                     try
                     {
                         final = st.Ed.ApplyBytes();
-                        XmlDoc.Parse(final, st.Archive + " " + st.Name + " (after the edits)");
+                        st.FinalDoc = XmlDoc.Parse(final, st.Archive + " " + st.Name + " (after the edits)");
                     }
                     catch (ModKitException x) { plan.Msg(plan.Errors, null, st.Archive, st.Name, x.Message); continue; }
                 }
@@ -1073,6 +1077,29 @@ namespace MS2.ModKit
             return sb.ToString();
         }
 
+        static readonly List<XmlElem> NoRows = new List<XmlElem>();
+
+        // the children of a row that have the key, in their order. The keys of all its children are made once for
+        // the entry (the document of a state is not changed by the plan; a state that gets another document has
+        // other rows): a mod that adds many rows to one long table would make them again for every row
+        static List<XmlElem> SameKey(EntryState st, XmlElem parent, string key)
+        {
+            Dictionary<string, List<XmlElem>> keys;
+            if (!st.RowKeys.TryGetValue(parent, out keys))
+            {
+                st.RowKeys[parent] = keys = new Dictionary<string, List<XmlElem>>(StringComparer.Ordinal);
+                foreach (XmlElem c in parent.Children)
+                {
+                    string k = RowKey(c);
+                    List<XmlElem> l;
+                    if (!keys.TryGetValue(k, out l)) keys[k] = l = new List<XmlElem>(1);
+                    l.Add(c);
+                }
+            }
+            List<XmlElem> hits;
+            return keys.TryGetValue(key, out hits) ? hits : NoRows;
+        }
+
         static void DoAddLine(Run run, Mod mod, EntryState st, RowOp r)
         {
             Plan plan = run.Plan;
@@ -1152,9 +1179,8 @@ namespace MS2.ModKit
             }
             else
             {
-                string mk = RowKey(made);
-                foreach (XmlElem c in parent.Children)
-                    if (c.Name == made.Name && RowKey(c) == mk && DeletedBy(st, c) == null)
+                foreach (XmlElem c in SameKey(st, parent, RowKey(made)))
+                    if (DeletedBy(st, c) == null)
                     {
                         // a mirrored add of a row this side ships already (the same id, feature and locale; a string
                         // row the mod's side lacks, the other side has): that row gets the new row's attributes
