@@ -71,6 +71,8 @@ namespace MS2.ModKit
         public readonly List<List<KeyValuePair<string, string>>> Rows = new List<List<KeyValuePair<string, string>>>();
         /// <summary>Add, Spawn, Portal: the iterations attribute of the new entity.</summary>
         public int Iterations = 1;
+        /// <summary>Change: the iterations attribute the entity gets (the map editor counts it up with each edit); 0 = left as it is.</summary>
+        public int SetIterations;
         /// <summary>Add, Spawn, Portal: the id the new entity gets; null = derived from the mod id, the map and Name.</summary>
         public string NewId;
         /// <summary>Add, Spawn, Portal: every property name of the new entity in the order to write; null = like the shipped entities.</summary>
@@ -144,7 +146,7 @@ namespace MS2.ModKit
                             op.Number = Num32(c, "id"); op.ToMap = Num32(c, "to-map"); op.ToPortal = Num32(c, "to-portal");
                             break;
                         case "remove": Only(c, "id", "model", "position"); op.Kind = MapOpKind.Remove; break;
-                        case "change": Only(c, "id", "model", "position"); op.Kind = MapOpKind.Change; break;
+                        case "change": Only(c, "id", "model", "position", "iterations"); op.Kind = MapOpKind.Change; break;
                         default: throw Bad(c, "unknown element <" + c.Name + "> in <map> (known: add, remove, change, spawn, portal)");
                     }
                     op.Model = Need(c, "model");
@@ -164,7 +166,12 @@ namespace MS2.ModKit
                             ms.Name = Need(s, "name"); ms.Index = s.Attr("index"); ms.Old = s.Attr("old");
                             op.Sets.Add(ms);
                         }
-                        if (op.Kind == MapOpKind.Change && op.Sets.Count == 0) throw Bad(c, "<change> changes nothing");
+                        if (op.Kind == MapOpKind.Change && c.Attr("iterations") != null)
+                        {
+                            op.SetIterations = (int)Num32(c, "iterations");
+                            if (op.SetIterations < 1) throw Bad(c, "iterations=\"" + c.Attr("iterations") + "\" counts from 1");
+                        }
+                        if (op.Kind == MapOpKind.Change && op.Sets.Count == 0 && op.SetIterations == 0) throw Bad(c, "<change> changes nothing");
                     }
                     else
                     {
@@ -253,6 +260,7 @@ namespace MS2.ModKit
                     if (op.Kind == MapOpKind.Remove || op.Kind == MapOpKind.Change)
                     {
                         A(sb, "id", op.Id); A(sb, "model", op.Model); A(sb, "position", op.Position);
+                        if (op.SetIterations != 0) A(sb, "iterations", op.SetIterations.ToString(CultureInfo.InvariantCulture));
                         if (op.Sets.Count == 0) { sb.Append(" />\n"); continue; }
                         sb.Append(">\n");
                         foreach (MapSet s in op.Sets)

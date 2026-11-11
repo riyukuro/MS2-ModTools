@@ -3,7 +3,7 @@
 // An entity only in the shipped file becomes <remove>, one only in the edited file <add> (or <spawn>, <portal> when it
 // carries those numbers) with its own id and property order, one in both with other values <change> with the shipped
 // values as the expected old ones. Check then plans the ops on the shipped file and compares bytes: what the ops
-// cannot say (another model, name or iterations of an entity, properties in another order, another layout) shows there.
+// cannot say (another model or name of an entity, properties in another order, another layout) shows there.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -62,12 +62,18 @@ namespace MS2.ModKit
                     map.Ops.Add(new MapEntityOp { Kind = MapOpKind.Remove, Id = e.Id, Model = e.Model, Position = Position(e) });
                     continue;
                 }
-                if (n.Model != e.Model || n.Name != e.Name || n.Iterations != e.Iterations)
+                if (n.Model != e.Model || n.Name != e.Name)
                 {
-                    problems.Add("entity " + e.Id + " has another model, name or iterations value (\"" + e.Model + "\" \"" + e.Name + "\" " + e.Iterations + " became \"" + n.Model + "\" \"" + n.Name + "\" " + n.Iterations + "); a mod cannot say that");
+                    problems.Add("entity " + e.Id + " has another model or name (\"" + e.Model + "\" \"" + e.Name + "\" became \"" + n.Model + "\" \"" + n.Name + "\"); a mod cannot say that");
                     continue;
                 }
                 var op = new MapEntityOp { Kind = MapOpKind.Change, Id = e.Id, Model = e.Model, Position = Position(e) };
+                // the map editor counts iterations up with each edit of an entity
+                if (n.Iterations != e.Iterations)
+                {
+                    if (n.Iterations < 1) { problems.Add("entity " + e.Id + " has iterations=\"" + n.Iterations + "\"; a mod cannot say that"); continue; }
+                    op.SetIterations = n.Iterations;
+                }
                 foreach (XProp p in e.Props)
                 {
                     XProp q = n.Find(p.Name);
@@ -85,7 +91,7 @@ namespace MS2.ModKit
                     foreach (XSet t in q.Items)
                         if (!Item(p, t.Index, out was)) op.Sets.Add(new MapSet { Name = q.Name, Index = t.Index, Value = t.Value });
                 }
-                if (op.Sets.Count > 0) map.Ops.Add(op);
+                if (op.Sets.Count > 0 || op.SetIterations != 0) map.Ops.Add(op);
             }
             var names = new Dictionary<string, bool>();
             foreach (XEntity e in b)

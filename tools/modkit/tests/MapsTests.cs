@@ -718,6 +718,38 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // the map editor counts an entity's iterations up with each edit: a change carries the new number
+        [Test]
+        public void IterationsOfAnEditedEntityGoIntoTheChange()
+        {
+            byte[] shipped = XBlock.Bytes(FakeMaps.A(false), XDialect.Tab);
+            List<XEntity> l = FakeMaps.A(false);
+            l[0].Iterations += 2;                                  // only the number
+            l[1].Iterations += 1;                                  // the number and a value
+            l[1].Props[0].Items[0] = new XSet(l[1].Props[0].Items[0].Index, l[1].Props[0].Items[0].Value + "1");
+            byte[] edited = XBlock.Bytes(l, XDialect.Tab);
+            var problems = new List<string>();
+            MapOp ops = MapDiff.Build(FakeMaps.MapA, shipped, edited, problems);
+            Assert.That(problems, Is.Empty);
+            Assert.That(ops.Ops.Select(o => o.Kind + " " + o.SetIterations + " " + o.Sets.Count).ToArray(),
+                Is.EqualTo(new[] { "Change " + l[0].Iterations + " 0", "Change " + l[1].Iterations + " 1" }));
+            var mod = new Mod { Id = "diffed", Name = "diffed", Version = "1" };
+            mod.Maps.Add(ops);
+            string text = mod.ToXml();
+            Assert.That(text, Does.Contain(" iterations=\"" + l[0].Iterations + "\" />"));
+            Mod loaded = Mod.Parse(text, "generated");
+            Assert.That(loaded.ToXml(), Is.EqualTo(text));
+            Assert.That(MapDiff.Check(loaded, FakeMaps.MapA, shipped, edited), Is.Null);
+            Assert.Throws<ModKitException>(() => Mod.Parse(text.Replace(" iterations=\"" + l[0].Iterations + "\" />", " iterations=\"0\" />"), "bad"));
+            Assert.Throws<ModKitException>(() => Mod.Parse(text.Replace(" iterations=\"" + l[0].Iterations + "\" />", " />"), "empty"), "a change that changes nothing");
+
+            // a number below 1 cannot be said
+            l[0].Iterations = 0;
+            MapDiff.Build(FakeMaps.MapA, shipped, XBlock.Bytes(l, XDialect.Tab), problems);
+            Assert.That(problems.Count, Is.EqualTo(1));
+            Assert.That(problems[0], Does.Contain("iterations=\"0\""));
+        }
+
         [Test]
         public void DifferenceThatAModCannotSayIsReported()
         {

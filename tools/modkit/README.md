@@ -764,6 +764,8 @@ operations, and each copy gets the same operations applied to its own file.
   such entity.
 - `<change>` sets or removes properties of an existing entity: `<set name="..." old="..." value="..."/>` and
   `<unset name="..." old="..."/>`. A property with several values takes `index="..."` to name one of them.
+  `iterations="..."` on the `<change>` sets the entity's edit counter (`map-diff` writes it for an entity the map
+  editor touched; by hand you leave it out).
 - `<remove>` takes an existing entity out.
 - `<spawn>` adds a place where monsters appear. `point` is its number on this map. The place alone spawns nothing:
   what appears there is decided by a row in the table `table/mapspawntag.xml`, keyed by the map and that number.
@@ -931,7 +933,8 @@ The map's name is the shipped file's name; give more pairs for more maps. An ent
 the shipped values as the expected old ones. New entities keep their id and the order of their properties
 (`entity-id="..."` and `order="..."`, which you do not write by hand). Before the mod is written the command
 applies it to the shipped file and compares the result with your edited file, byte for byte; when they differ it
-says so and writes nothing. Things a mod cannot say: another model, display name or iterations value of a shipped
+says so and writes nothing. The map editor counts an entity's `iterations` number up each time you edit the entity;
+the `<change>` carries the new number as `iterations="..."`. Things a mod cannot say: another model or display name of a shipped
 entity, the same properties in another order, another file layout. A new spawn point comes without server rows,
 because a map file does not hold them: add its `<row .../>` lines by hand.
 

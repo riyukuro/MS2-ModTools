@@ -391,6 +391,12 @@ namespace MS2.ModKit
                 if (isPortal) portal = n; else spawn = n;
             }
 
+            string wasIt = me.Elem.Attr("iterations"), newIt = op.SetIterations.ToString(CultureInfo.InvariantCulture);
+            if (op.SetIterations != 0 && wasIt != newIt)
+            {
+                st.Ed.SetAttr(me.Elem, "iterations", newIt);
+                plan.Changes.Add(new PlanChange { Kind = ChangeKind.SetAttr, ModId = mod.Id, Archive = ms.ArchiveRef, Entry = st.Name, Row = EntRow(op.Id), Name = "iterations", OldValue = wasIt, NewValue = newIt, OwnSides = true });
+            }
             var fresh = new List<XProp>();
             var check = new List<XProp>();
             foreach (MapSet s in op.Sets)
