@@ -129,6 +129,9 @@ namespace MS2.ModKit
             return e;
         }
 
+        /// <summary>The quest editor over the data and the mod being edited (see Quests.cs). Ask again after the mod is replaced.</summary>
+        public QuestEditor Quests() { return new QuestEditor(Data, Mod); }
+
         /// <summary>The skill and effect editor over the data and the mod being edited (see SkillEditor.cs). Ask again after the mod is replaced.</summary>
         public SkillEditor Skills() { return new SkillEditor(Data, Mod); }
 
