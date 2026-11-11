@@ -230,7 +230,7 @@ namespace MS2.ModKit
                         }
                         if (c.Attr("order") != null)
                         {
-                            op.Order = new List<string>(c.Attr("order").Split(','));
+                            op.Order = c.Attr("order").Length == 0 ? new List<string>() : new List<string>(c.Attr("order").Split(','));   // "": an entity with no property
                             var all = new List<string>();
                             foreach (XProp q in op.Props) all.Add(q.Name);
                             if (own != null) all.AddRange(own.Split(new[] { ", " }, StringSplitOptions.None));

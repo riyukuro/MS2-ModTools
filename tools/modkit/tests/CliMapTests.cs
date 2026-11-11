@@ -63,6 +63,19 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void MapDiffWritesAnAddedEntityThatHasNoProperty()
+        {
+            string shipped = Put("shipped/90000001_made_up.xblock", new[] { Ent("000000000000000000000000000000a1", "one", 1) }, XDialect.Tab);
+            string edited = Put("edited/90000001_made_up.xblock", new[] { Ent("000000000000000000000000000000a1", "one", 1), Ent("000000000000000000000000000000a4", "four", 1) }, XDialect.Tab);
+            string so, se;
+            int rc = Run(out so, out se, "map-diff", "--id", "made-up-mod", "-o", Path.Combine(dir, "mod"), shipped, edited);
+            Assert.AreEqual(0, rc, so + se);
+            StringAssert.Contains("1 added, 0 removed, 0 changed", so);
+            StringAssert.Contains("byte for byte", so);
+            StringAssert.Contains("order=\"\"", File.ReadAllText(Path.Combine(dir, "mod/mod.xml")));
+        }
+
+        [Test]
         public void AFolderGivesItsMapsWhateverTheLetterCaseOfTheExtension()
         {
             var ents = new[] { Ent("000000000000000000000000000000a1", "one", 1) };
