@@ -680,7 +680,7 @@ namespace MS2.ModKit
                 catch (ModKitException ex) { skip(TableXml + " " + TableEntry, ex); }
                 if (rows != null)
                     foreach (KeyValuePair<long, List<XmlElem>> kv in rows)
-                        foreach (XmlElem row in kv.Value) visit(kv.Key, row, QuestPlace.KeyOf(TableXml, name, row.Attr("feature") ?? ""));
+                        for (int i = 0; i < kv.Value.Count; i++) visit(kv.Key, kv.Value[i], QuestPlace.KeyOf(TableXml, name, kv.Value[i].Attr("feature") ?? "", i));
             }
             foreach (string archive in FileArchives())
             {
@@ -695,7 +695,7 @@ namespace MS2.ModKit
                     if (root == null) continue;
                     var qs = new List<KeyValuePair<XmlElem, string>>();
                     QuestElems(root, qs);
-                    foreach (KeyValuePair<XmlElem, string> q in qs) visit(kv.Key, q.Key, QuestPlace.KeyOf(archive, kv.Value, q.Value));
+                    for (int i = 0; i < qs.Count; i++) visit(kv.Key, qs[i].Key, QuestPlace.KeyOf(archive, kv.Value, qs[i].Value, i));
                 }
             }
         }

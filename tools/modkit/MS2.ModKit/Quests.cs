@@ -61,16 +61,21 @@ namespace MS2.ModKit
         public string Language;
         /// <summary>True for a place the mod adds (a cloned quest).</summary>
         public bool IsNew;
+        /// <summary>
+        /// The place's position among the quest's elements of its entry (the quest's table rows, the &lt;quest&gt;
+        /// elements of a file, in file order): two of them under environments of one feature are two places.
+        /// </summary>
+        public int Ordinal;
         internal QuestNode Root;
 
         public string Target { get { Profile p = Profile.OfArchive(Archive); return p != null ? p.Name : DataSet.RootOf(Archive); } }
         public string Label { get { return Target + "  " + Entry + (Feature.Length > 0 ? "  [" + Feature + "]" : ""); } }
         public override string ToString() { return Label; }
-        /// <summary>The place as one string (archive, entry, feature): what a Where used hit names for a jump.</summary>
-        public string Key { get { return KeyOf(Archive, Entry, Feature); } }
-        internal static string KeyOf(string archive, string entry, string feature)
+        /// <summary>The place as one string (archive, entry, feature, ordinal): what a Where used hit names for a jump.</summary>
+        public string Key { get { return KeyOf(Archive, Entry, Feature, Ordinal); } }
+        internal static string KeyOf(string archive, string entry, string feature, int ordinal)
         {
-            return archive + "\n" + (entry ?? "").Replace('\\', '/').ToLowerInvariant() + "\n" + (feature ?? "");
+            return archive + "\n" + (entry ?? "").Replace('\\', '/').ToLowerInvariant() + "\n" + (feature ?? "") + "\n" + ordinal.ToString(CultureInfo.InvariantCulture);
         }
     }
 
@@ -1308,16 +1313,17 @@ namespace MS2.ModKit
             {
                 string name = Doc(TableXml, TableEntry).Name;
                 List<XmlElem> rows;
+                int n = 0;
                 if (TableRows().TryGetValue(id, out rows))
                     foreach (XmlElem row in rows)
                     {
-                        var p = new QuestPlace { Archive = TableXml, Entry = name, Kind = QuestPlace.Table, Feature = row.Attr("feature") ?? "" };
+                        var p = new QuestPlace { Archive = TableXml, Entry = name, Kind = QuestPlace.Table, Feature = row.Attr("feature") ?? "", Ordinal = n++ };
                         p.Root = new QuestNode { Place = p, Orig = row };
                         d.Places.Add(p);
                     }
                 foreach (RowOp r in TableAdds(id))
                 {
-                    var p = new QuestPlace { Archive = TableXml, Entry = name, Kind = QuestPlace.Table, Feature = LiteralOf(r).Attr("feature") ?? "", IsNew = true };
+                    var p = new QuestPlace { Archive = TableXml, Entry = name, Kind = QuestPlace.Table, Feature = LiteralOf(r).Attr("feature") ?? "", IsNew = true, Ordinal = n++ };
                     p.Root = new QuestNode { Place = p, Add = r };
                     d.Places.Add(p);
                 }
@@ -1336,9 +1342,10 @@ namespace MS2.ModKit
                 if (doc == null) continue;
                 var quests = new List<KeyValuePair<XmlElem, string>>();
                 QuestElems(doc.Doc.Root, quests);
-                foreach (KeyValuePair<XmlElem, string> q in quests)
+                for (int i = 0; i < quests.Count; i++)
                 {
-                    var p = new QuestPlace { Archive = archive, Entry = entry, Kind = QuestPlace.File, Feature = q.Value, IsNew = isNew };
+                    KeyValuePair<XmlElem, string> q = quests[i];
+                    var p = new QuestPlace { Archive = archive, Entry = entry, Kind = QuestPlace.File, Feature = q.Value, IsNew = isNew, Ordinal = i };
                     p.Root = new QuestNode { Place = p, Orig = q.Key };
                     d.Places.Add(p);
                 }

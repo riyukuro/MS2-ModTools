@@ -240,9 +240,9 @@ namespace MS2.ModKit.Tests
             const string Head = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
 
             static string Cond(string type, int code) { return "\t\t\t<condition type=\"" + type + "\" code=\"" + code + "\" value=\"1\" />\n"; }
-            static string Item(int code) { return "\t\t\t\t<essentialItem code=\"" + code + "\" rank=\"1\" count=\"1\" />\n"; }
+            internal static string Item(int code) { return "\t\t\t\t<essentialItem code=\"" + code + "\" rank=\"1\" count=\"1\" />\n"; }
 
-            static string File(string items, string conds)
+            internal static string File(string items, string conds)
             {
                 return Head + "<ms2>\n\t<environment feature=\"\" locale=\"\">\n\t\t<quest>\n" +
                     "\t\t\t<basic chapter=\"1\" questID=\"" + QuestEditor.Padded(801) + "\" />\n" +
@@ -259,7 +259,8 @@ namespace MS2.ModKit.Tests
 
             static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
-            public FakeUses()
+            /// <param name="serverFile">The server's quest/00000801.xml (default: one quest, npc 42; essentialItem 9002, 9001).</param>
+            public FakeUses(string serverFile = null)
             {
                 Write(Path.Combine(Dir, "kms"), E("questdata/questdata.xml", Head + "<ms2>\n\t<quest id=\"801\">\n\t\t<basic chapter=\"1\" />\n\t\t<start npc=\"31\" />\n" +
                     "\t\t<completeReward exp=\"10\">\n\t\t\t<v code=\"9001\" rank=\"1\" count=\"1\" />\n\t\t</completeReward>\n" +
@@ -267,7 +268,7 @@ namespace MS2.ModKit.Tests
                     "\t\t<condition type=\"buff\" code=\"5301\" value=\"1\" />\n\t\t<condition type=\"map\" code=\"9100001\" value=\"1\" />\n" +
                     "\t\t<condition type=\"npc\" code=\"41\" value=\"1\" />\n\t</quest>\n</ms2>\n"));
                 Write(Path.Combine(Dir, "gms"), E("quest/00000801.xml", File(Item(9001), Cond("npc", 41))));
-                Write(Path.Combine(Dir, "server"), E("quest/00000801.xml", File(Item(9002) + Item(9001), Cond("npc", 42))),
+                Write(Path.Combine(Dir, "server"), E("quest/00000801.xml", serverFile ?? File(Item(9002) + Item(9001), Cond("npc", 42))),
                     E("quest/00000802.xml", Head + "<ms2>\n\t<environment feature=\"\">\n\t\t<quest>\n"));
             }
 
@@ -328,6 +329,10 @@ namespace MS2.ModKit.Tests
             using (EditorSession s = Session(f.Dir))
             {
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Npc, 42)), Is.EqualTo(new[] { "quest 801: condition 1 (npc)" }), "the server file's condition");
+                // the shipped side's place of a reward row is the one the quest's draft names
+                UseHit shipped = new WhereUsed(s).Of(IdLookup.Item, 9002)[0];
+                QuestReward before = s.Quests().Open(801).Rewards("essentialItem").Find(w => w.Code == "9002");
+                Assert.That(before.IsRow(shipped.Place, shipped.Index), Is.True, "the shipped key");
                 s.Quests().Open(801).SetStartNpc(51);
                 Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Npc, 42)), Is.EqualTo(new[] { "quest 801: condition 1 (npc)" }),
                     "a touched quest keeps the value only its later place has, and it is not new");
@@ -343,6 +348,24 @@ namespace MS2.ModKit.Tests
                 Assert.That(mine.IsRow(h.Place, h.Index), Is.True, "Go to finds the row by its place and its row there");
                 Assert.That(other.IsRow(h.Place, h.Index), Is.False);
                 Assert.That(mine.IsRow("no such place", 0), Is.False);
+            }
+        }
+
+        [Test]
+        public void TwoQuestsOfOneFeatureInAFileAreTwoPlaces()
+        {
+            string one = FakeUses.File(FakeUses.Item(9003), ""), two = FakeUses.File(FakeUses.Item(9004), "");
+            string file = one.Substring(0, one.IndexOf("</ms2>")) + two.Substring(two.IndexOf("\t<environment"));
+            using (var f = new FakeUses(file))
+            using (EditorSession s = Session(f.Dir))
+            {
+                UseHit a = new WhereUsed(s).Of(IdLookup.Item, 9003)[0], b = new WhereUsed(s).Of(IdLookup.Item, 9004)[0];
+                Assert.That(a.Place, Is.Not.EqualTo(b.Place), "the first and the second <quest> of the file");
+                List<QuestReward> l = s.Quests().Open(801).Rewards("essentialItem");
+                QuestReward ra = l.Find(w => w.Code == "9003"), rb = l.Find(w => w.Code == "9004");
+                Assert.That(ra.IsRow(a.Place, a.Index), Is.True);
+                Assert.That(rb.IsRow(b.Place, b.Index), Is.True);
+                Assert.That(ra.IsRow(b.Place, b.Index), Is.False, "Go to picks the row of its own quest element");
             }
         }
 
