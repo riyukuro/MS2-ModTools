@@ -25,6 +25,52 @@ namespace MS2.ModKit.Tests
             return src;
         }
 
+        static int Cli(out string stdout, out string stderr, params string[] argv)
+        {
+            System.Reflection.MethodInfo main = System.Reflection.Assembly.Load("modkit").EntryPoint;
+            TextWriter o = System.Console.Out, e = System.Console.Error;
+            var so = new StringWriter(); var se = new StringWriter();
+            so.NewLine = "\n"; se.NewLine = "\n";
+            System.Console.SetOut(so); System.Console.SetError(se);
+            try { return (int)main.Invoke(null, new object[] { argv }); }
+            finally { System.Console.SetOut(o); System.Console.SetError(e); stdout = so.ToString(); stderr = se.ToString(); }
+        }
+
+        [Test]
+        public void TheCommandLine()
+        {
+            using (var f = new Fake())
+            {
+                string src = Tree(f), o, e;
+                // the hits, the file that names the table first, and the draft; no data root is needed
+                Assert.That(Cli(out o, out e, "schema", "cite", "client:Xml.m2d", T, "ms2/pet", "glow", "--src", src), Is.EqualTo(0), e);
+                string[] lines = o.TrimEnd('\n').Split('\n');
+                Assert.That(lines[0], Is.EqualTo("table  game/pets/petloader.cpp:5: pet.glow = n->Int(\"glow\");"));
+                Assert.That(lines[1], Does.StartWith("other  other/aaa.cpp:1: "));
+                Assert.That(lines[2], Is.EqualTo("draft for schema-notes.xml, after you have read that line:"));
+                Assert.That(lines[3].Trim(), Is.EqualTo(SchemaCite.NoteLine(C, T, "ms2/pet", "glow", SchemaCite.Find(src, T, "glow", 40)[0])));
+                Assert.That(lines.Length, Is.EqualTo(4));
+                Assert.That(e, Is.Empty);
+
+                // hits only in files that do not name the table: the lines, and no draft
+                Assert.That(Cli(out o, out e, "schema", "cite", C, T, "ms2/pet", "shade", "--src", src), Is.EqualTo(0), e);
+                Assert.That(o, Does.StartWith("other  game/npcs.h:2: ").And.Contain("no draft").And.Not.Contain("<attr"));
+
+                // no line at all: exit code 1
+                Assert.That(Cli(out o, out e, "schema", "cite", C, T, "ms2/pet", "nosuchname", "--src", src), Is.EqualTo(1));
+                Assert.That(o, Does.Contain("holds \"nosuchname\"").And.Not.Contain("draft"));
+
+                // a missing argument or no --src: usage, exit code 2
+                Assert.That(Cli(out o, out e, "schema", "cite", C, T, "ms2/pet", "--src", src), Is.EqualTo(2));
+                Assert.That(e, Does.Contain("schema cite <archive> <table> <element> <attr> --src DIR"));
+                Assert.That(Cli(out o, out e, "schema", "cite", C, T, "ms2/pet", "glow"), Is.EqualTo(2));
+                Assert.That(e, Does.Contain("--src DIR"));
+                // a folder that is not there
+                Assert.That(Cli(out o, out e, "schema", "cite", C, T, "ms2/pet", "glow", "--src", Path.Combine(f.Dir, "nowhere")), Is.EqualTo(2), o);
+                Assert.That(e, Does.StartWith("modkit: "));
+            }
+        }
+
         [Test]
         public void TheLinesThatReadAnAttribute()
         {
