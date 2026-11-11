@@ -97,7 +97,9 @@ namespace MS2.Tables
             modBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change (the MS2 Tables view's Apply)", delegate { return host.DoApply(); }));
             modBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
-            for (int i = 0; i < FileColumns.Length; i++) fileList.Columns.Add(FileColumns[i], i == 0 ? 210 : i == 1 ? 220 : 64, i < 2 ? HorizontalAlignment.Left : HorizontalAlignment.Right);
+            // at 1280 wide all the columns fit: the counts 58, the three longer headers as wide as their text
+            for (int i = 0; i < FileColumns.Length; i++)
+                fileList.Columns.Add(FileColumns[i], i == 0 ? 210 : i == 1 ? 160 : FileColumns[i].Length > 8 ? 78 : 58, i < 2 ? HorizontalAlignment.Left : HorizontalAlignment.Right);
             fileList.ShowItemToolTips = true;
             tips.SetToolTip(fileList, "The tick of a file ticks or unticks all its fills; choose a file to see its rows below");
 
@@ -214,8 +216,7 @@ namespace MS2.Tables
                 TablesView h = TablesView.Open;
                 if (h == null || h.IsDisposed)
                 {
-                    IViewService views = Platform.GetService<IViewService>();
-                    h = views == null ? null : views.CreateOrFindView(TablesView.ViewId) as TablesView;
+                    h = TablesView.OpenBehind();
                 }
                 if (h == null) { OutputWrap.Set(outputBox, "the MS2 Tables view could not be opened; this view works on the data of that view"); return false; }
                 Hook(h);
@@ -232,11 +233,7 @@ namespace MS2.Tables
 
         void OnHostSaid(string text) { OutputWrap.Set(outputBox, text); }
 
-        void OnHostBusy(bool on)
-        {
-            foreach (Control c in lockable) c.Enabled = !on;
-            UseWaitCursor = on;
-        }
+        void OnHostBusy(bool on) { ViewLayout.Lock(this, lockable, on, outputBox); }
 
         /// <summary>Another session or mod: the scan was of the old one.</summary>
         void OnHostChanged()
