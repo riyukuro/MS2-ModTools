@@ -116,6 +116,79 @@ namespace MS2.ModKit
             return m;
         }
 
+        /// <summary>
+        /// The head of a mod only: id, name and version from the start tag of its root element, without the rest
+        /// of the file (a list of mods needs no more; a mod.xml of a few hundred thousand sets would else be read as
+        /// text and as a tree for each list). The body is not checked: Load says what is wrong in it.
+        /// </summary>
+        public static Mod LoadHead(string path)
+        {
+            string file = Directory.Exists(path) ? Path.Combine(path, "mod.xml") : path;
+            if (!File.Exists(file)) throw new ModKitException("no mod manifest at " + file);
+            byte[] head = RootStartTag(file);
+            if (head == null) return Load(path);       // no plain start tag near the top: the whole file says why
+            Mod m = new Reader { Label = file }.ReadHead(XmlDoc.Parse(head, file).Root);
+            m.Dir = Path.GetDirectoryName(Path.GetFullPath(file));
+            return m;
+        }
+
+        // the bytes of the file up to the end of its root element's start tag, closed as an empty element; null when
+        // that tag is not found in the first MB of an 8-bit encoded file
+        static byte[] RootStartTag(string file)
+        {
+            byte[] buf;
+            int n = 0;
+            using (var fs = new FileStream(file, FileMode.Open, FileAccess.Read, FileShare.Read))
+            {
+                buf = new byte[(int)Math.Min(fs.Length, 1 << 20)];
+                int k;
+                while (n < buf.Length && (k = fs.Read(buf, n, buf.Length - n)) > 0) n += k;
+            }
+            int i = 0;
+            if (n >= 2 && (buf[0] == 0xFF || buf[0] == 0xFE || buf[0] == 0 || buf[1] == 0)) return null;     // utf-16
+            if (n >= 3 && buf[0] == 0xEF && buf[1] == 0xBB && buf[2] == 0xBF) i = 3;
+            for (; ; )
+            {
+                while (i < n && buf[i] <= 0x20) i++;
+                if (i + 1 >= n || buf[i] != '<') return null;
+                if (buf[i + 1] == '?' || buf[i + 1] == '!')
+                {
+                    // the declaration, a comment or a doctype before the root
+                    string end = buf[i + 1] == '?' ? "?>" : i + 3 < n && buf[i + 2] == '-' && buf[i + 3] == '-' ? "-->" : ">";
+                    int e = Find(buf, n, end, i + 2);
+                    if (e < 0) return null;
+                    i = e + end.Length;
+                    continue;
+                }
+                byte q = 0;
+                for (int j = i + 1; j < n; j++)
+                {
+                    byte c = buf[j];
+                    if (q != 0) { if (c == q) q = 0; continue; }
+                    if (c == '"' || c == '\'') { q = c; continue; }
+                    if (c != '>') continue;
+                    bool empty = buf[j - 1] == '/';
+                    var r = new byte[j + (empty ? 1 : 2)];
+                    Array.Copy(buf, r, j);
+                    if (empty) r[j] = (byte)'>';
+                    else { r[j] = (byte)'/'; r[j + 1] = (byte)'>'; }
+                    return r;
+                }
+                return null;
+            }
+        }
+
+        static int Find(byte[] buf, int n, string what, int from)
+        {
+            for (int i = from; i + what.Length <= n; i++)
+            {
+                int k = 0;
+                while (k < what.Length && buf[i + k] == what[k]) k++;
+                if (k == what.Length) return i;
+            }
+            return -1;
+        }
+
         public static Mod Parse(byte[] bytes, string label)
         {
             XmlDoc doc = XmlDoc.Parse(bytes, label);
@@ -169,7 +242,7 @@ namespace MS2.ModKit
                 return DataSet.NormalizeRef(a);
             }
 
-            internal Mod ReadMod(XmlElem root)
+            internal Mod ReadHead(XmlElem root)
             {
                 if (root.Name != "mod") throw Bad(root, "the root element is <" + root.Name + ">, expected <mod>");
                 Only(root, "id", "name", "version", "modkit", "trigger-lint");
@@ -182,6 +255,12 @@ namespace MS2.ModKit
                         throw Bad(root, "mod id \"" + m.Id + "\" may hold letters, digits, '.', '-' and '_' only");
                 string fv = root.Attr("modkit");
                 if (fv != null && fv != "1") throw Bad(root, "this mod is written for manifest format " + fv + "; this modkit reads format " + FormatVersion);
+                return m;
+            }
+
+            internal Mod ReadMod(XmlElem root)
+            {
+                Mod m = ReadHead(root);
                 foreach (XmlElem e in root.Children)
                 {
                     switch (e.Name)

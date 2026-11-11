@@ -73,7 +73,8 @@ namespace MS2.ModKit
             {
                 try
                 {
-                    Mod m = Mod.Load(Path.Combine(list.Dir, it.Folder));
+                    // the head only: what is wrong in a mod's body is said when the mod is loaded
+                    Mod m = Mod.LoadHead(Path.Combine(list.Dir, it.Folder));
                     it.Id = m.Id; it.Name = m.Name ?? ""; it.Version = m.Version ?? "";
                 }
                 catch (ModKitException x) { it.Error = x.Message; }
@@ -136,7 +137,8 @@ namespace MS2.ModKit
                 }
                 if (!it.Enabled) continue;
                 if (it.Error != null) throw new ModKitException("mod folder " + it.Folder + " is enabled but cannot be read: " + it.Error);
-                mods.Add(Mod.Load(Path.Combine(Dir, it.Folder)));
+                try { mods.Add(Mod.Load(Path.Combine(Dir, it.Folder))); }
+                catch (ModKitException x) { throw new ModKitException("mod folder " + it.Folder + " is enabled but cannot be read: " + x.Message); }
             }
             mods.Reverse();
             if (current != null && !seen && !current.IsEmpty) mods.Add(current);

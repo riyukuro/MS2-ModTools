@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Text;
 using NUnit.Framework;
 
 namespace MS2.ModKit.Tests
@@ -29,6 +30,41 @@ namespace MS2.ModKit.Tests
             Console.SetOut(so); Console.SetError(se);
             try { return (int)main.Invoke(null, new object[] { argv }); }
             finally { Console.SetOut(o); Console.SetError(e); stdout = so.ToString() + se.ToString(); }
+        }
+
+        // the list reads only the start tag of each mod.xml; a fault behind it is said when the mod is loaded
+        [Test]
+        public void ModList_ReadsTheHeadOfEachMod()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "modkit-list-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                var u8 = new UTF8Encoding(false);
+                Action<string, string> put = (folder, text) =>
+                {
+                    Directory.CreateDirectory(Path.Combine(dir, folder));
+                    File.WriteAllText(Path.Combine(Path.Combine(dir, folder), "mod.xml"), text, u8);
+                };
+                put("a.decl", "\uFEFF<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<!-- a > b -->\n<mod id=\"a.decl\" name=\"x > y\" version='2'>\n  <edit archive=\"client:Xml.m2d\" entry=\"table/pet.xml\"><change at=\"pet\"><set name=\"a\" value=\"1\"/></change></edit>\n</mod>\n");
+                put("b.body", "<mod id=\"b.body\" name=\"b\" version=\"1\">\n  <nonsense/>\n</mod>\n");
+                put("c.empty", "<mod id=\"c.empty\" name=\"c\" version=\"3\"/>");
+                put("d.cut", "<mod id=\"d.cut\"");
+                put("e.head", "<mod id=\"e head\" name=\"e\">\n</mod>\n");
+                ModList l = ModList.Load(dir);
+                Assert.That(l.Items.ConvertAll(i => i.Folder + "|" + i.Id + "|" + i.Name + "|" + i.Version + "|" + (i.Error != null)),
+                    Is.EqualTo(new[] { "a.decl|a.decl|x > y|2|False", "b.body|b.body|b|1|False", "c.empty|c.empty|c|3|False", "d.cut||||True", "e.head||||True" }));
+                Assert.That(l.Items[4].Error, Does.Contain("may hold letters, digits"));
+                Assert.That(Mod.LoadHead(Path.Combine(dir, "a.decl")).Ops, Is.Empty, "the head has no ops");
+                l.Items[3].Enabled = false; l.Items[4].Enabled = false;
+                var x = Assert.Throws<ModKitException>(() => l.LoadEnabled(null));
+                Assert.That(x.Message, Does.StartWith("mod folder b.body is enabled but cannot be read: "));
+                Assert.That(x.Message, Does.Contain("unknown element <nonsense>"));
+                l.Items[1].Enabled = false;
+                List<Mod> mods = l.LoadEnabled(null);
+                Assert.That(mods.ConvertAll(m => m.Id), Is.EqualTo(new[] { "c.empty", "a.decl" }));
+                Assert.That(mods[1].Ops.Count, Is.EqualTo(1));
+            }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
         }
 
         [Test]
@@ -145,6 +181,41 @@ namespace MS2.ModKit.Tests
                     Assert.That(lines[0], Is.EqualTo("nothing written: " + r.Reason));
                     Assert.That(lines[1], Does.Contain("1 error(s)"));
                     Assert.That(lines[2], Does.StartWith("error: "));
+                }
+            }
+        }
+
+        // everything taken out of the saved mod being edited: the plan has no mod, and an apply writes the mod empty
+        // and takes the earlier apply away (as the plan says), instead of leaving the copies of the old mod
+        [Test]
+        public void SessionApply_OfAnEmptiedMod_SavesItEmptyAndUndoesTheEarlierApply()
+        {
+            using (var f = new Fake())
+            {
+                string mods = Path.Combine(f.Dir, "mods"), ws = Path.Combine(f.Dir, "ws");
+                f.ModDir("a.one", Hp("11"));
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, mods, ws))
+                {
+                    s.LoadMod("a.one");
+                    ApplyResult r = s.Apply(null);
+                    Assert.That(r.Applied, Is.True, s.Describe(r));
+                    string copy = Path.Combine(Path.Combine(ws, "client"), "Xml.m2d");
+                    Assert.That(File.Exists(copy), Is.True);
+                    s.Mod.Ops.Clear();
+                    Assert.That(s.SavedHere(), Is.True);
+                    Plan p = s.Plan(null);
+                    Assert.That(p.Changes, Is.Empty);
+                    r = s.Apply(null);
+                    Assert.That(r.Applied, Is.True, s.Describe(r));
+                    Assert.That(File.Exists(copy), Is.False, "the copy of the earlier apply is gone");
+                    Assert.That(r.Removed, Has.Some.EqualTo(copy));
+                    Assert.That(Mod.Load(Path.Combine(mods, "a.one")).IsEmpty, Is.True, "the mod is saved empty");
+                    var x = Assert.Throws<ModKitException>(() => s.Apply(null));
+                    Assert.That(x.Message, Does.StartWith("mod a.one is saved empty and no other mod is enabled"));
+                    // a new mod that holds nothing is not saved over a folder
+                    s.NewMod("b.new");
+                    Assert.That(s.SavedHere(), Is.False);
+                    Assert.Throws<ModKitException>(() => s.SaveMod());
                 }
             }
         }
