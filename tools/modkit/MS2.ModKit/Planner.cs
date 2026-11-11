@@ -275,6 +275,7 @@ namespace MS2.ModKit
                 if (mo.Op is EditOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
             FinishMirror(run);
             SyncPass(run, options);
+            DoMaps(run, mods);
 
             foreach (EntryState st in run.Order)
             {

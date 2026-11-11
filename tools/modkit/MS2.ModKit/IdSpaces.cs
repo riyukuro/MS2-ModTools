@@ -196,6 +196,8 @@ namespace MS2.ModKit
         public const string ShopSpace = "shop", DropBoxSpace = "dropbox";
         public const long ShopFrom = 900000000, ShopTo = 900009999, DropBoxFrom = 900010000, DropBoxTo = 900019999;
         public const string SkillSpace = "skill", EffectSpace = "effect";
+        /// <summary>Per-map numbers of mods: portals and monster spawn points (no shipped map uses these bands).</summary>
+        public const long PortalFrom = 50000, PortalTo = 59999, SpawnPointFrom = 140000, SpawnPointTo = 149999;
         public const long SkillFrom = 78000000, SkillTo = 78099999, EffectFrom = 77100000, EffectTo = 77199999;
 
         /// <summary>The places a shop id or drop box id lives in, on every side.</summary>
