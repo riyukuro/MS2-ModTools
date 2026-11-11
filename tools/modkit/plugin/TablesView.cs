@@ -163,7 +163,8 @@ namespace MS2.Tables
             Controls.Add(top);
             lockable.AddRange(new Control[] { top, featBar, rowBar, grid, entryList, modBar, modsPanel });
             ViewLayout.KeepHeightShare(bottom, this, 0.32, 120);
-            ViewLayout.CentreOnFirstShow(this);
+            behind = makingBehind;
+            ViewLayout.CentreOnFirstShow(this, delegate { return behind; });
 
             targetBox.SelectedIndexChanged += delegate
             {
@@ -772,6 +773,24 @@ namespace MS2.Tables
         // it runs the handlers of its ClosingHandler extension point, and ours (ClosingHandler) calls this.
         internal static TablesView Open;
 
+        // made by another view for its job (Find, Scan, a lint): a tab behind that view, not brought to the front
+        bool behind;
+        static bool makingBehind;
+
+        /// <summary>
+        /// The open MS2 Tables view, or a new one made as a tab behind the view in front (another view works on its
+        /// data and jobs); null when it cannot be made.
+        /// </summary>
+        internal static TablesView OpenBehind()
+        {
+            if (Open != null && !Open.IsDisposed) return Open;
+            IViewService views = Platform.GetService<IViewService>();
+            if (views == null) return null;
+            makingBehind = true;
+            try { return views.CreateOrFindView(ViewId) as TablesView; }
+            finally { makingBehind = false; }
+        }
+
         /// <summary>False keeps Toolbench open.</summary>
         internal bool ConfirmShutdown()
         {
@@ -860,7 +879,15 @@ namespace MS2.Tables
         }
 
         /// <summary>The worker thread reports back through this view's window handle; a view never shown has none yet.</summary>
-        internal void NeedHandle() { if (!IsHandleCreated) CreateControl(); if (!IsHandleCreated) { IntPtr h = Handle; } }
+        // A handle made here is for another view's job (the view was restored at start-up but never shown): the view
+        // becomes a tab behind the one in front when it first goes to the centre area.
+        internal void NeedHandle()
+        {
+            if (IsHandleCreated) return;
+            behind = true;
+            CreateControl();
+            if (!IsHandleCreated) { IntPtr h = Handle; }
+        }
 
         // ---- jobs on the worker thread ----
 

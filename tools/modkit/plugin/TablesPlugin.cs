@@ -156,7 +156,7 @@ namespace MS2.Tables
             try
             {
                 IViewService views = Platform.GetService<IViewService>();
-                views.CreateOrFindView(TablesView.ViewId);
+                TablesView.OpenBehind();
                 AbstractView view = views.CreateOrFindView(ViewId) as AbstractView;
                 if (view == null)
                 {

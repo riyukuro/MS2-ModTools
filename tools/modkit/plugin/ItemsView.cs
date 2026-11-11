@@ -301,8 +301,7 @@ namespace MS2.Tables
                 TablesView h = TablesView.Open;
                 if (h == null || h.IsDisposed)
                 {
-                    IViewService views = Platform.GetService<IViewService>();
-                    h = views == null ? null : views.CreateOrFindView(TablesView.ViewId) as TablesView;
+                    h = TablesView.OpenBehind();
                 }
                 if (h == null) { outputBox.Text = "the MS2 Tables view could not be opened; the item editor works on the mod of that view"; return false; }
                 Hook(h);
@@ -337,11 +336,7 @@ namespace MS2.Tables
 
         void OnHostSaid(string text) { outputBox.Text = text; }
 
-        void OnHostBusy(bool on)
-        {
-            foreach (Control c in lockable) c.Enabled = !on;
-            UseWaitCursor = on;
-        }
+        void OnHostBusy(bool on) { ViewLayout.Lock(this, lockable, on, outputBox); }
 
         void OnHostFlushing() { grid.EndEdit(); }
 

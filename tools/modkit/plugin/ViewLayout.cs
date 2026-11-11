@@ -1,6 +1,7 @@
 // Layout helpers shared by the views: open in Toolbench's centre (document) area, grid columns that share the full
 // width, and panes that keep their share of the height when the window is resized.
 using System;
+using System.Collections.Generic;
 using System.Windows.Forms;
 using Emergent.Toolbench;
 using WeifenLuo.WinFormsUI.Docking;
@@ -16,7 +17,13 @@ namespace MS2.Tables
         /// wide, beside an empty centre. The view's dock window is a DockContent; this allows Document again and shows
         /// it there, as a tab of the document pane. A floating view is left where the user put it.
         /// </summary>
-        public static bool ToCentre(Control view)
+        public static bool ToCentre(Control view) { return ToCentre(view, true); }
+
+        /// <summary>
+        /// As above; with front false the document that was in front stays there (the view becomes a tab behind it),
+        /// unless the view's window is the active one already (Toolbench showed it for the user).
+        /// </summary>
+        public static bool ToCentre(Control view, bool front)
         {
             try
             {
@@ -28,6 +35,9 @@ namespace MS2.Tables
                     if (p == null) return false;
                     if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) { WholeWindow.Collapse(p); return true; }
                     dc.DockAreas |= DockAreas.Document;
+                    // a view made for another view's job (MS2 Tables under MS2 Triggers) is not the one the user is in
+                    IDockContent before = p.ActiveDocument;
+                    if (!front && (dc.IsActivated || p.ActiveContent == dc)) front = true;
                     // Show(panel, Document) keeps the pane the window already has (the right one), so the window
                     // joins the document pane that is there as a tab, or makes the document pane when there is none.
                     DockPane doc = p.ActiveDocumentPane;
@@ -39,7 +49,8 @@ namespace MS2.Tables
                     }
                     if (doc != null) dc.Show(doc, null);
                     else dc.DockTo(p, DockStyle.Fill);
-                    dc.Activate();
+                    if (front || before == null || before == dc || before.DockHandler.Form.IsDisposed) dc.Activate();
+                    else before.DockHandler.Activate();
                     WholeWindow.Collapse(p);
                     return true;
                 }
@@ -52,7 +63,10 @@ namespace MS2.Tables
         /// The first time the view is shown in a dock window (Toolbench shows the views it had open at start, before or
         /// after their window handle exists), it moves to the centre area.
         /// </summary>
-        public static void CentreOnFirstShow(Control view)
+        public static void CentreOnFirstShow(Control view) { CentreOnFirstShow(view, null); }
+
+        /// <summary>As above; when behind says so at that time, the view becomes a tab behind the one in front.</summary>
+        public static void CentreOnFirstShow(Control view, Func<bool> behind)
         {
             bool done = false, queued = false;
             EventHandler attempt = null;
@@ -64,12 +78,26 @@ namespace MS2.Tables
                 {
                     queued = false;
                     if (done || view.IsDisposed) return;
-                    done = ToCentre(view);
+                    done = ToCentre(view, behind == null || !behind());
                 });
             };
             view.HandleCreated += attempt;
             view.VisibleChanged += attempt;
             view.ParentChanged += attempt;
+        }
+
+        /// <summary>
+        /// Locks or unlocks a view's controls for a job of the Tables view. A disabled control that has the focus hands
+        /// it to the next control of the window, which can be in the Tables view: the dock panel then brings that tab
+        /// to the front. The focus goes to keep (the view's output box, never locked) before the controls are disabled.
+        /// </summary>
+        public static void Lock(Control view, IEnumerable<Control> lockable, bool on, Control keep)
+        {
+            if (on && view.ContainsFocus)
+                foreach (Control c in lockable)
+                    if (c.ContainsFocus) { keep.Focus(); break; }
+            foreach (Control c in lockable) c.Enabled = !on;
+            view.UseWaitCursor = on;
         }
 
         /// <summary>
