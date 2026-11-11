@@ -131,7 +131,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             a.Pos.RemoveAt(0);
             if (cmd == "pack") return Pack(a);
             if (cmd.StartsWith("map-")) return MapCmd(cmd, a);
-            Settings set = Settings.Load();
+            RepoSettings set = RepoSettings.Load(AppContext.BaseDirectory, Directory.GetCurrentDirectory());
             using (var data = new DataSet())
             {
                 if (a.Has("--client") && a.Has("--kms")) throw new UsageException("--client and --kms name the same folder; give one");
@@ -168,7 +168,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
         sealed class Ctx
         {
-            public Args A; public DataSet Data; public Settings Set; public bool Json, Quiet;
+            public Args A; public DataSet Data; public RepoSettings Set; public bool Json, Quiet;
             string last = "";
 
             public void Progress(ProgressInfo p)
@@ -620,53 +620,5 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (long id in IdSpaces.NextFree(x.Data, m, x.Need(1, "<space>"), count, x.Progress)) Console.WriteLine(id);
             return 0;
         }
-    }
-
-    /// <summary>The repo's settings: environment first, then modtools.toml in the repo root (see modtools.example.toml).</summary>
-    sealed class Settings
-    {
-        public string Repo;     // null when the tool does not run from a checkout
-        readonly Dictionary<string, string> file = new Dictionary<string, string>();
-
-        public static Settings Load()
-        {
-            var s = new Settings();
-            foreach (string start in new[] { AppContext.BaseDirectory, Directory.GetCurrentDirectory() })
-            {
-                for (string d = start; d != null && s.Repo == null; d = System.IO.Path.GetDirectoryName(d))
-                    if (File.Exists(System.IO.Path.Combine(d, "modtools.example.toml"))) s.Repo = d;
-                if (s.Repo != null) break;
-            }
-            if (s.Repo == null) return s;
-            string f = System.IO.Path.Combine(s.Repo, "modtools.toml");
-            if (!File.Exists(f)) return s;
-            // the file only holds NAME = "value" lines and comments
-            var re = new Regex("^\\s*([A-Za-z0-9_]+)\\s*=\\s*(?:\"((?:[^\"\\\\]|\\\\.)*)\"|'([^']*)')\\s*(#.*)?$");
-            foreach (string line in File.ReadAllLines(f))
-            {
-                Match m = re.Match(line);
-                if (!m.Success) continue;
-                s.file[m.Groups[1].Value] = m.Groups[3].Success ? m.Groups[3].Value : Regex.Replace(m.Groups[2].Value, "\\\\(.)", "$1");
-            }
-            return s;
-        }
-
-        public string Path(string name)
-        {
-            string v = Environment.GetEnvironmentVariable(name);
-            if (!string.IsNullOrEmpty(v)) return v;
-            if (!file.TryGetValue(name, out v) || v.Length == 0) return null;
-            return System.IO.Path.IsPathRooted(v) ? v : System.IO.Path.Combine(Repo, v);
-        }
-
-        /// <summary>A setting that is not a path: environment first, then modtools.toml; null when not set.</summary>
-        public string Value(string name)
-        {
-            string v = Environment.GetEnvironmentVariable(name);
-            if (!string.IsNullOrEmpty(v)) return v;
-            return file.TryGetValue(name, out v) && v.Length > 0 ? v : null;
-        }
-
-        public string OutDir { get { return Path("MS2_OUT") ?? System.IO.Path.Combine(Repo ?? Directory.GetCurrentDirectory(), "out"); } }
     }
 }
