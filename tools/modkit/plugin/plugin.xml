@@ -128,6 +128,11 @@
           class="MS2.Tables.TextImportView"
           default-dock="Document"
           default-visible="true"/>
+    <view id="MS2.Tables.FieldRowsView"
+          name="MS2 Field rows"
+          class="MS2.Tables.FieldRowsView"
+          default-dock="Document"
+          default-visible="true"/>
   </extension>
 
   <extension point="Emergent.Toolbench.Workbench.ActionSet">
@@ -141,6 +146,7 @@
       <menuitem id="MS2.Tables.Menu.ShowQuests" action="MS2.Tables.ShowQuestsAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowTriggers" action="MS2.Tables.ShowTriggersAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowTextImport" action="MS2.Tables.ShowTextImportAction" path="MS2 Mods" priority="18"/>
+      <menuitem id="MS2.Tables.Menu.ShowFieldRows" action="MS2.Tables.ShowFieldRowsAction" path="MS2 Mods" priority="18"/>
       <menufactory id="MS2.Tables.Menu.WholeWindow" label="Use the whole window" class="MS2.Tables.WholeWindowMenu" path="MS2 Mods" priority="19"/>
       <menuitem id="MS2.Tables.Menu.Plan" action="MS2.Tables.PlanAction" path="MS2 Mods" priority="20"/>
       <menuitem id="MS2.Tables.Menu.Apply" action="MS2.Tables.ApplyAction" path="MS2 Mods" priority="30"/>
@@ -153,6 +159,7 @@
       <action label="Quests" tooltip="Shows the MS2 Quests view: one quest on every target, with its level, NPCs, rewards, condition counts and texts, and clone to a new id" handler="MS2.Tables.ShowQuestsAction" id="MS2.Tables.ShowQuestsAction"/>
       <action label="Triggers" tooltip="Shows the MS2 Triggers view: the trigger scripts of a map, each as a tree of its states with their conditions, actions and the states they go to" handler="MS2.Tables.ShowTriggersAction" id="MS2.Tables.ShowTriggersAction"/>
       <action label="Text import" tooltip="Shows the MS2 Text import view: fills our string rows that are still Korean from the global client's string files, file by file, with the plainly different rows to choose by hand" handler="MS2.Tables.ShowTextImportAction" id="MS2.Tables.ShowTextImportAction"/>
+      <action label="Field rows" tooltip="Shows the MS2 Field rows view: the maps our client has but cannot open (no xblock in table/fielddata.xml), with the compact row built from the global client's map file, written into the mod" handler="MS2.Tables.ShowFieldRowsAction" id="MS2.Tables.ShowFieldRowsAction"/>
       <action label="Plan" tooltip="Shows what the enabled mods of the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
               handler="MS2.Tables.PlanAction" id="MS2.Tables.PlanAction"/>
       <action label="Apply" tooltip="Saves the mod being edited and writes what the enabled mods change: loose files into the game folder, or patched copies of the archives into the workspace folder"
@@ -178,6 +185,7 @@
       <view id="MS2.Tables.QuestsView"/>
       <view id="MS2.Tables.TriggersView"/>
       <view id="MS2.Tables.TextImportView"/>
+      <view id="MS2.Tables.FieldRowsView"/>
       <actionset id="MS2.Tables.Actions"/>
     </mapping>
   </extension>
