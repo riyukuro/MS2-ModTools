@@ -128,7 +128,17 @@ namespace MS2.ModKit
                 foreach (MapOp mop in m.Maps)
                 {
                     foreach (KeyValuePair<Profile, string> t in mr.Targets) PlanMap(run, mr, m, mop, t.Key, t.Value);
-                    foreach (MapEntityOp op in mop.Ops) if (op.Kind == MapOpKind.Spawn) SpawnRows(run, m, mop, op);
+                    foreach (MapEntityOp op in mop.Ops)
+                    {
+                        if (op.Kind != MapOpKind.Spawn) continue;
+                        // rows only for a place that was put into a map: a place skipped on every target gets none
+                        bool placed = false;
+                        foreach (MapState ms in mr.Order)
+                            foreach (MapEnt e in ms.Added) if (e.Op == op) placed = true;
+                        if (placed) SpawnRows(run, m, mop, op);
+                        else if (op.Rows.Count > 0)
+                            plan.Msg(plan.Warnings, m, null, null, "spawn point " + D(op.Number) + " of map " + mop.XBlock + " was put into no map file, so its spawn rows are not written either (mod.xml line " + op.Line + ")");
+                    }
                 }
 
             foreach (MapState ms in mr.Order) FlushAdded(ms);

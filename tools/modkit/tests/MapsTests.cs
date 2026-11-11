@@ -531,6 +531,17 @@ namespace MS2.ModKit.Tests
                 // a map a target does not have
                 p = f.Plan(f.Mod("d", "<map xblock=\"90000009_zz\">" + AddCrate + "</map>"));
                 Assert.That(Lines(p.Warnings).Count(x => x.Contains("has no such map")), Is.EqualTo(3), Fake.Dump(p));
+
+                // a spawn place that no target could take gets no rows: no table is touched, and the plan says so
+                p = f.Plan(f.Mod("d2", "<map xblock=\"90000009_zz\">" + Spawn("lost", 140000, "<row tag=\"wolf\" />") + "</map>"));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Lines(p.Warnings).Count(x => x.Contains("has no such map")), Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(Lines(p.Warnings).Count(x => x.Contains("spawn point 140000 of map 90000009_zz was put into no map file, so its spawn rows are not written either")), Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(p.Find(FakeMaps.Tags), Is.Null);
+                Assert.That(p.Find(FakeMaps.TagsK), Is.Null);
+                // an entity refused for its number leaves no rows either
+                p = f.Plan(f.Mod("d3", Map(Spawn("dup", 7, "<row tag=\"wolf\" />"))));
+                Assert.That(p.Find(FakeMaps.Tags), Is.Null, Fake.Dump(p));
             }
         }
 

@@ -844,6 +844,7 @@ The `.tok` files (the client's own walkable-ground data) are not touched.
 | `NPC ... of the NPC list is not in the NPC data of this target` | No NPC with that id on this copy | Use an existing NPC id, or add the NPC in a mod of the same apply |
 | `has no <row>` | A spawn place without a server row spawns nothing | Add a `<row>` |
 | `the server has no such archive, the spawn rows are not written` | The server data has no `Xml.m2d` | Set the server data folder up first |
+| `was put into no map file, so its spawn rows are not written either` | No copy took the spawn place (for example no copy has that map), so no row is written for it | Fix the map name, or what the other warning of that spawn names |
 | `this target has no such table, the spawn rows are not written there` | That copy does not ship `table/mapspawntag.xml`. A warning on the server, a note on a client | On the server: set the data folder up first. On a client: nothing to do |
 | `this target's map table has no map ...` | The portal leads to a map id this copy does not know | Fix `to-map` |
 | `that map has no such portal after this plan` | With all mods applied, the target map has no portal with the number of `to-portal` | Add the portal on the other map, or fix the number |
