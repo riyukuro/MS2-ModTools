@@ -226,9 +226,12 @@ namespace MS2.ModKit.Xml
             var step = new RowStep { Name = e.Name };
             if (e.Parent == null) return e.Name;
             var left = new List<XmlElem>();
-            foreach (XmlElem c in e.Parent.Children) if (c.Name == e.Name) left.Add(c);
             string id = e.Attr("id");
-            if (id != null) { step.Tests.Add(new KeyValuePair<string, string>("id", id)); left = Filter(left, "id", id); }
+            // a large parent has an id index: the same rows, in document order, without a scan of all children
+            List<XmlElem> same = id != null ? e.Parent.ChildrenWithId(id) : null;
+            if (same != null) { foreach (XmlElem c in same) if (c.Name == e.Name) left.Add(c); }
+            else foreach (XmlElem c in e.Parent.Children) if (c.Name == e.Name) left.Add(c);
+            if (id != null) { step.Tests.Add(new KeyValuePair<string, string>("id", id)); if (same == null) left = Filter(left, "id", id); }
             // rows that share an id are variants of one another: tell them apart by what makes them variants
             // ("[feature=]" is the row without one) before any attribute a mod is likely to change
             foreach (string v in new[] { "feature", "locale" })
