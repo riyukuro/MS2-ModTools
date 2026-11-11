@@ -3,7 +3,7 @@
        dotnet build tools/modkit/plugin -c Release -p:ToolbenchDir=<Toolbench folder>
      ToolbenchDir is the folder of your own Gamebryo LightSpeed 3.2 Toolbench (the one holding Emergent.Toolbench.dll and
      Plugins/, e.g. <Gamebryo SDK>/sdk/Win32/Bin/VC90/Shipping). Its assemblies are referenced in place and never copied
-     (Private=false); the output in bin/Release is MS2.Tables.dll + MS2.ModKit.dll + plugin.xml for
+     (Private=false); the output in bin/Release is MS2.Tables.dll + MS2.ModKit.dll + plugin.xml + schema-notes.xml for
      <Toolbench>/Plugins/MS2.Tables/. -->
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
@@ -34,5 +34,6 @@
     <Reference Include="Emergent.Toolbench.UI.Workbench"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.UI.Workbench/Emergent.Toolbench.UI.Workbench.dll</HintPath><Private>false</Private></Reference>
     <Reference Include="WeifenLuo.WinFormsUI.Docking"><HintPath>$(ToolbenchDir)/Plugins/Emergent.Toolbench.UI.Workbench/WeifenLuo.WinFormsUI.Docking.dll</HintPath><Private>false</Private></Reference>
     <None Include="plugin.xml" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../schema-notes.xml" Link="schema-notes.xml" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

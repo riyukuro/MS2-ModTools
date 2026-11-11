@@ -423,6 +423,17 @@ namespace MS2.ModKit
             return set;
         }
 
+        /// <summary>
+        /// The schemas a plan is checked against: the cache of a folder plus a notes file. The command line and the
+        /// Toolbench views both come through here. A notes file that is null or not there adds nothing.
+        /// </summary>
+        public static SchemaSet Open(string dir, DataSet data, string notesFile)
+        {
+            SchemaSet s = Load(dir, data);
+            if (!string.IsNullOrEmpty(notesFile) && File.Exists(notesFile)) s.LoadNotes(notesFile);
+            return s;
+        }
+
         // ---- notes ----
 
         /// <summary>Reads a notes file: &lt;notes&gt;&lt;attr archive table element name source ref/&gt;...&lt;/notes&gt;.</summary>

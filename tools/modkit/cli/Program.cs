@@ -194,11 +194,9 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
 
             public SchemaSet Schemas()
             {
-                SchemaSet s = SchemaSet.Load(SchemaDir, Data);
                 string notes = A.Get("--notes") ?? (Set.Repo == null ? null : System.IO.Path.Combine(Set.Repo, "tools", "modkit", "schema-notes.xml"));
-                if (notes != null && File.Exists(notes)) s.LoadNotes(notes);
-                else if (A.Has("--notes")) throw new ModKitException("no notes file " + notes);
-                return s;
+                if (A.Has("--notes") && !File.Exists(notes)) throw new ModKitException("no notes file " + notes);
+                return SchemaSet.Open(SchemaDir, Data, notes);
             }
 
             public FieldMaps Maps() { return A.Has("--map") ? FieldMaps.Load(A.Get("--map")) : null; }

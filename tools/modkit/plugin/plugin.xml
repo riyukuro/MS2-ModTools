@@ -49,6 +49,11 @@
         <display-name>Server target folder</display-name>
         <description>Optional. After a successful Apply, every server archive the mods changed (the .m2d and its .m2h) is copied from the workspace into this folder, for example the data folder a server reads. The files it replaces are kept and put back by Revert. Plan names the folder before anything is written. Empty = the environment variable MS2_SERVER_TARGET; both empty = no copy.</description>
       </setting>
+      <setting scope="PerUser" id="MS2.Mods.SchemaDir" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Schema cache folder</display-name>
+        <description>Optional. The folder "modkit schema build" wrote (out/modkit/schema by default). When set, Plan and Apply check the mods against it as the command line does: a warning for an attribute or element the shipped table never has, and a note where schema-notes.xml says the client reads it. Empty = the environment variable MS2_MOD_SCHEMA; both empty = no check.</description>
+      </setting>
       <setting scope="PerUser" id="MS2.Mods.Features.kms-client" path="MS2 Mods" property-type="String" visible="true">
         <value></value>
         <display-name>Features: Korean client</display-name>

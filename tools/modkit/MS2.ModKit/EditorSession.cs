@@ -223,11 +223,24 @@ namespace MS2.ModKit
             return false;
         }
 
+        /// <summary>
+        /// The schema cache folder ("modkit schema build" writes it). Null or "" = no schema check. When set, Plan and
+        /// Apply check new values the way the command line does: a warning for an attribute or element the shipped
+        /// table never has, a note where the notes file says the client reads it.
+        /// </summary>
+        public string SchemaDir;
+        /// <summary>The notes file read with the schema cache (schema-notes.xml); null or missing = no notes.</summary>
+        public string SchemaNotes;
+
+        SchemaSet Schemas() { return string.IsNullOrEmpty(SchemaDir) ? null : SchemaSet.Open(SchemaDir, Data, SchemaNotes); }
+
+        PlanOptions PlanOpt(Action<ProgressInfo> progress) { return new PlanOptions { Schemas = Schemas(), Progress = progress, Maps = Maps, NoSync = NoSync }; }
+
         public Plan Plan() { return Plan(null); }
 
         public Plan Plan(Action<ProgressInfo> progress)
         {
-            Plan p = Planner.Build(Data, ActiveMods(), new PlanOptions { Progress = progress, Maps = Maps, NoSync = NoSync });
+            Plan p = Planner.Build(Data, ActiveMods(), PlanOpt(progress));
             if (Target == ApplyTarget.LooseFiles)
             {
                 Loose().Check(p);
@@ -277,7 +290,7 @@ namespace MS2.ModKit
             if (!Mod.IsEmpty) SaveMod();
             List<Mod> mods = ActiveMods();
             if (mods.Count == 0) throw new ModKitException("no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
-            var options = new ApplyOptions { Progress = progress, Maps = Maps, NoSync = NoSync, AllowConflicts = AllowConflicts };
+            var options = new ApplyOptions { Schemas = Schemas(), Progress = progress, Maps = Maps, NoSync = NoSync, AllowConflicts = AllowConflicts };
 
             if (loose == null)
             {
@@ -290,7 +303,7 @@ namespace MS2.ModKit
                 return r;
             }
 
-            Plan plan = Planner.Build(Data, mods, new PlanOptions { Progress = progress, Maps = Maps, NoSync = NoSync });
+            Plan plan = Planner.Build(Data, mods, PlanOpt(progress));
             ApplyResult res = loose.Apply(mods, plan, options);
             if (!res.Applied) return res;
             if (WorkspaceDir != null)

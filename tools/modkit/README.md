@@ -290,7 +290,7 @@ Build and install (the Toolbench assemblies are referenced in place, nothing of 
 dotnet build tools/modkit/plugin -c Release -p:ToolbenchDir=<Gamebryo SDK>/sdk/Win32/Bin/VC90/Shipping
 ```
 
-Copy `MS2.Tables.dll`, `MS2.ModKit.dll` and `plugin.xml` from `tools/modkit/plugin/bin/Release/` into
+Copy `MS2.Tables.dll`, `MS2.ModKit.dll`, `plugin.xml` and `schema-notes.xml` from `tools/modkit/plugin/bin/Release/` into
 `<Toolbench>/Plugins/MS2.Tables/`.
 
 Settings (menu **Utilities > Settings...**, page "MS2 Mods"; per user, all empty by default). While a setting is empty its
@@ -304,6 +304,7 @@ environment variable is used, so a script can start Toolbench with the folders a
 | Mods folder | `MS2_MODS` | a folder of mod folders. Save mod writes `<mods>/<mod id>/mod.xml`; the view lists its mods (a folder whose name starts with `.` or `_` is left out) |
 | Workspace folder | `MS2_MOD_WORKSPACE` | where Apply writes patched copies of archives: the server's always, the client's when you apply to the workspace |
 | Game folder | `MS2_GAME_DIR` | the folder of a **copy** of your client that holds `Data`. Apply writes the client's changed tables there as plain files |
+| Schema cache folder | `MS2_MOD_SCHEMA` | optional: the folder `modkit schema build` wrote (`out/modkit/schema` by default). When set, Plan and Apply check the mods against it; both empty = no check |
 
 One data folder is enough to look around; saving needs the mods folder, and apply the game folder or the workspace
 folder as well. After changing a setting press **Reload settings** in the view.
@@ -383,7 +384,14 @@ is left to do depends on the server:
 The original data folders in the settings are never written. Switching **Apply to** and applying again removes what
 the other target left behind.
 
-Not in this editor yet: schema checks (the command line `--schema`), `<ids>` ranges, `<entry>` operations and edits
+With the **Schema cache folder** set, Plan and Apply print the lines the command line prints with `--schema` (the view
+goes through the same check): `warning: ... attribute glow is never set on ms2/pet in the shipped table/pet.xml` for
+an attribute or element the shipped table never has, and a `note:` with the place and the use where
+`schema-notes.xml` says the client reads the attribute. The notes file is the `schema-notes.xml` next to the plugin,
+or the one of the checkout the plugin runs from. The view does not build the cache; `modkit schema build` does, and a
+folder without one gives the note "no schema is cached for this archive". A warning never stops an apply.
+
+Not in this editor yet: `<ids>` ranges, `<entry>` operations and edits
 of element text. A mod that holds them loads, plans and applies as it is; the grid just has no cell for them.
 
 ## The item editor in Toolbench

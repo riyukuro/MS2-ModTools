@@ -306,6 +306,8 @@ namespace MS2.Tables
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
                 session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;
+                session.SchemaDir = string.IsNullOrEmpty(s.SchemaDir) ? null : s.SchemaDir;
+                session.SchemaNotes = s.SchemaNotes;
                 filling = true;
                 allowBox.Checked = TablesSettings.LoadAllowConflicts();
                 filling = false;

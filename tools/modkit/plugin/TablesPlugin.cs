@@ -23,6 +23,8 @@ namespace MS2.Tables
     internal sealed class TablesSettings
     {
         public string ClientData, GmsData, ServerData, ModsDir, Workspace, GameDir, ServerTarget, AfterApply;
+        /// <summary>The schema cache folder ("" = no schema check) and the notes file that goes with it (null = none found).</summary>
+        public string SchemaDir, SchemaNotes;
         /// <summary>Per data root: the features setting ("LOCALE/TYPE", "" = the profile's own) and where it comes from when not from the view's field.</summary>
         public readonly Dictionary<string, string> Features = new Dictionary<string, string>(), FeaturesFrom = new Dictionary<string, string>();
 
@@ -40,6 +42,8 @@ namespace MS2.Tables
             t.AfterApply = Get(s, "MS2.Mods.AfterApply", "MS2_AFTER_APPLY");
             // the features: the environment, then modtools.toml of the checkout this plugin was built in or runs in, then the view's field
             RepoSettings repo = RepoSettings.Load(System.IO.Path.GetDirectoryName(typeof(TablesSettings).Assembly.Location), System.IO.Directory.GetCurrentDirectory());
+            t.SchemaDir = Get(s, "MS2.Mods.SchemaDir", "MS2_MOD_SCHEMA");
+            t.SchemaNotes = NotesFile(System.IO.Path.GetDirectoryName(typeof(TablesSettings).Assembly.Location), repo.Repo);
             foreach (Profile p in Profile.All)
             {
                 string from = repo.SourceOf(p.FeaturesVar), v = from != null ? repo.Value(p.FeaturesVar).Trim() : null;
@@ -48,6 +52,16 @@ namespace MS2.Tables
                 t.FeaturesFrom[p.Root] = from;
             }
             return t;
+        }
+
+        // schema-notes.xml: the copy next to the plugin, else the one of the checkout (the file the command line reads)
+        static string NotesFile(string pluginDir, string repo)
+        {
+            string f = System.IO.Path.Combine(pluginDir ?? "", "schema-notes.xml");
+            if (System.IO.File.Exists(f)) return f;
+            if (repo == null) return null;
+            f = System.IO.Path.Combine(System.IO.Path.Combine(System.IO.Path.Combine(repo, "tools"), "modkit"), "schema-notes.xml");
+            return System.IO.File.Exists(f) ? f : null;
         }
 
         public static string FeaturesId(Profile p) { return "MS2.Mods.Features." + p.Name; }
