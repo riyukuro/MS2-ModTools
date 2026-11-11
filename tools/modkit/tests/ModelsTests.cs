@@ -962,6 +962,17 @@ namespace MS2.ModKit.Tests
             Assert.AreEqual("adec", pick(1));
             Assert.IsTrue(ModelNames.HasGenders(all));
             CollectionAssert.IsEmpty(ModelNames.Pick(null, 0));
+            // a long list is one pass: every slot its own file, the female one second
+            var many = new List<ItemAsset>();
+            for (int i = 0; i < 100000; i++)
+            {
+                many.Add(new ItemAsset { Path = "m" + i, Slot = i, Gender = 0 });
+                many.Add(new ItemAsset { Path = "f" + i, Slot = i, Gender = 1 });
+            }
+            List<ItemAsset> picked = ModelNames.Pick(many, 1);
+            Assert.AreEqual(100000, picked.Count);
+            Assert.AreEqual("f99999", picked[99999].Path);
+            Assert.IsTrue(ModelNames.HasGenders(many));
             Assert.IsFalse(ModelNames.HasGenders(null));
         }
 

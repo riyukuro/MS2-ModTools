@@ -222,6 +222,8 @@ namespace MS2.Tables
                 ModelSource src;
                 lock (gate)
                 {
+                    // the data set changed since the job was taken: no new source is opened (nothing would close it)
+                    if (disposed) { shot.Message = "no model data"; return shot; }
                     if (source == null) source = new ModelSource(data);
                     src = source;
                 }

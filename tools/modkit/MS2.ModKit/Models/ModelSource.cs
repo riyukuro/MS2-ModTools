@@ -139,30 +139,41 @@ namespace MS2.ModKit.Models
         {
             var list = new List<ItemAsset>();
             if (all == null) return list;
-            var done = new List<int>();
-            foreach (ItemAsset first in all)
+            // one pass: per slot, in the order the slots first appear, its first asset, its first of the gender
+            // and its first without a gender
+            var at = new Dictionary<int, int>();
+            var first = new List<ItemAsset>();
+            var best = new List<ItemAsset>();
+            var plain = new List<ItemAsset>();
+            foreach (ItemAsset a in all)
             {
-                if (done.Contains(first.Slot)) continue;
-                done.Add(first.Slot);
-                ItemAsset best = null, plain = null;
-                foreach (ItemAsset a in all)
+                int i;
+                if (!at.TryGetValue(a.Slot, out i))
                 {
-                    if (a.Slot != first.Slot) continue;
-                    if (a.Gender == gender && best == null) best = a;
-                    if (a.Gender < 0 && plain == null) plain = a;
+                    i = first.Count;
+                    at[a.Slot] = i;
+                    first.Add(a); best.Add(null); plain.Add(null);
                 }
-                ItemAsset pick = best ?? plain ?? first;
-                bool listed = false;
-                foreach (ItemAsset a in list) if (a.Path == pick.Path) listed = true;
-                if (!listed) list.Add(pick);
+                if (a.Gender == gender && best[i] == null) best[i] = a;
+                if (a.Gender < 0 && plain[i] == null) plain[i] = a;
+            }
+            var listed = new Dictionary<string, bool>(StringComparer.Ordinal);
+            for (int i = 0; i < first.Count; i++)
+            {
+                ItemAsset pick = best[i] ?? plain[i] ?? first[i];
+                string path = pick.Path ?? "";
+                if (listed.ContainsKey(path)) continue;
+                listed[path] = true;
+                list.Add(pick);
             }
             return list;
         }
 
         /// <summary>True when the two genders get different files: the item has a model for each.</summary>
-        public static bool HasGenders(IList<ItemAsset> all)
+        public static bool HasGenders(IList<ItemAsset> all) { return Differ(Pick(all, 0), Pick(all, 1)); }
+
+        internal static bool Differ(List<ItemAsset> m, List<ItemAsset> f)
         {
-            List<ItemAsset> m = Pick(all, 0), f = Pick(all, 1);
             if (m.Count != f.Count) return true;
             for (int i = 0; i < m.Count; i++) if (m[i].Path != f[i].Path) return true;
             return false;
@@ -631,8 +642,10 @@ namespace MS2.ModKit.Models
             try { all = Assets(q); }
             catch (ModKitException e) { return new ModelPicture { Width = width, Height = height, Message = "cannot show: " + e.Message }; }
             catch (IOException e) { return new ModelPicture { Width = width, Height = height, Message = "cannot show: " + e.Message }; }
-            ModelPicture pic = Picture(ModelNames.Pick(all, gender), gender, width, height, options);
-            pic.Genders = ModelNames.HasGenders(all);
+            // each gender's pick is made once
+            List<ItemAsset> mine = ModelNames.Pick(all, gender), other = ModelNames.Pick(all, gender == 1 ? 0 : 1);
+            ModelPicture pic = Picture(mine, gender, width, height, options);
+            pic.Genders = ModelNames.Differ(mine, other);
             return pic;
         }
 

@@ -42,6 +42,8 @@ namespace MS2.Tables
         ModelBox modelBox;     // the item's model beside the form
         Button genderButton;   // in the model box, for an item with a model per gender: shows the other one
         int modelGender;       // 0 male, 1 female: whose model the box shows
+        string modelKey;       // the request the box was last given
+        long modelId;          // and the item it was for
         // the icon entry of each listed item as the mod has it (null: none); filled when the row is drawn
         readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();
         readonly Label itemLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
@@ -447,6 +449,7 @@ namespace MS2.Tables
                 iconBox.Show(null, null);
                 modelBox.Show(null, null);
                 genderButton.Visible = false;
+                modelKey = null;
                 nameBox.Text = tooltipBox.Text = guideBox.Text = cloneIdBox.Text = optionBox.Text = "";
                 return;
             }
@@ -502,7 +505,21 @@ namespace MS2.Tables
             }
             catch (ModKitException) { }
             catch (System.IO.IOException) { }
-            modelBox.Show(cache, ModelRequest.Item(query, modelGender));
+            ModelRequest request = ModelRequest.Item(query, modelGender);
+            if (request.Key != modelKey)
+            {
+                // another pick: the button follows it at once. The item's own assets say whether the genders
+                // differ; when only the client's list knows, the button waits for the picture (modelBox.Shown).
+                // The same item shown as the other gender keeps its button meanwhile.
+                long id = query != null ? query.Id : 0;
+                bool own = query != null && query.Own.Count > 0;
+                if (cache == null) genderButton.Visible = false;
+                else if (own) genderButton.Visible = ModelNames.HasGenders(query.Own);
+                else if (modelKey == null || id != modelId) genderButton.Visible = false;
+                modelKey = request.Key;
+                modelId = id;
+            }
+            modelBox.Show(cache, request);
         }
 
         static string ModelTip(ModelShot shot)
