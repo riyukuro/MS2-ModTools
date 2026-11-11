@@ -133,5 +133,21 @@ namespace MS2.ModKit.Tests
                 return System.Text.Encoding.UTF8.GetString(ar.Read(ar.Find(Pet)));
             }
         }
+
+        [Test]
+        public void ThePriorityLineIsBrokenToTheWidthOfTheBox()
+        {
+            string report = ModOrder.Lead + "demo.hardmode > demo.balance > demo.names\r\ndemo.hardmode wins 2 parts of demo.balance\r\nconflict, demo.hardmode wins: [demo.balance] a line that is longer than the box and stays as it is\r\n";
+            // wide enough: nothing changes
+            Assert.That(ModOrder.Wrap(report, 120), Is.EqualTo(report));
+            string narrow = ModOrder.Wrap(report, 44);
+            Assert.That(narrow, Is.EqualTo("priority, the highest first: demo.hardmode\r\n  > demo.balance > demo.names\r\ndemo.hardmode wins 2 parts of demo.balance\r\nconflict, demo.hardmode wins: [demo.balance] a line that is longer than the box and stays as it is\r\n"));
+            // every name is on a line that fits, down to one name per line
+            foreach (int cols in new[] { 44, 30, 20 })
+                foreach (string l in ModOrder.Wrap(ModOrder.Lead + "a.one > b.two > c.three > d.four", cols).Replace("\r", "").Split('\n'))
+                    Assert.That(l.Length, Is.LessThanOrEqualTo(Math.Max(cols, ModOrder.Lead.Length - 1)), l);
+            Assert.That(ModOrder.Wrap(ModOrder.Lead + "a.one > b.two > c.three > d.four", 20).Replace("\r\n", "|"), Is.EqualTo("priority, the highest first:|  a.one > b.two|  > c.three > d.four"));
+            Assert.That(ModOrder.Wrap("no such line\n", 10), Is.EqualTo("no such line\n"));
+        }
     }
 }

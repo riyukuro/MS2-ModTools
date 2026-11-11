@@ -196,7 +196,7 @@ modkit status --game <game folder>
   an entry the game does not ship). A line that is mirrored to another target is decided against the lines
   for that target like any other line, and such a conflict stops `apply` like any other.
   A few conflicts have no winner and name none: two mods whose id ranges overlap, a new id that two mods add
-  in different places, a mod that contradicts itself (it changes a row and deletes it, or adds one row twice),
+  in different places, a mod that contradicts itself (it changes a row and deletes it, sets one value twice, or adds one row twice),
   and a file in the game folder that this tool did not write. No priority decides these, so they stop `apply`
   with `--allow-conflicts` as well, until the mods are changed.
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every

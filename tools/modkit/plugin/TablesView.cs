@@ -56,6 +56,7 @@ namespace MS2.Tables
             Font mono = new Font(FontFamily.GenericMonospace, 8.25f);
             pendingBox.Font = mono;
             outputBox.Font = mono;
+            OutputWrap.Attach(outputBox);
             pendingBox.BackColor = outputBox.BackColor = SystemColors.Window;
             pendingBox.ForeColor = outputBox.ForeColor = SystemColors.WindowText;
 
@@ -243,8 +244,8 @@ namespace MS2.Tables
 
         void Say(string text)
         {
-            outputBox.Text = text.Replace("\r\n", "\n").Replace("\n", "\r\n");
-            if (Said != null) Said(outputBox.Text);
+            OutputWrap.Set(outputBox, text.Replace("\r\n", "\n").Replace("\n", "\r\n"));
+            if (Said != null) Said(OutputText);
         }
 
         /// <summary>Runs one command of the view; what goes wrong is shown in the output pane and logged.</summary>
@@ -814,7 +815,7 @@ namespace MS2.Tables
 
         internal void SayOutside(string text) { Say(text); }
 
-        internal string OutputText { get { return outputBox.Text; } }
+        internal string OutputText { get { return OutputWrap.Raw(outputBox); } }
 
         /// <summary>The "Apply to" choice (0 = workspace, 1 = game folder), for another view that shows it too.</summary>
         internal int TargetIndex

@@ -65,6 +65,7 @@ namespace MS2.Tables
         public GroupsView()
         {
             outputBox.Font = new Font(FontFamily.GenericMonospace, 8.25f);
+            OutputWrap.Attach(outputBox);
             outputBox.BackColor = SystemColors.Window;
             outputBox.ForeColor = SystemColors.WindowText;
 
@@ -297,7 +298,7 @@ namespace MS2.Tables
             h.Said += OnHostSaid;
             h.TargetChanged += OnHostTarget;
             OnHostTarget();
-            outputBox.Text = h.OutputText;
+            OutputWrap.Set(outputBox, h.OutputText);
             OnHostBusy(h.Busy);
         }
 
@@ -311,12 +312,12 @@ namespace MS2.Tables
                     IViewService views = Platform.GetService<IViewService>();
                     h = views == null ? null : views.CreateOrFindView(TablesView.ViewId) as TablesView;
                 }
-                if (h == null) { outputBox.Text = "the MS2 Tables view could not be opened; this view works on the mod of that view"; return false; }
+                if (h == null) { OutputWrap.Set(outputBox, "the MS2 Tables view could not be opened; this view works on the mod of that view"); return false; }
                 Hook(h);
             }
             catch (Exception ex)
             {
-                outputBox.Text = "the MS2 Tables view could not be opened: " + ex.Message;
+                OutputWrap.Set(outputBox, "the MS2 Tables view could not be opened: " + ex.Message);
                 Logger.Warning("MS2 Shops and Drops: " + ex.Message);
                 return false;
             }
@@ -344,7 +345,7 @@ namespace MS2.Tables
             return shippedEditor;
         }
 
-        void OnHostSaid(string text) { outputBox.Text = text; }
+        void OnHostSaid(string text) { OutputWrap.Set(outputBox, text); }
 
         void OnHostBusy(bool on)
         {

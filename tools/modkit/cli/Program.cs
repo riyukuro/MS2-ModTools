@@ -390,7 +390,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (PlanMessage m in p.Warnings) o.Append("warning: ").Append(m).Append('\n');
             foreach (PlanMessage m in p.Conflicts) o.Append(m.ConflictLine()).Append('\n');
             foreach (PlanMessage m in p.Errors) o.Append("error: ").Append(m).Append('\n');
-            if (p.Conflicts.Count > 0 && p.Mods.Count > 1) o.Append("priority, the highest first: ").Append(ModOrder.Text(p.Mods)).Append('\n');
+            if (p.Conflicts.Count > 0 && p.Mods.Count > 1) o.Append(ModOrder.Lead).Append(ModOrder.Text(p.Mods)).Append('\n');
             foreach (string l in p.LeftOut()) o.Append(l).Append('\n');
             int entries = 0;
             foreach (PlanArchive a in p.Archives) entries += a.Put.Count + a.Delete.Count;

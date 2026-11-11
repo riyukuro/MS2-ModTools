@@ -54,5 +54,32 @@ namespace MS2.ModKit
             for (int i = risingPriority.Count - 1; i >= 0; i--) ids.Add(risingPriority[i].Id);
             return string.Join(" > ", ids.ToArray());
         }
+
+        public const string Lead = "priority, the highest first: ";
+
+        /// <summary>
+        /// A report for a box of that many columns: the priority line is broken in front of a " > " where it would
+        /// run past the edge, so that every name shows without scrolling. The other lines stay as they are.
+        /// </summary>
+        public static string Wrap(string report, int columns)
+        {
+            if (report == null || columns < 8 || report.IndexOf(Lead, StringComparison.Ordinal) < 0) return report;
+            string[] lines = report.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                if (!lines[i].StartsWith(Lead, StringComparison.Ordinal) || lines[i].Length <= columns) continue;
+                string[] ids = lines[i].Substring(Lead.Length).Split(new[] { " > " }, StringSplitOptions.None);
+                var sb = new System.Text.StringBuilder(Lead.TrimEnd());
+                int col = sb.Length;
+                for (int k = 0; k < ids.Length; k++)
+                {
+                    string part = (k == 0 ? "" : "> ") + ids[k];
+                    if (col + 1 + part.Length > columns) { sb.Append("\r\n  "); col = 2; } else { sb.Append(' '); col++; }
+                    sb.Append(part); col += part.Length;
+                }
+                lines[i] = sb.ToString();
+            }
+            return string.Join("\r\n", lines);
+        }
     }
 }
