@@ -20,6 +20,12 @@ namespace MS2.ModKit.Tests
         {
             string to = Environment.GetEnvironmentVariable("MS2_FAKE_ALL_OUT");
             if (string.IsNullOrEmpty(to)) Assert.Ignore("MS2_FAKE_ALL_OUT is not set");
+            Write(to);
+        }
+
+        /// <summary>Writes the merged data set to a folder (kms, gms, server).</summary>
+        internal static void Write(string to)
+        {
             using (var q = new FakeQuests(true, true, true))
             using (var n = new FakeNpcs(true, true, true))
             using (var g = new FakeGroups())

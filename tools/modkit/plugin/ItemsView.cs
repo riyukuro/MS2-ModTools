@@ -593,7 +593,7 @@ namespace MS2.Tables
 
         void ShowWhereUsed()
         {
-            WhereUsedJump.Show(this, host.SharedSession(), IdLookup.Item, Draft().Id);
+            WhereUsedJump.Show(this, host, IdLookup.Item, Draft().Id);
         }
 
         /// <summary>Where used's jump: the item, its grid row of the field ("element@attribute"; else the first row of that attribute).</summary>
@@ -615,8 +615,7 @@ namespace MS2.Tables
                 for (int i = 0; i < rows.Count && hit < 0; i++)
                     if (FieldOf(rows[i]).EndsWith("@" + attr, StringComparison.Ordinal)) hit = i;
                 if (hit < 0) return;
-                grid.CurrentCell = grid[1, hit];
-                grid.FirstDisplayedScrollingRowIndex = Math.Max(0, hit - 3);
+                WhereUsedJump.SelectCell(grid, 1, hit, 3);
             });
         }
 
@@ -629,7 +628,7 @@ namespace MS2.Tables
             ShowItem(null);
             Edited();
             FillHits(0);
-            host.SayOutside("item " + d.Id + " taken out of the mod" + WhereUsedJump.LeftBehind(host.SharedSession(), IdLookup.Item, d.Id));
+            WhereUsedJump.SayLeftBehind(host, "item " + d.Id + " taken out of the mod", IdLookup.Item, d.Id);
         }
 
         void OwnOption()

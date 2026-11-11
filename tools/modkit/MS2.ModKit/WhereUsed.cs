@@ -8,15 +8,20 @@
 //   items      skill@skillID, AdditionalEffect@id, the repacking scrolls (ItemFieldKind)
 // Skills name no id through a field IdLookup knows, so a skill is never the place that names something.
 //
-// The shipped places are read once per data set (each file parsed and dropped again, no document kept) and the index
-// is kept in the data set's cache, as the plan's inputs are. The mod is laid over it on every question: each quest,
-// npc, item, shop or drop box the mod adds or edits is read as the mod leaves it (the editors' own drafts; for the
-// shops and drop boxes the plan of the mod's group ops and its raw row edits of the group tables, so a cell edited
-// in the Tables view counts as the mod's too) and its places replace the shipped ones, so an edit that adds a name
-// shows (as "new") and one that removes it hides it.
+// The shipped places are read once per data set (each file parsed and dropped again, no document kept; a file that
+// cannot be read is skipped and listed in Stats) and the index is kept in the data set's cache, as the plan's inputs
+// are. Only the places of the kinds a question can be about (Kinds) are kept. The mod is laid over it: each quest,
+// npc, item, shop or drop box the mod adds or edits is read as the mod leaves it (the editors' own drafts, a quest
+// place by place; for the shops and drop boxes one plan of the mod's group ops and its raw row edits of the group
+// tables, so a cell edited in the Tables view counts as the mod's too) and its places replace the shipped ones, so an
+// edit that adds a name shows (as "new") and one that removes it hides it. That mod side is kept too and read again
+// only when the mod changes (its manifest text, or a file it adds).
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using MS2.ModKit.M2d;
 using MS2.ModKit.Xml;
@@ -39,6 +44,8 @@ namespace MS2.ModKit
         /// </summary>
         public string Field = "";
         public int Index = -1;
+        /// <summary>For a quest: the place (QuestPlace.Key) a reward row's Index counts in; "" otherwise.</summary>
+        public string Place = "";
         /// <summary>The mod names it here and the shipped data does not (an edit, or a place the mod adds).</summary>
         public bool New;
         /// <summary>The place is one the mod adds (a clone or a new id).</summary>
@@ -46,10 +53,30 @@ namespace MS2.ModKit
 
         internal string Key { get { return Kind + "\n" + Id.ToString(CultureInfo.InvariantCulture) + "\n" + Where; } }
 
+        internal UseHit Copy()
+        {
+            return new UseHit { Kind = Kind, Id = Id, Name = Name, Where = Where, Field = Field, Index = Index, Place = Place, New = New, SourceNew = SourceNew };
+        }
+
         public override string ToString()
         {
             return Kind + " " + Id.ToString(CultureInfo.InvariantCulture) + (Name.Length > 0 ? " " + Name : "") + ": " + Where + (New ? " (new)" : "");
         }
+    }
+
+    /// <summary>What the kept indexes of a data set hold and how often they were built (WhereUsed.Stats).</summary>
+    public sealed class WhereUsedStats
+    {
+        /// <summary>How often the shipped places and the mod side were read.</summary>
+        public int ShippedScans, ModScans;
+        /// <summary>The shipped places kept, and the ids they name.</summary>
+        public int ShippedPlaces, Targets;
+        /// <summary>The mod side's places kept (the last read).</summary>
+        public int ModPlaces;
+        /// <summary>The time of the last shipped read, in milliseconds.</summary>
+        public long ShippedMs;
+        /// <summary>The shipped files that could not be read ("archive entry: error"), skipped.</summary>
+        public readonly List<string> Skipped = new List<string>();
     }
 
     public sealed class WhereUsed
@@ -108,7 +135,7 @@ namespace MS2.ModKit
             readonly HashSet<string> seen = new HashSet<string>();
             internal void Add(string kind, long id, UseHit h)
             {
-                if (kind == null) return;
+                if (kind == null || Array.IndexOf(Kinds, kind) < 0) return;     // a map or a dungeon: nobody can ask
                 if (seen.Add(kind + "\n" + Inv(id) + "\n" + h.Key)) List.Add(new Ref { Kind = kind, Id = id, Hit = h });
             }
         }
@@ -139,34 +166,51 @@ namespace MS2.ModKit
             foreach (long t in Ids(code)) into.Add(kind, t, Hit(IdLookup.Quest, id, "condition " + (index + 1) + " (" + type + ")", "condition", index));
         }
 
-        static void QuestReward(Refs into, long id, string reward, string list, int index, string code)
+        static void QuestReward(Refs into, long id, string reward, string list, int index, string code, string place)
         {
-            foreach (long t in Ids(code)) into.Add(IdLookup.Item, t, Hit(IdLookup.Quest, id, reward + " " + list, reward + "/" + list, index));
+            foreach (long t in Ids(code))
+            {
+                UseHit h = Hit(IdLookup.Quest, id, reward + " " + list, reward + "/" + list, index);
+                h.Place = place;
+                into.Add(IdLookup.Item, t, h);
+            }
         }
 
-        static void QuestElem(Refs into, long id, XmlElem q)
+        // one place of a quest, shipped (an element) or as the mod leaves it (the editor's node): the same reading
+        delegate List<T> KidsOf<T>(T e);
+        delegate string AttrOf<T>(T e, string name);
+        delegate string NameOfNode<T>(T e);
+
+        static void QuestPlaceRefs<T>(Refs into, long id, T q, string place, KidsOf<T> kids, AttrOf<T> attr, NameOfNode<T> name)
         {
             int cond = 0;
-            foreach (XmlElem c in q.Children)
+            foreach (T c in kids(q))
             {
-                if (c.Name == "condition") { QuestCondition(into, id, cond, c.Attr("type") ?? "", c.Attr("code")); cond++; }
-                else if (c.Name == "start" || c.Name == "complete")
-                    foreach (long t in Ids(c.Attr("npc"))) into.Add(IdLookup.Npc, t, Hit(IdLookup.Quest, id, c.Name + " npc", c.Name + "@npc", -1));
-                else if (c.Name == QuestDraft.CompleteReward || c.Name == QuestDraft.AcceptReward)
+                string cn = name(c);
+                if (cn == "condition") { QuestCondition(into, id, cond, attr(c, "type") ?? "", attr(c, "code")); cond++; }
+                else if (cn == "start" || cn == "complete")
+                    foreach (long t in Ids(attr(c, "npc"))) into.Add(IdLookup.Npc, t, Hit(IdLookup.Quest, id, cn + " npc", cn + "@npc", -1));
+                else if (cn == QuestDraft.CompleteReward || cn == QuestDraft.AcceptReward)
                 {
                     var n = new Dictionary<string, int>();
-                    foreach (XmlElem r in c.Children)
+                    foreach (T r in kids(c))
                     {
-                        if (Array.IndexOf(QuestDraft.RewardLists, r.Name) < 0) continue;
-                        string code = QuestDraft.Norm(r.Attr("code"));
+                        string rn = name(r);
+                        if (Array.IndexOf(QuestDraft.RewardLists, rn) < 0) continue;
+                        string code = QuestDraft.Norm(attr(r, "code"));
                         if (code.Length == 0) continue;
                         int i;
-                        n.TryGetValue(r.Name, out i);
-                        n[r.Name] = i + 1;
-                        QuestReward(into, id, c.Name, r.Name, i, code);
+                        n.TryGetValue(rn, out i);
+                        n[rn] = i + 1;
+                        QuestReward(into, id, cn, rn, i, code, place);
                     }
                 }
             }
+        }
+
+        static void QuestElem(Refs into, long id, XmlElem q, string place)
+        {
+            QuestPlaceRefs(into, id, q, place, delegate(XmlElem e) { return e.Children; }, delegate(XmlElem e, string a) { return e.Attr(a); }, delegate(XmlElem e) { return e.Name; });
         }
 
         static void GroupRow(Refs into, GroupKind kind, long id, int index, string describe, IEnumerable<KeyValuePair<string, string>> fields)
@@ -218,22 +262,46 @@ namespace MS2.ModKit
         /// <summary>Whether the shipped places of a data set are read already (the first question reads them).</summary>
         public static bool IsIndexed(DataSet data) { return data != null && data.Cache.ContainsKey(IndexKey); }
 
+        const string StatsKey = "whereused\nstats", ModKey = "whereused\nmod";
+
+        /// <summary>What the kept indexes of a data set hold (null: no question was asked yet).</summary>
+        public static WhereUsedStats Stats(DataSet data)
+        {
+            object o;
+            return data != null && data.Cache.TryGetValue(StatsKey, out o) ? (WhereUsedStats)o : null;
+        }
+
+        WhereUsedStats MyStats()
+        {
+            WhereUsedStats st = Stats(Data);
+            if (st == null) Data.Cache[StatsKey] = st = new WhereUsedStats();
+            return st;
+        }
+
         Index Shipped()
         {
             const string key = IndexKey;
             object o;
             if (Data.Cache.TryGetValue(key, out o)) return (Index)o;
+            WhereUsedStats st = MyStats();
+            Stopwatch clock = Stopwatch.StartNew();
+            st.Skipped.Clear();
+            Action<string, Exception> skip = delegate(string file, Exception ex) { st.Skipped.Add(file + ": " + ex.Message); };
             var ix = new Index();
             var seen = new Refs();      // one list over all sources: a place two targets both have counts once
             ItemEditor it = Items();
-            if (it != null) it.ScanShipped(delegate(long id, XmlElem e) { EntityElem(seen, IdLookup.Item, id, e); });
+            if (it != null) it.ScanShipped(delegate(long id, XmlElem e) { EntityElem(seen, IdLookup.Item, id, e); }, skip);
             NpcEditor np = Npcs();
-            if (np != null) np.ScanShipped(delegate(long id, XmlElem e) { EntityElem(seen, IdLookup.Npc, id, e); });
+            if (np != null) np.ScanShipped(delegate(long id, XmlElem e) { EntityElem(seen, IdLookup.Npc, id, e); }, skip);
             QuestEditor q = Quests();
-            if (q != null) q.ScanShipped(delegate(long id, XmlElem e) { QuestElem(seen, id, e); });
-            Groups().ScanShipped(delegate(GroupKind kind, long id, int index, string describe, XmlElem row) { GroupRow(seen, kind, id, index, describe, Attrs(row)); });
+            if (q != null) q.ScanShipped(delegate(long id, XmlElem e, string place) { QuestElem(seen, id, e, place); }, skip);
+            Groups().ScanShipped(delegate(GroupKind kind, long id, int index, string describe, XmlElem row) { GroupRow(seen, kind, id, index, describe, Attrs(row)); }, skip);
             ix.Add(seen);
             Data.Cache[key] = ix;
+            st.ShippedScans++;
+            st.ShippedPlaces = seen.List.Count;
+            st.Targets = ix.By.Count;
+            st.ShippedMs = clock.ElapsedMilliseconds;
             return ix;
         }
 
@@ -300,16 +368,12 @@ namespace MS2.ModKit
                 }
                 else if (s.Kind == IdLookup.Quest)
                 {
-                    QuestDraft d = Quests().Open(s.Id);
-                    foreach (long t in Ids(d.StartNpc)) r.Add(IdLookup.Npc, t, Hit(IdLookup.Quest, s.Id, "start npc", "start@npc", -1));
-                    foreach (long t in Ids(d.CompleteNpc)) r.Add(IdLookup.Npc, t, Hit(IdLookup.Quest, s.Id, "complete npc", "complete@npc", -1));
-                    foreach (QuestCondition c in d.Conditions()) QuestCondition(r, s.Id, c.Index, c.Type ?? "", c.Code);
-                    foreach (string reward in new[] { QuestDraft.CompleteReward, QuestDraft.AcceptReward })
-                        foreach (string list in QuestDraft.RewardLists)
-                        {
-                            if (!d.HasList(list)) continue;
-                            foreach (QuestReward w in d.Rewards(reward, list)) QuestReward(r, s.Id, reward, list, w.Index, w.Code);
-                        }
+                    // place by place, as the shipped scan reads them: a value only a later place has is not lost
+                    QuestEditor qe = Quests();
+                    QuestDraft d = qe.Open(s.Id);
+                    foreach (QuestPlace p in d.Places)
+                        if (p.Kind != QuestPlace.Text)
+                            QuestPlaceRefs(r, s.Id, p.Root, p.Key, delegate(QuestNode n) { return qe.Kids(n, null); }, delegate(QuestNode n, string a) { return qe.Attr(n, a); }, qe.NodeName);
                 }
                 else
                 {
@@ -351,30 +415,16 @@ namespace MS2.ModKit
         {
             if (Array.IndexOf(Kinds, kind) < 0) throw new ModKitException("no where-used list for \"" + kind + "\" (" + string.Join(", ", Kinds) + ")");
             Index ix = Shipped();
-            modGroups = null;
+            ModIndex mi = ModSide(ix);
             string tk = TargetKey(kind, id);
-            var touched = new Dictionary<string, Source>();
             var hits = new List<UseHit>();
-            foreach (Source s in Touched())
-            {
-                touched[TargetKey(s.Kind, s.Id)] = s;
-                HashSet<string> had;
-                ix.Of.TryGetValue(TargetKey(s.Kind, s.Id), out had);
-                foreach (Ref x in ModRefs(s).List)
-                {
-                    if (x.Kind != kind || x.Id != id) continue;
-                    UseHit h = x.Hit;
-                    h.SourceNew = s.New;
-                    h.New = had == null || !had.Contains(tk + "\n" + h.Key);
-                    hits.Add(h);
-                }
-            }
+            List<UseHit> mine;
+            if (mi.By.TryGetValue(tk, out mine)) foreach (UseHit h in mine) hits.Add(h.Copy());
             var rest = new List<UseHit>();
             List<UseHit> shipped;
             if (ix.By.TryGetValue(tk, out shipped))
                 foreach (UseHit h in shipped)
-                    if (!touched.ContainsKey(TargetKey(h.Kind, h.Id)))
-                        rest.Add(new UseHit { Kind = h.Kind, Id = h.Id, Where = h.Where, Field = h.Field, Index = h.Index });
+                    if (!mi.Touched.Contains(TargetKey(h.Kind, h.Id))) rest.Add(h.Copy());
             rest.Sort(delegate(UseHit a, UseHit b)
             {
                 int c = Array.IndexOf(SourceOrder, a.Kind).CompareTo(Array.IndexOf(SourceOrder, b.Kind));
@@ -382,11 +432,86 @@ namespace MS2.ModKit
             });
             hits.AddRange(rest);
             if (max > 0 && hits.Count > max) hits.RemoveRange(max, hits.Count - max);
-            foreach (UseHit h in hits) h.Name = NameOf(h.Kind, h.Id, touched.ContainsKey(TargetKey(h.Kind, h.Id)));
+            foreach (UseHit h in hits) h.Name = NameOf(h.Kind, h.Id, mi.Touched.Contains(TargetKey(h.Kind, h.Id)));
             return hits;
         }
 
+        /// <summary>The mod side: the places of each source the mod adds or edits, by the id they name.</summary>
+        sealed class ModIndex
+        {
+            internal string Print;
+            internal readonly Dictionary<string, List<UseHit>> By = new Dictionary<string, List<UseHit>>();
+            internal readonly HashSet<string> Touched = new HashSet<string>();
+        }
+
+        /// <summary>The mod as one string: its manifest and the size and time of each file it adds (null: cannot say).</summary>
+        string Print()
+        {
+            try
+            {
+                var sb = new StringBuilder(Mod.ToXml());
+                sb.Append('\n').Append(Mod.Dir);
+                foreach (ModOp op in Mod.Ops)
+                {
+                    var en = op as EntryOp;
+                    if (en == null || en.File == null || Mod.Dir == null) continue;
+                    var fi = new FileInfo(Path.Combine(Mod.Dir, en.File));
+                    sb.Append('\n').Append(en.File);
+                    if (fi.Exists) sb.Append(' ').Append(fi.Length).Append(' ').Append(fi.LastWriteTimeUtc.Ticks);
+                }
+                return sb.ToString();
+            }
+            catch (ModKitException) { return null; }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+            catch (ArgumentException) { return null; }
+        }
+
+        ModIndex ModSide(Index ix)
+        {
+            string print = Print();
+            object o;
+            if (print != null && Data.Cache.TryGetValue(ModKey, out o) && ((ModIndex)o).Print == print) return (ModIndex)o;
+            var mi = new ModIndex { Print = print };
+            modGroups = null;
+            int places = 0;
+            foreach (Source s in Touched())
+            {
+                string sk = TargetKey(s.Kind, s.Id);
+                if (!mi.Touched.Add(sk)) continue;
+                HashSet<string> had;
+                ix.Of.TryGetValue(sk, out had);
+                foreach (Ref x in ModRefs(s).List)
+                {
+                    string tk = TargetKey(x.Kind, x.Id);
+                    UseHit h = x.Hit.Copy();
+                    h.SourceNew = s.New;
+                    h.New = had == null || !had.Contains(tk + "\n" + h.Key);
+                    List<UseHit> l;
+                    if (!mi.By.TryGetValue(tk, out l)) mi.By[tk] = l = new List<UseHit>();
+                    l.Add(h);
+                    places++;
+                }
+            }
+            modGroups = null;
+            WhereUsedStats st = MyStats();
+            st.ModScans++;
+            st.ModPlaces = places;
+            if (print != null) Data.Cache[ModKey] = mi; else Data.Cache.Remove(ModKey);
+            return mi;
+        }
+
         public List<UseHit> Of(string kind, long id) { return Of(kind, id, 0); }
+
+        /// <summary>A shipped file read for the index; one that cannot be read is skipped (null) and told to skip.</summary>
+        internal static XmlElem Parse(M2dArchive a, string archive, M2dEntry e, Action<string, Exception> skip)
+        {
+            try { return XmlDoc.Parse(a.Read(e), archive + " " + e.Name).Root; }
+            catch (ModKitException ex) { skip(archive + " " + e.Name, ex); }
+            catch (IOException ex) { skip(archive + " " + e.Name, ex); }
+            catch (InvalidDataException ex) { skip(archive + " " + e.Name, ex); }
+            return null;
+        }
 
         static readonly string[] SourceOrder = { IdLookup.Quest, IdLookup.Shop, IdLookup.DropBox, IdLookup.Npc, IdLookup.Item };
 
@@ -420,7 +545,7 @@ namespace MS2.ModKit
         /// Every shipped row of the bundle side and every shipped per-id file, with its id. A file is parsed and
         /// dropped again (a document the editor already holds is used as it is).
         /// </summary>
-        internal void ScanShipped(Action<long, XmlElem> visit)
+        internal void ScanShipped(Action<long, XmlElem> visit, Action<string, Exception> skip)
         {
             if (BundleXml != null)
             {
@@ -429,7 +554,7 @@ namespace MS2.ModKit
                 {
                     long block;
                     if (!bundle.Match(e.Name.Replace('\\', '/'), out block)) continue;
-                    XmlElem root = ScanRoot(a, BundleXml, e);
+                    XmlElem root = ScanRoot(a, BundleXml, e, skip);
                     if (root == null) continue;
                     foreach (XmlElem row in root.Children)
                     {
@@ -444,18 +569,18 @@ namespace MS2.ModKit
                 foreach (KeyValuePair<long, string> kv in FileIndex())
                 {
                     M2dEntry e = a.Find(kv.Value);
-                    XmlElem root = e == null ? null : ScanRoot(a, FileXml, e);
+                    XmlElem root = e == null ? null : ScanRoot(a, FileXml, e, skip);
                     if (root != null) visit(kv.Key, root);
                 }
             }
         }
 
-        XmlElem ScanRoot(M2dArchive a, string archive, M2dEntry e)
+        XmlElem ScanRoot(M2dArchive a, string archive, M2dEntry e, Action<string, Exception> skip)
         {
             object o;
             if (Data.Cache.TryGetValue("entitydoc\n" + archive + "\n" + e.Name.ToLowerInvariant(), out o))
                 return o == null ? null : ((DocInfo)o).Doc.Root;
-            return XmlDoc.Parse(a.Read(e), archive + " " + e.Name).Root;
+            return WhereUsed.Parse(a, archive, e, skip);
         }
 
         /// <summary>The shipped ids the mod edits: a change of a bundle row (or below it), or an edit of a per-id file.</summary>
@@ -498,11 +623,22 @@ namespace MS2.ModKit
 
     public sealed partial class QuestEditor
     {
-        /// <summary>Every shipped quest element: the table's rows, then the quests of each quest file.</summary>
-        internal void ScanShipped(Action<long, XmlElem> visit)
+        /// <summary>
+        /// Every shipped quest element with its place (QuestPlace.Key): the table's rows, then the quests of each quest
+        /// file.
+        /// </summary>
+        internal void ScanShipped(Action<long, XmlElem, string> visit, Action<string, Exception> skip)
         {
-            foreach (KeyValuePair<long, List<XmlElem>> kv in TableRows())
-                foreach (XmlElem row in kv.Value) visit(kv.Key, row);
+            if (TableXml != null)
+            {
+                Dictionary<long, List<XmlElem>> rows = null;
+                string name = null;
+                try { rows = TableRows(); name = Doc(TableXml, TableEntry).Name; }
+                catch (ModKitException ex) { skip(TableXml + " " + TableEntry, ex); }
+                if (rows != null)
+                    foreach (KeyValuePair<long, List<XmlElem>> kv in rows)
+                        foreach (XmlElem row in kv.Value) visit(kv.Key, row, QuestPlace.KeyOf(TableXml, name, row.Attr("feature") ?? ""));
+            }
             foreach (string archive in FileArchives())
             {
                 M2dArchive a = Data.Open(archive);
@@ -512,11 +648,11 @@ namespace MS2.ModKit
                     if (e == null) continue;
                     object o;
                     XmlElem root = Data.Cache.TryGetValue("questdoc\n" + archive + "\n" + kv.Value.ToLowerInvariant(), out o)
-                        ? (o == null ? null : ((DocInfo)o).Doc.Root) : XmlDoc.Parse(a.Read(e), archive + " " + e.Name).Root;
+                        ? (o == null ? null : ((DocInfo)o).Doc.Root) : WhereUsed.Parse(a, archive, e, skip);
                     if (root == null) continue;
                     var qs = new List<KeyValuePair<XmlElem, string>>();
                     QuestElems(root, qs);
-                    foreach (KeyValuePair<XmlElem, string> q in qs) visit(kv.Key, q.Key);
+                    foreach (KeyValuePair<XmlElem, string> q in qs) visit(kv.Key, q.Key, QuestPlace.KeyOf(archive, kv.Value, q.Value));
                 }
             }
         }
@@ -553,6 +689,9 @@ namespace MS2.ModKit
             return ids;
         }
 
+        /// <summary>The element name of a node (shipped, or one the mod adds).</summary>
+        internal string NodeName(QuestNode n) { return n.Literal ? Frag(n).Name : n.Orig.Name; }
+
         /// <summary>The name of a quest: as the mod leaves it when asked (mod), else the shipped name.</summary>
         public string NameOf(long id, bool mod)
         {
@@ -567,7 +706,7 @@ namespace MS2.ModKit
         internal delegate void RowVisit(GroupKind kind, long id, int index, string describe, XmlElem row);
 
         /// <summary>Every shipped stock row of the shops and every shipped row of the drop boxes.</summary>
-        internal void ScanShipped(RowVisit visit) { Scan(null, visit); }
+        internal void ScanShipped(RowVisit visit, Action<string, Exception> skip) { Scan(null, visit, skip); }
 
         /// <summary>The entries that hold group rows: (archive, entry, row element under the root, its id attribute, kind).</summary>
         sealed class RowEntry { internal string Archive, Entry, Row, Key; internal GroupKind Kind; internal bool Flat; }
@@ -588,6 +727,8 @@ namespace MS2.ModKit
             return l;
         }
 
+        static string Nz(string v) { return string.IsNullOrEmpty(v) ? "?" : v; }
+
         static long RowId(XmlElem e, RowEntry re)
         {
             long id;
@@ -595,12 +736,15 @@ namespace MS2.ModKit
         }
 
         /// <summary>The stock rows and drop rows of every group, as the plan writes them (null: as shipped).</summary>
-        void Scan(Plan plan, RowVisit visit)
+        void Scan(Plan plan, RowVisit visit, Action<string, Exception> skip = null)
         {
             var n = new Dictionary<string, int>();
             foreach (RowEntry re in RowEntries())
             {
-                XmlDoc d = Read(plan, re.Archive, re.Entry);
+                XmlDoc d;
+                try { d = Read(plan, re.Archive, re.Entry); }
+                catch (ModKitException ex) { if (skip == null) throw; skip(re.Archive + " " + re.Entry, ex); continue; }
+                catch (IOException ex) { if (skip == null) throw; skip(re.Archive + " " + re.Entry, ex); continue; }
                 if (d == null || d.Root == null) continue;
                 // the flat splits of one archive count their rows together; the nested tables count per table
                 string scope = re.Flat ? re.Archive + "\n" : re.Archive + "\n" + re.Entry + "\n";
@@ -616,12 +760,12 @@ namespace MS2.ModKit
                         foreach (XmlElem it in top.Children)
                             if (it.Name == "item") visit(GroupKind.Shop, id, i++, "sn " + (it.Attr("sn") ?? "?"), it);
                     }
-                    else if (re.Flat) visit(GroupKind.DropBox, id, i++, "group " + (top.Attr("dropGroup") ?? "?"), top);
+                    else if (re.Flat) visit(GroupKind.DropBox, id, i++, "group " + Nz(top.Attr("dropGroup")), top);
                     else
                         foreach (XmlElem g in top.Children)
                         {
                             if (g.Name != DropMap.GroupNested) continue;
-                            string label = "group " + (g.Attr("dropGroupID") ?? g.Attr("id") ?? "?");
+                            string label = "group " + Nz(g.Attr("dropGroupID") ?? g.Attr("id"));
                             foreach (XmlElem r in g.Children) if (r.Name == DropMap.RowNested) visit(GroupKind.DropBox, id, i++, label, r);
                         }
                     n[k] = i;

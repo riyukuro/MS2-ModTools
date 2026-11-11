@@ -222,7 +222,7 @@ namespace MS2.Tables
         void ShowWhereUsed()
         {
             if (view == null) throw new ModKitException("choose a shop or a drop box first");
-            WhereUsedJump.Show(this, host.SharedSession(), view.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, view.Id);
+            WhereUsedJump.Show(this, host, view.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, view.Id);
         }
 
         /// <summary>Where used's jump: the shop or box, its first row whose field names the id, on the first side that has one.</summary>
@@ -239,8 +239,7 @@ namespace MS2.Tables
                         if ((kv.Key == field || IdLookup.GroupRowFieldKind(kind, kv.Key) == IdLookup.Item) && Array.IndexOf((kv.Value ?? "").Replace(" ", "").Split(','), want) >= 0)
                         {
                             int c = 2 + columns.IndexOf(kv.Key);
-                            rowGrid.CurrentCell = rowGrid[c >= 2 && c < rowGrid.ColumnCount ? c : 0, i];
-                            rowGrid.FirstDisplayedScrollingRowIndex = Math.Max(0, i - 2);
+                            WhereUsedJump.SelectCell(rowGrid, c >= 2 && c < rowGrid.ColumnCount ? c : 0, i);
                             return;
                         }
             }
@@ -815,8 +814,9 @@ namespace MS2.Tables
             ShowGroup(null);
             FillHits(Editor().Exists(v.Kind, v.Id) ? v.Id : 0);
             if (Editor().Exists(v.Kind, v.Id)) ShowGroup(Editor().Open(v.Kind, v.Id));
-            string left = Editor().Exists(v.Kind, v.Id) ? "" : WhereUsedJump.LeftBehind(host.SharedSession(), v.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, v.Id);
-            host.SayOutside(v.Noun + " " + v.Id + ": the mod's changes are taken out" + left);
+            string said = v.Noun + " " + v.Id + ": the mod's changes are taken out";
+            if (Editor().Exists(v.Kind, v.Id)) host.SayOutside(said);
+            else WhereUsedJump.SayLeftBehind(host, said, v.Kind == GroupKind.Shop ? IdLookup.Shop : IdLookup.DropBox, v.Id);
         }
 
         void Opened(GroupKind kind, long id, string said)

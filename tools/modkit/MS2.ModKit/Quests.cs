@@ -66,6 +66,12 @@ namespace MS2.ModKit
         public string Target { get { Profile p = Profile.OfArchive(Archive); return p != null ? p.Name : DataSet.RootOf(Archive); } }
         public string Label { get { return Target + "  " + Entry + (Feature.Length > 0 ? "  [" + Feature + "]" : ""); } }
         public override string ToString() { return Label; }
+        /// <summary>The place as one string (archive, entry, feature): what a Where used hit names for a jump.</summary>
+        public string Key { get { return KeyOf(Archive, Entry, Feature); } }
+        internal static string KeyOf(string archive, string entry, string feature)
+        {
+            return archive + "\n" + (entry ?? "").Replace('\\', '/').ToLowerInvariant() + "\n" + (feature ?? "");
+        }
     }
 
     // An element of a quest: a shipped one (Orig; the mod's lines name it by its selector), an element inside a
@@ -102,6 +108,15 @@ namespace MS2.ModKit
         public readonly List<QuestPlace> In = new List<QuestPlace>();
         public readonly List<string> Values = new List<string>();
         internal readonly List<QuestNode> Nodes = new List<QuestNode>();
+        /// <summary>The row of each place this row is (its position in that place's list; -1: not there).</summary>
+        public readonly List<int> Rows = new List<int>();
+
+        /// <summary>True when this row is the row-th row of the place with that key (QuestPlace.Key).</summary>
+        public bool IsRow(string placeKey, int row)
+        {
+            for (int i = 0; i < In.Count && i < Rows.Count; i++) if (Rows[i] == row && In[i].Key == placeKey) return true;
+            return false;
+        }
     }
 
     public sealed class QuestCondition
@@ -312,6 +327,7 @@ namespace MS2.ModKit
             {
                 var taken = new List<QuestReward>();
                 int at = 0;     // where a row no earlier place has goes: behind the place's row before it
+                int own = 0;    // the row's position in this place
                 foreach (QuestNode row in Rows(roots[pi], reward, list))
                 {
                     string c = Editor.Attr(row, "code") ?? "", r = Editor.Attr(row, "rank") ?? "", n = Editor.Attr(row, "count") ?? "";
@@ -322,13 +338,14 @@ namespace MS2.ModKit
                     if (w == null)
                     {
                         w = new QuestReward { List = list, Code = c, Rank = r, Count = n };
-                        foreach (QuestNode root in roots) { w.In.Add(root.Place); w.Values.Add(null); w.Nodes.Add(null); }
+                        foreach (QuestNode root in roots) { w.In.Add(root.Place); w.Values.Add(null); w.Nodes.Add(null); w.Rows.Add(-1); }
                         l.Insert(Math.Min(at, l.Count), w);
                     }
                     else if (Norm(r) != Norm(w.Rank) || Norm(n) != Norm(w.Count)) w.Differs = true;
                     taken.Add(w);
                     at = Math.Max(at, l.IndexOf(w) + 1);
                     w.Nodes[pi] = row;
+                    w.Rows[pi] = own++;
                     w.Values[pi] = c + " x" + n + " (rank " + r + ")";
                     w.Places++;
                 }

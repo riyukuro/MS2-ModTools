@@ -817,6 +817,16 @@ namespace MS2.Tables
 
         internal void SayOutside(string text) { Say(text); }
 
+        /// <summary>
+        /// Runs work of another view as a job (on the worker thread, this view locked), then done on the window's
+        /// thread; errors go to the output pane. False when a job is running already.
+        /// </summary>
+        internal bool RunOutside(string what, MethodInvoker work, MethodInvoker done)
+        {
+            NeedHandle();
+            return RunJob(what, delegate(Action<ProgressInfo> progress) { work(); }, done);
+        }
+
         internal string OutputText { get { return OutputWrap.Raw(outputBox); } }
 
         /// <summary>The "Apply to" choice (0 = workspace, 1 = game folder), for another view that shows it too.</summary>

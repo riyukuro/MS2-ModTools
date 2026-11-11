@@ -647,7 +647,7 @@ namespace MS2.Tables
 
         void ShowWhereUsed()
         {
-            WhereUsedJump.Show(this, host.SharedSession(), IdLookup.Npc, Draft().Id);
+            WhereUsedJump.Show(this, host, IdLookup.Npc, Draft().Id);
         }
 
         /// <summary>Where used's jump: the npc, its grid row of the field ("element@attribute"; else the first row of that attribute).</summary>
@@ -669,8 +669,7 @@ namespace MS2.Tables
                 for (int i = 0; i < rows.Count && hit < 0; i++)
                     if (rows[i].Heading == null && FieldOf(rows[i]).EndsWith("@" + attr, StringComparison.Ordinal)) hit = i;
                 if (hit < 0) return;
-                grid.CurrentCell = grid[1, hit];
-                grid.FirstDisplayedScrollingRowIndex = Math.Max(0, hit - 3);
+                WhereUsedJump.SelectCell(grid, 1, hit, 3);
             });
         }
 
@@ -683,7 +682,7 @@ namespace MS2.Tables
             ShowNpc(null);
             Edited();
             FillHits(0);
-            host.SayOutside("npc " + d.Id + " taken out of the mod" + WhereUsedJump.LeftBehind(host.SharedSession(), IdLookup.Npc, d.Id));
+            WhereUsedJump.SayLeftBehind(host, "npc " + d.Id + " taken out of the mod", IdLookup.Npc, d.Id);
         }
     }
 }

@@ -1,6 +1,7 @@
 // "Where used": one shared dialog that lists the places naming an item, npc, skill, effect or quest id (quest
 // conditions and rewards, shop stock, drop box rows, npc fields, item and skill fields; WhereUsed of the mod kit
-// finds them, the mod's places first), and jumps to the view and row of the chosen place.
+// finds them, the mod's places first), and jumps to the view and row of the chosen place. The question runs as a job
+// of the Tables view (the first one reads every shipped source), so the window stays live meanwhile.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -16,24 +17,86 @@ namespace MS2.Tables
     {
         const int Max = 2000;
 
-        /// <summary>Shows the dialog for an id of a kind; Go to opens the chosen place in its view.</summary>
-        internal static void Show(Control owner, EditorSession session, string kind, long id)
+        /// <summary>Asks for an id of a kind as a job, then shows the dialog; Go to opens the chosen place in its view.</summary>
+        internal static void Show(Control owner, TablesView host, string kind, long id)
         {
-            List<UseHit> hits = new WhereUsed(session).Of(kind, id, Max);
-            UseHit go;
-            using (var d = new WhereUsedDialog(kind, id, hits, Max))
+            EditorSession session = host.SharedSession();
+            List<UseHit> hits = null;
+            List<string> skipped = null;
+            host.RunOutside("Where used " + kind + " " + id.ToString(CultureInfo.InvariantCulture), delegate
             {
-                if (d.ShowDialog(owner.FindForm()) != DialogResult.OK || d.Chosen == null) return;
-                go = d.Chosen;
-            }
-            Jump(go, id);
+                bool first = !WhereUsed.IsIndexed(session.Data);
+                hits = new WhereUsed(session).Of(kind, id, Max);
+                skipped = Skipped(session, first);
+            }, delegate
+            {
+                if (skipped != null) host.SayOutside(SkippedText(skipped));
+                if (owner.IsDisposed) return;
+                UseHit go;
+                using (var d = new WhereUsedDialog(kind, id, hits, Max, WhereUsedSkipped(session)))
+                {
+                    if (d.ShowDialog(owner.FindForm()) != DialogResult.OK || d.Chosen == null) return;
+                    go = d.Chosen;
+                }
+                Jump(go, id);
+            });
         }
 
-        /// <summary>The end of a Remove clone: the places that still name the removed id, listed, or "" when nothing does.</summary>
-        internal static string LeftBehind(EditorSession session, string kind, long id)
+        /// <summary>
+        /// The end of a Remove clone or a Discard: says what was done, then, as a job, lists the places that still
+        /// name the id.
+        /// </summary>
+        internal static void SayLeftBehind(TablesView host, string said, string kind, long id)
         {
-            string w = new WhereUsed(session).LeftBehind(kind, id);
-            return w == null ? "" : "\r\n" + w.Replace("\n", "\r\n");
+            host.SayOutside(said);
+            EditorSession session = host.SharedSession();
+            string w = null;
+            List<string> skipped = null;
+            host.RunOutside("Checking what still names " + kind + " " + id.ToString(CultureInfo.InvariantCulture), delegate
+            {
+                bool first = !WhereUsed.IsIndexed(session.Data);
+                w = new WhereUsed(session).LeftBehind(kind, id);
+                skipped = Skipped(session, first);
+            }, delegate
+            {
+                if (skipped != null) host.SayOutside(SkippedText(skipped));
+                host.SayOutside(w == null ? "no place still names " + kind + " " + id.ToString(CultureInfo.InvariantCulture) : w.Replace("\n", "\r\n"));
+            });
+        }
+
+        static int WhereUsedSkipped(EditorSession session)
+        {
+            WhereUsedStats st = WhereUsed.Stats(session.Data);
+            return st == null ? 0 : st.Skipped.Count;
+        }
+
+        // the files the shipped read skipped, once: right after the read that skipped them
+        static List<string> Skipped(EditorSession session, bool first)
+        {
+            WhereUsedStats st = WhereUsed.Stats(session.Data);
+            return first && st != null && st.Skipped.Count > 0 ? new List<string>(st.Skipped) : null;
+        }
+
+        static string SkippedText(List<string> skipped)
+        {
+            var l = new List<string> { "Where used: " + skipped.Count + " shipped file(s) could not be read and are left out:" };
+            for (int i = 0; i < skipped.Count && i < 10; i++) l.Add("  " + skipped[i]);
+            if (skipped.Count > 10) l.Add("  and " + (skipped.Count - 10) + " more");
+            return string.Join("\r\n", l.ToArray());
+        }
+
+        /// <summary>
+        /// Selects a cell of a grid and scrolls it into view; a grid with no room for rows yet (a pane just made or
+        /// collapsed) refuses, and the jump then only opens the place.
+        /// </summary>
+        internal static void SelectCell(DataGridView grid, int column, int row, int above = 2)
+        {
+            if (row < 0 || row >= grid.RowCount || column < 0 || column >= grid.ColumnCount) return;
+            try { grid.CurrentCell = grid[column, row]; }
+            catch (InvalidOperationException) { }
+            try { grid.FirstDisplayedScrollingRowIndex = Math.Max(0, row - above); }
+            catch (InvalidOperationException) { }
+            catch (ArgumentOutOfRangeException) { }
         }
 
         static T Shown<T>(string viewId, string what) where T : AbstractView
@@ -51,7 +114,7 @@ namespace MS2.Tables
             {
                 case IdLookup.Item: Shown<ItemsView>(ItemsView.ViewId, "MS2 Items").OpenUse(h.Id, h.Field); break;
                 case IdLookup.Npc: Shown<NpcsView>(NpcsView.ViewId, "MS2 NPCs").OpenUse(h.Id, h.Field); break;
-                case IdLookup.Quest: Shown<QuestsView>(QuestsView.ViewId, "MS2 Quests").OpenUse(h.Id, h.Field, h.Index); break;
+                case IdLookup.Quest: Shown<QuestsView>(QuestsView.ViewId, "MS2 Quests").OpenUse(h.Id, h.Field, h.Index, h.Place); break;
                 case IdLookup.Shop:
                 case IdLookup.DropBox: Shown<GroupsView>(GroupsView.ViewId, "MS2 Shops and Drops").OpenUse(h.Kind == IdLookup.Shop ? GroupKind.Shop : GroupKind.DropBox, h.Id, h.Field, named); break;
                 default: throw new ModKitException("no view shows " + h.Kind + " " + h.Id);
@@ -69,7 +132,7 @@ namespace MS2.Tables
 
             internal UseHit Chosen { get; private set; }
 
-            internal WhereUsedDialog(string kind, long id, List<UseHit> hits, int max)
+            internal WhereUsedDialog(string kind, long id, List<UseHit> hits, int max, int skipped)
             {
                 this.hits = hits;
                 Text = "Where used: " + kind + " " + id.ToString(CultureInfo.InvariantCulture);
@@ -99,6 +162,7 @@ namespace MS2.Tables
                 if (list.Items.Count > 0) list.Items[0].Selected = true;
                 status.Text = hits.Count == 0 ? "nothing names " + kind + " " + id + " (in the fields the id pickers know)"
                     : hits.Count + (hits.Count >= max ? "+" : "") + " place(s), " + fresh + " of the mod (green; \"added\": in a row or entry the mod adds)";
+                if (skipped > 0) status.Text += "; " + skipped + " shipped file(s) unreadable, left out (see the output)";
 
                 var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, ColumnCount = 3, RowCount = 1, AutoSize = true, Padding = new Padding(6, 2, 6, 6) };
                 bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));

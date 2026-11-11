@@ -139,7 +139,7 @@ namespace MS2.Tables
             cloneBar.Controls.Add(Btn("Where used", "Lists the npcs and items that name this skill or effect (npc skills, item skill and additional effects), the mod's first, with Go to", delegate
             {
                 if (shownId == 0) throw new ModKitException("choose a skill or an effect first");
-                WhereUsedJump.Show(this, host.SharedSession(), Kind == SkillKind.Effect ? IdLookup.Effect : IdLookup.Skill, shownId);
+                WhereUsedJump.Show(this, host, Kind == SkillKind.Effect ? IdLookup.Effect : IdLookup.Skill, shownId);
             }));
             cloneBar.Controls.Add(Btn("Remove clone", "Takes the chosen new skill or effect out of the mod again", delegate { RemoveClone(); }));
 
@@ -900,8 +900,8 @@ namespace MS2.Tables
             Edited();
             ShowSkill(0, null);
             FillHits(0);
-            host.SayOutside((op.Kind == SkillKind.Effect ? "effect " : "skill ") + op.Id + " taken out of the mod"
-                + WhereUsedJump.LeftBehind(host.SharedSession(), op.Kind == SkillKind.Effect ? IdLookup.Effect : IdLookup.Skill, op.Id));
+            WhereUsedJump.SayLeftBehind(host, (op.Kind == SkillKind.Effect ? "effect " : "skill ") + op.Id + " taken out of the mod",
+                op.Kind == SkillKind.Effect ? IdLookup.Effect : IdLookup.Skill, op.Id);
         }
 
         void JobRow()
