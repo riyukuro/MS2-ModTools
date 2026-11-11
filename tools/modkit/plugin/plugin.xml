@@ -49,6 +49,21 @@
         <display-name>Server target folder</display-name>
         <description>Optional. After a successful Apply, every server archive the mods changed (the .m2d and its .m2h) is copied from the workspace into this folder, for example the data folder a server reads. The files it replaces are kept and put back by Revert. Plan names the folder before anything is written. Empty = the environment variable MS2_SERVER_TARGET; both empty = no copy.</description>
       </setting>
+      <setting scope="PerUser" id="MS2.Mods.Features.kms-client" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Features: Korean client</display-name>
+        <description>Locale and server type the Korean client runs with, as LOCALE/TYPE (NA/Dev, KR, /Dev). They decide which features are on. Empty = KR/Live. Also a field in the MS2 Tables view. MS2_CLIENT_FEATURES in the environment or in modtools.toml goes before it.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.Features.gms-client" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Features: global client</display-name>
+        <description>As above for the global client. Empty = NA/Live. MS2_GMS_CLIENT_FEATURES in the environment or in modtools.toml goes before it.</description>
+      </setting>
+      <setting scope="PerUser" id="MS2.Mods.Features.server" path="MS2 Mods" property-type="String" visible="true">
+        <value></value>
+        <display-name>Features: server</display-name>
+        <description>As above for the server: the locale and the server type its data import is run with. Empty = NA/Live. MS2_SERVER_FEATURES in the environment or in modtools.toml goes before it.</description>
+      </setting>
       <setting scope="PerUser" id="MS2.Mods.UseWholeWindow" path="MS2 Mods" property-type="Boolean" visible="true">
         <value>True</value>
         <display-name>Use the whole window</display-name>

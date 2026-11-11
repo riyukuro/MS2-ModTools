@@ -4,10 +4,12 @@
 // are the views. All the work (reading archives, the mod.xml model, plan, apply, revert) is in MS2.ModKit.dll, which sits beside this DLL.
 // Targets .NET 3.5 / C# 7.3 (Toolbench is a CLR 2 x86 host).
 using System;
+using System.Collections.Generic;
 using Emergent.Toolbench;
 using Emergent.Toolbench.Actions;
 using Emergent.Toolbench.Settings;
 using Emergent.Toolbench.UI.Workbench;
+using MS2.ModKit;
 
 namespace MS2.Tables
 {
@@ -21,6 +23,8 @@ namespace MS2.Tables
     internal sealed class TablesSettings
     {
         public string ClientData, GmsData, ServerData, ModsDir, Workspace, GameDir, ServerTarget, AfterApply;
+        /// <summary>Per data root: the features setting ("LOCALE/TYPE", "" = the profile's own) and where it comes from when not from the view's field.</summary>
+        public readonly Dictionary<string, string> Features = new Dictionary<string, string>(), FeaturesFrom = new Dictionary<string, string>();
 
         public static TablesSettings Load()
         {
@@ -34,7 +38,28 @@ namespace MS2.Tables
             t.GameDir = Get(s, "MS2.Mods.GameDir", "MS2_GAME_DIR");
             t.ServerTarget = Get(s, "MS2.Mods.ServerTarget", "MS2_SERVER_TARGET");
             t.AfterApply = Get(s, "MS2.Mods.AfterApply", "MS2_AFTER_APPLY");
+            // the features: the environment, then modtools.toml of the checkout this plugin was built in or runs in, then the view's field
+            RepoSettings repo = RepoSettings.Load(System.IO.Path.GetDirectoryName(typeof(TablesSettings).Assembly.Location), System.IO.Directory.GetCurrentDirectory());
+            foreach (Profile p in Profile.All)
+            {
+                string from = repo.SourceOf(p.FeaturesVar), v = from != null ? repo.Value(p.FeaturesVar).Trim() : null;
+                if (v == null && (s == null || !s.GetSetting<string>(FeaturesId(p), out v))) v = null;
+                t.Features[p.Root] = (v ?? "").Trim();
+                t.FeaturesFrom[p.Root] = from;
+            }
             return t;
+        }
+
+        public static string FeaturesId(Profile p) { return "MS2.Mods.Features." + p.Name; }
+
+        /// <summary>Saves the view's features field of a profile.</summary>
+        public static void SaveFeatures(Profile p, string value)
+        {
+            ISettingService s = Platform.GetService<ISettingService>();
+            if (s == null) return;
+            s.SetSetting(FeaturesId(p), value ?? "");
+            try { s.SaveSettings(SettingStorageMode.PerUser); }
+            catch (Exception ex) { Logger.Warning("MS2 Mods: could not save the settings: " + ex.Message); }
         }
 
         static string Get(ISettingService s, string id, string env)

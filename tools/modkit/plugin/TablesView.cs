@@ -38,6 +38,7 @@ namespace MS2.Tables
         readonly Label tableLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
         readonly TextBox modIdBox = new TextBox { Width = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
+        readonly Dictionary<string, TextBox> featureBoxes = new Dictionary<string, TextBox>();   // data root -> its features field
         readonly CheckedListBox modsList = new CheckedListBox { Dock = DockStyle.Fill, IntegralHeight = false, CheckOnClick = false };
         readonly Label busyLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
         readonly List<Control> lockable = new List<Control>();   // what is disabled while a job runs
@@ -67,6 +68,20 @@ namespace MS2.Tables
             top.Controls.Add(parentBox);
             top.Controls.Add(Btn("Open", "Opens the selected entry. \"Rows under\" is a selector of the element whose children are the rows; empty = the root element.", delegate { OpenSelected(); }));
             top.Controls.Add(Btn("Reload settings", "Reads the MS2 Mods settings again and lists the archives", delegate { Reload(); }));
+
+            // under it: locale and server type per target, for the features that are on
+            FlowLayoutPanel featBar = Bar(DockStyle.Top);
+            featBar.Controls.Add(Lbl("Features (LOCALE/TYPE)"));
+            foreach (Profile p in Profile.All)
+            {
+                Profile profile = p;
+                var box = new TextBox { Width = 80 };
+                featureBoxes[p.Root] = box;
+                featBar.Controls.Add(Lbl(p.Title));
+                featBar.Controls.Add(box);
+                box.Leave += delegate { FeaturesEdited(profile); };
+                box.KeyDown += delegate(object sender, KeyEventArgs e) { if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; FeaturesEdited(profile); } };
+            }
 
             // above the grid: row tools
             FlowLayoutPanel rowBar = Bar(DockStyle.Top);
@@ -139,8 +154,9 @@ namespace MS2.Tables
             Controls.Add(entryList);
             Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
             Controls.Add(bottom);
+            Controls.Add(featBar);
             Controls.Add(top);
-            lockable.AddRange(new Control[] { top, rowBar, grid, entryList, modBar, modsPanel });
+            lockable.AddRange(new Control[] { top, featBar, rowBar, grid, entryList, modBar, modsPanel });
             ViewLayout.KeepHeightShare(bottom, this, 0.32, 120);
             ViewLayout.CentreOnFirstShow(this);
 
@@ -272,7 +288,7 @@ namespace MS2.Tables
                 entryList.Items.Clear();
                 TablesSettings s = TablesSettings.Load();
                 session = new EditorSession(s.ClientData, s.GmsData, s.ServerData, s.ModsDir, s.Workspace);
-                foreach (Profile p in session.Data.Profiles) session.Data.SetFeatures(p, Environment.GetEnvironmentVariable(p.FeaturesVar));
+                ShowFeatures(s);
                 session.GameDir = string.IsNullOrEmpty(s.GameDir) ? null : s.GameDir;
                 session.Server.TargetDir = string.IsNullOrEmpty(s.ServerTarget) ? null : s.ServerTarget;
                 session.Server.Command = string.IsNullOrEmpty(s.AfterApply) ? null : s.AfterApply;
@@ -303,10 +319,67 @@ namespace MS2.Tables
                     + "\nworkspace:   " + Shown(s.Workspace) + "\ngame folder: " + Shown(s.GameDir)
                     + "\nserver target folder: " + (session.Server.HasTarget ? session.Server.TargetDir : "(not set: the server archive stays in the workspace)")
                     + "\ncommand after apply:  " + (session.Server.HasCommand ? session.Server.Command : "(not set: nothing is run)")
+                    + "\nfeatures:    " + FeaturesLine(s)
                     + "\napply to:    " + targetBox.Text + "\n" + archiveBox.Items.Count + " archive(s), " + modsList.Items.Count + " mod(s)" + resumed);
                 if (archiveBox.Items.Count > 0) archiveBox.SelectedIndex = PreferredArchive();
             });
             NotifyChanged();
+        }
+
+        // ---- the features fields ----
+
+        const string FeaturesTip = "Locale and server type the game of this target runs with, as LOCALE/TYPE: NA/Dev, KR, /Dev. They decide which features are on, and so which of several map files of a map is loaded. Empty = ";
+
+        // fills the three fields from the settings and hands the values to the data set
+        void ShowFeatures(TablesSettings s)
+        {
+            foreach (Profile p in Profile.All)
+            {
+                TextBox box = featureBoxes[p.Root];
+                string from = s.FeaturesFrom[p.Root], value = s.Features[p.Root];
+                string own = p.Locale + "/" + FeatureSet.DefaultServerType;
+                box.Text = value;
+                box.Tag = value;        // what is saved, to tell an edit from a visit
+                box.ReadOnly = from != null;
+                tips.SetToolTip(box, from != null
+                    ? "Set by " + from + ", which goes before this field. Remove it there to edit the value here."
+                    : FeaturesTip + own + ". Saved with the MS2 Mods settings; " + p.FeaturesVar + " in the environment or in modtools.toml goes before it.");
+                try { session.Data.SetFeatures(p, value); }
+                catch (ModKitException ex)
+                {
+                    session.Data.SetFeatures(p, null);
+                    Logger.Warning("MS2 Tables: " + ex.Message + " (" + p.Title + "); " + own + " is used");
+                }
+            }
+        }
+
+        string FeaturesLine(TablesSettings s)
+        {
+            var parts = new List<string>();
+            foreach (Profile p in Profile.All)
+            {
+                string locale, type;
+                session.Data.FeatureOption(p, out locale, out type);
+                parts.Add(p.Name + " " + locale + "/" + type + (s.FeaturesFrom[p.Root] != null ? " (" + s.FeaturesFrom[p.Root] + ")" : ""));
+            }
+            return string.Join(", ", parts.ToArray());
+        }
+
+        // a field was left or Enter was pressed in it: check, save, use
+        void FeaturesEdited(Profile p)
+        {
+            TextBox box = featureBoxes[p.Root];
+            if (box.ReadOnly || session == null || IsBusy()) return;
+            string value = box.Text.Trim(), locale, type;
+            Guard(delegate
+            {
+                session.Data.SetFeatures(p, value);     // refuses a text that is not LOCALE/TYPE
+                if (value == (box.Tag as string ?? "")) return;
+                box.Tag = value;
+                TablesSettings.SaveFeatures(p, value);
+                session.Data.FeatureOption(p, out locale, out type);
+                Say("features of the " + p.Title + ": " + locale + "/" + type + (value.Length == 0 ? " (its own)" : "") + ". Saved; Plan uses it from now on.");
+            });
         }
 
         static string Shown(string folder) { return string.IsNullOrEmpty(folder) ? "(not set)" : folder; }
