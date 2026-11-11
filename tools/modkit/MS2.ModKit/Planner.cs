@@ -77,6 +77,8 @@ namespace MS2.ModKit
         public string WinnerId;
         /// <summary>The mod whose part of the conflict is left out (null where there is no winner).</summary>
         public string LoserId;
+        /// <summary>The line of the losing mod that the conflict is about, where the message is that mod's own.</summary>
+        internal object Ask;
 
         internal const string WinsTail = " wins (it has the higher priority)";
 
@@ -179,12 +181,16 @@ namespace MS2.ModKit
             Conflicts[n].WinnerId = winner.Id;
             Mod loser = winner != mod ? mod : other;
             if (loser != null && loser != winner) Conflicts[n].LoserId = loser.Id;
+            if (loser == mod) Conflicts[n].Ask = Ask;
         }
+
+        /// <summary>The row line (or the one set of a change) that is planned now; null outside of row lines.</summary>
+        internal object Ask;
 
         /// <summary>
         /// What the priority costs each mod: one line per pair of mods, "c wins 2 parts of b" (two things mod b asks
         /// for are left out, mod c has them), the losing mods from the highest down. The winner's name comes first,
-        /// so a narrow box shows it.
+        /// so a narrow box shows it. One line of a mod that loses to several mods is one part, of the highest of them.
         /// </summary>
         public List<string> LeftOut()
         {
@@ -192,11 +198,20 @@ namespace MS2.ModKit
             for (int i = Mods.Count - 1; i >= 0; i--)
             {
                 var to = new List<string>(); var count = new List<int>();
+                var asks = new List<object>(); var best = new List<int>();
                 foreach (PlanMessage m in Conflicts)
                 {
                     if (m.LoserId != Mods[i].Id || m.WinnerId == null) continue;
-                    int k = to.IndexOf(m.WinnerId);
-                    if (k < 0) { to.Add(m.WinnerId); count.Add(1); } else count[k]++;
+                    int w = Mods.FindIndex(x => x.Id == m.WinnerId);
+                    int at = m.Ask == null ? -1 : asks.IndexOf(m.Ask);
+                    if (at < 0) { asks.Add(m.Ask ?? m); best.Add(w); } else if (w > best[at]) best[at] = w;
+                }
+                foreach (int w in best)
+                {
+                    string id = w < 0 ? null : Mods[w].Id;
+                    if (id == null) continue;
+                    int k = to.IndexOf(id);
+                    if (k < 0) { to.Add(id); count.Add(1); } else count[k]++;
                 }
                 for (int k = 0; k < to.Count; k++) lines.Add(to[k] + " wins " + count[k] + (count[k] == 1 ? " part of " : " parts of ") + Mods[i].Id);
             }
@@ -243,6 +258,27 @@ namespace MS2.ModKit
             internal readonly List<AddClaim> Adds = new List<AddClaim>();
             /// <summary>Mods whose whole file for this entry is left out, with the mod that has the entry instead.</summary>
             internal readonly Dictionary<Mod, Mod> FileLeftOut = new Dictionary<Mod, Mod>();
+            /// <summary>Every value a mod asks for, also where a higher mod has the value: a mod that asks for two
+            /// values in one place contradicts itself whoever wins.</summary>
+            internal readonly List<Asked> Asked = new List<Asked>();
+            /// <summary>The row deletes that a higher mod's change or new row kept from happening.</summary>
+            internal readonly List<KeyValuePair<XmlElem, Mod>> KeptDeletes = new List<KeyValuePair<XmlElem, Mod>>();
+        }
+
+        sealed class Asked { internal Mod Mod; internal XmlElem Elem; internal string Key, Value; }
+
+        static bool Within(XmlElem e, XmlElem row)
+        {
+            for (XmlElem c = e; c != null; c = c.Parent) if (c == row) return true;
+            return false;
+        }
+
+        // the mod's own delete of a row around e, which a higher mod kept from happening
+        static bool OwnKeptDelete(Run run, EntryState st, Mod mod, XmlElem e)
+        {
+            if (run.Mirror != null) return false;
+            foreach (KeyValuePair<XmlElem, Mod> d in st.KeptDeletes) if (d.Value == mod && Within(e, d.Key)) return true;
+            return false;
         }
 
         sealed class Run
@@ -646,15 +682,41 @@ namespace MS2.ModKit
 
         static void DoChange(Run run, Mod mod, EntryState st, RowOp r)
         {
+            object was = run.Plan.Ask;
+            try { DoChangeLines(run, mod, st, r); }
+            finally { run.Plan.Ask = was; }
+        }
+
+        static void DoDelete(Run run, Mod mod, EntryState st, RowOp r)
+        {
+            object was = run.Plan.Ask;
+            run.Plan.Ask = r;
+            try { DoDeleteLine(run, mod, st, r); }
+            finally { run.Plan.Ask = was; }
+        }
+
+        static void DoAdd(Run run, Mod mod, EntryState st, RowOp r)
+        {
+            object was = run.Plan.Ask;
+            run.Plan.Ask = r;
+            try { DoAddLine(run, mod, st, r); }
+            finally { run.Plan.Ask = was; }
+        }
+
+        static void DoChangeLines(Run run, Mod mod, EntryState st, RowOp r)
+        {
             Plan plan = run.Plan;
             st.Ed.Rank = plan.Mods.IndexOf(mod);
             XmlElem target = Sub(st.Doc.Root, r.At);
             foreach (AttrOp a in r.Attrs)
             {
+                plan.Ask = a;
                 XmlElem el = Sub(target, a.At);
                 string row = RowPath.Canonical(el);
                 Mod del = DeletedBy(st, el);
                 if (del != null && DeletedRowStays(run, mod, st, el, "changes the row " + row + " that " + Who(del, mod) + " deletes")) continue;
+                // the mod's own delete of the row lost to a higher mod: the mod contradicts itself all the same
+                if (del == null && OwnKeptDelete(run, st, mod, el)) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, "changes the row " + row + " that " + Who(mod, mod) + " deletes"); continue; }
                 string what = a.Kind == AttrOpKind.Text ? "text" : "@" + a.Name;
                 string value = a.Kind == AttrOpKind.Unset ? null : a.Value;
                 string old = a.Kind == AttrOpKind.Text ? el.InnerText : el.Attr(a.Name);
@@ -664,6 +726,19 @@ namespace MS2.ModKit
                 Claim prev;
                 st.Claims.TryGetValue(key, out prev);
                 if (run.Mirror != null && !MirrorKeeps(run, mod, st, el, a, prev, row, what, value)) continue;
+                if (run.Mirror == null)
+                {
+                    // a second value of the same mod where a higher mod has the value: no priority decides that
+                    Asked first = null; bool known = false;
+                    foreach (Asked q in st.Asked)
+                        if (q.Mod == mod && q.Key == key) { if (q.Value == value) known = true; else if (first == null) first = q; }
+                    if (!known) st.Asked.Add(new Asked { Mod = mod, Elem = el, Key = key, Value = value });
+                    if (first != null && prev != null && prev.Mod != mod)
+                    {
+                        plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, row + " " + what + ": " + Show(value) + " here, " + Show(first.Value) + " in " + Who(mod, mod));
+                        continue;
+                    }
+                }
                 if (prev != null)
                 {
                     if (prev.Value == value) { plan.Msg(plan.Notes, mod, st.Archive, st.Name, row + " " + what + ": same value as " + Who(prev.Mod, mod)); continue; }
@@ -706,7 +781,7 @@ namespace MS2.ModKit
             }
         }
 
-        static void DoDelete(Run run, Mod mod, EntryState st, RowOp r)
+        static void DoDeleteLine(Run run, Mod mod, EntryState st, RowOp r)
         {
             Plan plan = run.Plan;
             XmlElem target = Sub(st.Doc.Root, r.At);
@@ -740,6 +815,10 @@ namespace MS2.ModKit
                     plan.Conflict(mod, st.Archive, st.Name, text, kept ? other : mod, other);
                 said[other] = true;
             }
+            // a change of the same mod that a higher mod's value hides is in no claim
+            if (run.Mirror == null && !said.ContainsKey(mod))
+                foreach (Asked q in st.Asked)
+                    if (q.Mod == mod && Within(q.Elem, target)) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, "deletes the row " + row + " that " + Who(mod, mod) + " changes"); break; }
             said.Clear();
             foreach (AddClaim a in inside2)
             {
@@ -749,7 +828,7 @@ namespace MS2.ModKit
                     plan.Conflict(mod, st.Archive, st.Name, text, kept ? a.Mod : mod, a.Mod);
                 said[a.Mod] = true;
             }
-            if (kept) return;
+            if (kept) { if (run.Mirror == null) st.KeptDeletes.Add(new KeyValuePair<XmlElem, Mod>(target, mod)); return; }
             foreach (AddClaim a in inside2)
             {
                 st.Ed.Remove(a.Edit);
@@ -788,7 +867,7 @@ namespace MS2.ModKit
             return sb.ToString();
         }
 
-        static void DoAdd(Run run, Mod mod, EntryState st, RowOp r)
+        static void DoAddLine(Run run, Mod mod, EntryState st, RowOp r)
         {
             Plan plan = run.Plan;
             st.Ed.Rank = plan.Mods.IndexOf(mod);
@@ -839,6 +918,7 @@ namespace MS2.ModKit
             string row = (where.Length > 0 ? where + "/" : "") + made.Name + (made.Attr("id") != null ? "[id=" + RowPath.Quote(made.Attr("id")) + "]" : "");
             Mod del = DeletedBy(st, parent);
             if (del != null && DeletedRowStays(run, mod, st, parent, "adds " + row + " inside a row that " + Who(del, mod) + " deletes")) return;
+            if (del == null && OwnKeptDelete(run, st, mod, parent)) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, "adds " + row + " inside a row that " + Who(mod, mod) + " deletes"); return; }
 
             if (run.Mirror != null)
             {

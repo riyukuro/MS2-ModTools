@@ -204,6 +204,56 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AHigherModDoesNotHideWhatAModDoesToItself()
+        {
+            using (var f = new Fake())
+            {
+                string hp5 = "<change at=\"pet[id=101]\"><set name=\"hp\" value=\"5\"/></change>", hp6 = hp5.Replace("\"5\"", "\"6\"");
+                string del = "<delete at=\"pet[id=101]\"/>", row = "<add in=\"pet[id=101]\"><xml><extra id=\"1\"/></xml></add>";
+                // every way a mod contradicts itself, under a higher mod that sets the same value (so that the
+                // row stays and the value is the higher mod's)
+                foreach (string rows in new[] { hp5 + hp6, del + hp5, del + row, row + del, hp5 + del })
+                {
+                    Mod a = f.Mod("a", Edit(C, Pet, rows));
+                    Mod b = f.Mod("b", Set(C, Pet, "pet[id=101]", "hp", "7"));
+                    Plan p = f.Plan(a, b);
+                    string dump = rows + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Conflicts.Count(x => x.WinnerId == null && x.ModId == "a"), Is.EqualTo(1), dump);
+                    Assert.That(p.Undecided, Is.EqualTo(1), dump);
+                    Assert.That(Fake.Text(p, C, Pet), Does.Contain("hp=\"7\""), dump);
+                    // the same count as without the higher mod
+                    Assert.That(f.Plan(a).Undecided, Is.EqualTo(1), dump);
+                }
+                // the same value twice is no contradiction
+                Plan q = f.Plan(f.Mod("a2", Edit(C, Pet, hp5 + hp5)), f.Mod("b2", Set(C, Pet, "pet[id=101]", "hp", "7")));
+                Assert.That(q.Undecided, Is.EqualTo(0), Fake.Dump(q));
+            }
+        }
+
+        [Test]
+        public void ThePartsLeftOutAreCountedByWhatAModAsksFor()
+        {
+            using (var f = new Fake())
+            {
+                // one delete of a loses to a change of c and to a new row of b: one part, of the highest of the two
+                Mod a = f.Mod("a", Edit(C, Pet, "<delete at=\"pet[id=101]\"/>"));
+                Mod b = f.Mod("b", Edit(C, Pet, "<add in=\"pet[id=101]\"><xml><extra id=\"1\"/></xml></add>"));
+                Mod c = f.Mod("c", Set(C, Pet, "pet[id=101]", "hp", "7"));
+                Plan p = f.Plan(a, b, c);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Conflicts.Count(x => x.LoserId == "a"), Is.EqualTo(2), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "c wins 1 part of a" }), dump);
+
+                // two lines of one mod that lose are two parts
+                Mod two = f.Mod("two", Set(C, Pet, "pet[id=101]", "hp", "5") + Set(C, Pet, "pet[id=101]", "speed", "5"));
+                Mod top = f.Mod("top", Set(C, Pet, "pet[id=101]", "hp", "7") + Set(C, Pet, "pet[id=101]", "speed", "7"));
+                p = f.Plan(two, top);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "top wins 2 parts of two" }), Fake.Dump(p));
+            }
+        }
+
+        [Test]
         public void AnEditOfAModsOwnFileThatIsLeftOut()
         {
             using (var f = new Fake())
