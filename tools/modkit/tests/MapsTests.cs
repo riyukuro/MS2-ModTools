@@ -778,16 +778,26 @@ namespace MS2.ModKit.Tests
                 // of the highest mod brings the shipped file back, and own's line goes with own's file
                 string crate2 = AddCrate.Replace("crate-1", "crate-2").Replace("Crate_A_900", "Crate_A_901");
                 Mod own = file("own", "0, 0, 45", Map(AddCrate)), other = file("file", "0, 0, 30", ""), edit = f.Mod("edit", Map(crate2));
-                foreach (Mod[] order in new[] { new[] { own, other, edit }, new[] { other, own, edit } })
+                Mod[][] orders =
+                {
+                    new[] { own, other, edit }, new[] { other, own, edit }, new[] { own, edit, other },
+                    new[] { edit, own, other }, new[] { other, edit, own }, new[] { edit, other, own },
+                };
+                foreach (Mod[] order in orders)
                 {
                     Plan p = f.Plan(order);
-                    string dump = order[0].Id + " < " + order[1].Id + "\n" + Fake.Dump(p);
+                    string top = order[2].Id, dump = order[0].Id + " < " + order[1].Id + " < " + top + "\n" + Fake.Dump(p);
                     Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Conflicts.All(x => x.WinnerId != null), dump);
+                    // the written text is the one of the highest of the three
                     string text = Encoding.UTF8.GetString(Bytes(p, K, FakeMaps.EntryA));
-                    Assert.That(text, Does.Contain(MapValues.NewEntityId("edit", FakeMaps.MapA, "crate-2")).And.Contain("0, 0, 90"), dump);
-                    Assert.That(text, Does.Not.Contain(MapValues.NewEntityId("own", FakeMaps.MapA, "crate-1")), dump);
-                    PlanMessage c = p.Conflicts.Single(x => x.Archive == K && x.ModId == "own" && x.Text.Contains("its own map file"));
-                    Assert.That(c.WinnerId, Is.Not.Null.And.Not.EqualTo("own"), dump);
+                    string crateOwn = MapValues.NewEntityId("own", FakeMaps.MapA, "crate-1"), crateEdit = MapValues.NewEntityId("edit", FakeMaps.MapA, "crate-2");
+                    Assert.That(text, Does.Contain(top == "edit" ? "0, 0, 90" : top == "file" ? "0, 0, 30" : "0, 0, 45"), dump);
+                    Assert.That(text.Contains(crateOwn), Is.EqualTo(top == "own"), dump);
+                    Assert.That(text.Contains(crateEdit), Is.EqualTo(top == "edit"), dump);
+                    // the line about own's map line names the mod whose file is written
+                    PlanMessage[] c = p.Conflicts.Where(x => x.Archive == K && x.ModId == "own" && x.Text.Contains("its own map file")).ToArray();
+                    Assert.That(c.Select(x => x.WinnerId), Is.EqualTo(top == "own" ? new string[0] : new[] { top }), dump);
                 }
             }
         }
