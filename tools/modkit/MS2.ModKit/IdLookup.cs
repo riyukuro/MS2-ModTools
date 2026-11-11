@@ -98,18 +98,70 @@ namespace MS2.ModKit
             return t == Npc || t == Item || t == Quest || t == Skill || t == Map || t == InteractObject || t == Dungeon ? t : null;
         }
 
+        static void Split(string field, out string element, out string attr)
+        {
+            int at = field.LastIndexOf('@');
+            attr = at >= 0 ? field.Substring(at + 1) : field;
+            element = at >= 0 ? field.Substring(0, at) : "";
+            int slash = element.LastIndexOf('/');
+            if (slash >= 0) element = element.Substring(slash + 1);
+        }
+
+        static bool Is(string a, string b) { return string.Equals(a, b, StringComparison.OrdinalIgnoreCase); }
+
         /// <summary>
-        /// The kind of id an npc field holds ("@shopId", "dropiteminfo@globalDropBoxId", or the attribute alone),
-        /// or null.
+        /// The kind of id an npc field holds ("@shopId", "dropiteminfo@globalDropBoxId", "skill@ids", or the
+        /// attribute alone), or null. As NpcData reads them: skill@ids is a skill list, additionalEffect@codes an
+        /// effect list, the *DropBoxId attributes are drop box lists.
         /// </summary>
         public static string NpcFieldKind(string field)
         {
             if (string.IsNullOrEmpty(field)) return null;
-            int at = field.LastIndexOf('@');
-            string a = at >= 0 ? field.Substring(at + 1) : field;
-            if (string.Equals(a, "shopId", StringComparison.OrdinalIgnoreCase)) return Shop;
+            string e, a;
+            Split(field, out e, out a);
+            if (Is(a, "shopId")) return Shop;
             if (a.EndsWith("DropBoxId", StringComparison.OrdinalIgnoreCase)) return DropBox;
+            if (Is(e, "skill") && Is(a, "ids")) return Skill;
+            if (Is(e, "additionalEffect") && Is(a, "codes")) return Effect;
             return null;
+        }
+
+        /// <summary>
+        /// The kind of id an item field holds ("skill@skillID", "AdditionalEffect@id", "property@rePackingScrollID"),
+        /// or null. As the item loaders read them: the skill an item casts, its additional effects (a list, with a
+        /// level list beside it), the repacking scrolls (an item list; globalRePackingScrollID on the global targets).
+        /// </summary>
+        public static string ItemFieldKind(string field)
+        {
+            if (string.IsNullOrEmpty(field)) return null;
+            string e, a;
+            Split(field, out e, out a);
+            if (Is(e, "skill") && Is(a, "skillID")) return Skill;
+            if (Is(e, "AdditionalEffect") && Is(a, "id")) return Effect;
+            if (Is(e, "property") && (Is(a, "rePackingScrollID") || Is(a, "globalRePackingScrollID"))) return Item;
+            return null;
+        }
+
+        /// <summary>
+        /// Whether a field that NpcFieldKind or ItemFieldKind names holds a comma list of ids rather than one id.
+        /// </summary>
+        public static bool IsIdList(string field)
+        {
+            if (string.IsNullOrEmpty(field)) return false;
+            string e, a;
+            Split(field, out e, out a);
+            return a.EndsWith("DropBoxId", StringComparison.OrdinalIgnoreCase) || (Is(e, "skill") && Is(a, "ids"))
+                || (Is(e, "additionalEffect") && (Is(a, "codes") || Is(a, "id"))) || (Is(e, "property") && a.EndsWith("RePackingScrollID", StringComparison.OrdinalIgnoreCase));
+        }
+
+        /// <summary>The text of an id list with an id put in: added at the end, or left as it is when it is there already.</summary>
+        public static string AddToList(string list, string id)
+        {
+            var parts = new List<string>();
+            foreach (string p in (list ?? "").Split(','))
+                if (p.Trim().Length > 0) parts.Add(p.Trim());
+            if (!parts.Contains(id)) parts.Add(id);
+            return string.Join(",", parts.ToArray());
         }
 
         /// <summary>The kind of id a row field of a shop or drop box holds (the item of the row), or null.</summary>

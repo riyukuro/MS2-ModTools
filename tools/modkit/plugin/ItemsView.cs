@@ -127,6 +127,16 @@ namespace MS2.Tables
                 GridRow r = RowAt(e.RowIndex);
                 if (r == null || r.Field == null) e.Cancel = true;
             };
+            // the skill the item casts, its additional effects and its repacking scrolls: ids of the Skills and Items views
+            IdPick.Attach(grid, delegate(int row, int column)
+            {
+                GridRow r = RowAt(row);
+                return r != null && r.Field != null && column == 1 && draft != null ? IdLookup.ItemFieldKind(FieldOf(r)) : null;
+            }, delegate { return host.SharedSession(); }, delegate(int row, int column)
+            {
+                GridRow r = RowAt(row);
+                return r != null && r.Field != null && IdLookup.IsIdList(FieldOf(r));
+            });
 
             // the item's icon at the left of the three bars above the grid, as high as the bars (at least the icon)
             var bars = new Panel { Dock = DockStyle.Fill };
@@ -491,6 +501,9 @@ namespace MS2.Tables
             if (draft == null) throw new ModKitException("choose an item in the list first");
             return draft;
         }
+
+        /// <summary>The field of a row as "element@attribute".</summary>
+        static string FieldOf(GridRow r) { return r.Section.Elem != null ? r.Section.Elem.Name + "@" + r.Field : r.Field; }
 
         GridRow RowAt(int index) { return index >= 0 && index < rows.Count ? rows[index] : null; }
 

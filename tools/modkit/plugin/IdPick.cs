@@ -1,7 +1,9 @@
-// The id pickers: a small "…" button at the right of a grid cell that holds an npc, item, skill, effect, quest, shop
-// or drop box id, opened by a click on it or by F4, and one shared dialog that searches that kind of id by id or name
-// (the same Find the views' own search lists use, the mod's new ids first). The picked id goes through the grid's
-// normal edit, so the view sets it exactly as if it had been typed.
+// The id pickers: a small "…" button at the right of a grid cell that holds an id of a kind IdLookup knows (npc,
+// item, skill, effect, quest, shop, drop box, map, interact object, dungeon), opened by a click on it or by F4, and
+// one shared dialog that searches that kind of id by id or name (the same Find the views' own search lists use, the
+// mod's new ids first). The picked id goes through the grid's normal edit, so the view sets it exactly as if it had
+// been typed. In a cell that holds a comma list of ids, "Add" puts the id at the end of the list and "Set" makes it
+// the only one.
 using System;
 using System.Collections.Generic;
 using System.Drawing;
@@ -36,10 +38,13 @@ namespace MS2.Tables
 
         internal static string Hint(string kind) { return "F4 or the … button: pick " + Article(kind) + " " + kind + " by id or name"; }
 
-        static string Article(string kind) { return kind == IdLookup.Item ? "an" : kind == IdLookup.Effect ? "an" : "a"; }
+        static string Article(string kind) { return "aeiou".IndexOf(kind[0]) >= 0 ? "an" : "a"; }
+
+        /// <summary>Whether a cell holds a comma list of ids.</summary>
+        internal delegate bool ListOf(int row, int column);
 
         /// <summary>Puts the picker on the cells of a grid that kindOf names; session gives the session to search in.</summary>
-        internal static void Attach(DataGridView grid, KindOf kindOf, Func<EditorSession> session)
+        internal static void Attach(DataGridView grid, KindOf kindOf, Func<EditorSession> session, ListOf listOf = null)
         {
             grid.CellFormatting += delegate(object sender, DataGridViewCellFormattingEventArgs e)
             {
@@ -59,7 +64,7 @@ namespace MS2.Tables
                 if (e.RowIndex < 0 || e.ColumnIndex < 0) return;
                 string kind = kindOf(e.RowIndex, e.ColumnIndex);
                 if (kind == null) return;
-                string hint = "(" + Hint(kind) + ")";
+                string hint = "(" + Hint(kind) + (listOf != null && listOf(e.RowIndex, e.ColumnIndex) ? "; a list: Add puts it at the end" : "") + ")";
                 e.ToolTipText = string.IsNullOrEmpty(e.ToolTipText) ? hint : e.ToolTipText + "  " + hint;
             };
             grid.CellMouseClick += delegate(object sender, DataGridViewCellMouseEventArgs e)
@@ -69,7 +74,7 @@ namespace MS2.Tables
                 if (kind == null) return;
                 Rectangle cell = grid.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false);
                 if (e.X < cell.Width - ButtonWidth - 2) return;
-                Open(grid, e.RowIndex, e.ColumnIndex, kind, session);
+                Open(grid, e.RowIndex, e.ColumnIndex, kind, session, listOf);
             };
             grid.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -77,14 +82,14 @@ namespace MS2.Tables
                 string kind = kindOf(grid.CurrentCell.RowIndex, grid.CurrentCell.ColumnIndex);
                 if (kind == null) return;
                 e.Handled = true;
-                Open(grid, grid.CurrentCell.RowIndex, grid.CurrentCell.ColumnIndex, kind, session);
+                Open(grid, grid.CurrentCell.RowIndex, grid.CurrentCell.ColumnIndex, kind, session, listOf);
             };
             // F4 while the cell is being typed in: the editing box has the keys
             grid.EditingControlShowing += delegate(object sender, DataGridViewEditingControlShowingEventArgs e)
             {
                 e.Control.KeyDown -= OnEditKey;
                 e.Control.KeyDown += OnEditKey;
-                e.Control.Tag = new object[] { kindOf, session };
+                e.Control.Tag = new object[] { kindOf, session, listOf };
             };
         }
 
@@ -103,7 +108,7 @@ namespace MS2.Tables
             string typed = c.Text;
             grid.CancelEdit();
             grid.EndEdit();
-            Open(grid, row, column, kind, (Func<EditorSession>)tag[1], typed);
+            Open(grid, row, column, kind, (Func<EditorSession>)tag[1], (ListOf)tag[2], typed);
         }
 
         static Rectangle ButtonOf(Rectangle cell)
@@ -111,22 +116,24 @@ namespace MS2.Tables
             return new Rectangle(cell.Right - ButtonWidth - 1, cell.Top + 1, ButtonWidth, cell.Height - 3);
         }
 
-        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session)
+        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, ListOf listOf)
         {
             object v = grid[column, row].Value;
-            Open(grid, row, column, kind, session, v == null ? "" : v.ToString());
+            Open(grid, row, column, kind, session, listOf, v == null ? "" : v.ToString());
         }
 
-        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, string current)
+        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, ListOf listOf, string current)
         {
             IdLookup l;
             try { l = Lookup(session()); }
             catch (ModKitException ex) { MessageBox.Show(grid.FindForm(), ex.Message, "Pick " + Article(kind) + " " + kind, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            bool isList = listOf != null && listOf(row, column);
             string picked;
-            using (var d = new PickDialog(l, kind, current))
+            using (var d = new PickDialog(l, kind, current, isList))
             {
                 if (d.ShowDialog(grid.FindForm()) != DialogResult.OK) return;
                 picked = d.Picked;
+                if (picked != null && d.Append) picked = IdLookup.AddToList(current, picked);
             }
             if (picked == null || row >= grid.RowCount) return;
             // through the grid's own edit: the view's CellValuePushed sets it, as a typed id
@@ -146,7 +153,7 @@ namespace MS2.Tables
                 IdLookup l;
                 try { l = Lookup(session()); }
                 catch (ModKitException ex) { MessageBox.Show(box.FindForm(), ex.Message, "Pick " + Article(kind) + " " + kind, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                using (var d = new PickDialog(l, kind, box.Text))
+                using (var d = new PickDialog(l, kind, box.Text, false))
                     if (d.ShowDialog(box.FindForm()) == DialogResult.OK && d.Picked != null) box.Text = d.Picked;
             };
             b.Click += open;
@@ -170,11 +177,15 @@ namespace MS2.Tables
             readonly ListView list = new ListView { Dock = DockStyle.Fill, View = View.Details, FullRowSelect = true, MultiSelect = false, HideSelection = false };
             readonly Label status = new Label { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
             readonly Button ok = new Button { Text = "OK", DialogResult = DialogResult.OK, AutoSize = true };
+            readonly Button set = new Button { Text = "Set", DialogResult = DialogResult.OK, AutoSize = true };
             readonly Timer typing = new Timer { Interval = 250 };
+            readonly ToolTip tips = new ToolTip();
 
             internal string Picked { get; private set; }
+            /// <summary>A list cell: true = the id goes at the end of the list (Add), false = it replaces the list (Set).</summary>
+            internal bool Append { get; private set; }
 
-            internal PickDialog(IdLookup lookup, string kind, string currentText)
+            internal PickDialog(IdLookup lookup, string kind, string currentText, bool isList)
             {
                 this.lookup = lookup;
                 this.kind = kind;
@@ -209,14 +220,24 @@ namespace MS2.Tables
                 find.Click += delegate { Search(); };
                 top.Controls.Add(find, 2, 0);
 
-                var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, ColumnCount = 3, RowCount = 1, AutoSize = true, Padding = new Padding(6, 2, 6, 6) };
+                var bottom = new TableLayoutPanel { Dock = DockStyle.Bottom, ColumnCount = 4, RowCount = 1, AutoSize = true, Padding = new Padding(6, 2, 6, 6) };
                 bottom.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+                bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
                 bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
                 bottom.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
                 var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
                 bottom.Controls.Add(status, 0, 0);
                 bottom.Controls.Add(ok, 1, 0);
-                bottom.Controls.Add(cancel, 2, 0);
+                if (isList)
+                {
+                    // a list of ids: Add (the default) keeps the others, Set leaves only this one
+                    ok.Text = "Add";
+                    tips.SetToolTip(ok, "Puts the id at the end of the list (a list beside it, such as the levels, needs its entry too)");
+                    tips.SetToolTip(set, "Makes the id the only one of the list");
+                    ok.Click += delegate { Append = true; };
+                    bottom.Controls.Add(set, 2, 0);
+                }
+                bottom.Controls.Add(cancel, 3, 0);
 
                 var middle = new Panel { Dock = DockStyle.Fill, Padding = new Padding(6, 2, 6, 2) };
                 middle.Controls.Add(list);
@@ -240,8 +261,8 @@ namespace MS2.Tables
                         e.Handled = true;
                     }
                 };
-                list.SelectedIndexChanged += delegate { ok.Enabled = list.SelectedItems.Count > 0; };
-                list.DoubleClick += delegate { if (list.SelectedItems.Count > 0) { DialogResult = DialogResult.OK; Close(); } };
+                list.SelectedIndexChanged += delegate { ok.Enabled = set.Enabled = list.SelectedItems.Count > 0; };
+                list.DoubleClick += delegate { if (list.SelectedItems.Count > 0) { Append = isList; DialogResult = DialogResult.OK; Close(); } };
                 FormClosing += delegate(object sender, FormClosingEventArgs e)
                 {
                     if (DialogResult == DialogResult.OK) Picked = list.SelectedItems.Count > 0 ? (string)list.SelectedItems[0].Tag : null;
@@ -252,7 +273,7 @@ namespace MS2.Tables
 
             protected override void Dispose(bool disposing)
             {
-                if (disposing) typing.Dispose();
+                if (disposing) { typing.Dispose(); tips.Dispose(); }
                 base.Dispose(disposing);
             }
 
@@ -290,7 +311,7 @@ namespace MS2.Tables
                 if (chosen == null && list.Items.Count > 0 && !empty) chosen = list.Items[0];
                 if (chosen != null) { chosen.Selected = true; chosen.EnsureVisible(); }
                 list.EndUpdate();
-                ok.Enabled = list.SelectedItems.Count > 0;
+                ok.Enabled = set.Enabled = list.SelectedItems.Count > 0;
                 FitColumns();
                 if (hits.Count == 0) status.Text = empty ? "No " + kind + " ids in the data folders" : "No " + kind + " has an id starting with or a name containing \"" + searchBox.Text.Trim() + "\"";
                 else status.Text = hits.Count + (hits.Count >= Max ? "+ (the first " + Max + "; type to narrow)" : "") + " shown" + (kind == IdLookup.Shop || kind == IdLookup.DropBox ? "; searched by id" : "; by id or name");

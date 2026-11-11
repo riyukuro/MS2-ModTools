@@ -143,6 +143,7 @@ namespace MS2.Tables
             tips.SetToolTip(jobBox, "The job number of the job skill tree (as the job table writes it, e.g. 10)");
             jobBar.Controls.Add(Lbl("replace skill"));
             jobBar.Controls.Add(replaceBox);
+            jobBar.Controls.Add(IdPick.ForBox(replaceBox, IdLookup.Skill, delegate { return host.SharedSession(); }, tips));
             jobBar.Controls.Add(Lbl("or position x,y"));
             jobBar.Controls.Add(positionBox);
             jobBar.Controls.Add(Lbl("tier"));

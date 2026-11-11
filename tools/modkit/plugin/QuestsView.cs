@@ -134,7 +134,7 @@ namespace MS2.Tables
             questBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             Setup(fieldGrid, fieldLines, new[] { "field", "value", "shipped value", "where" }, new[] { 130, 150, 110, 100 }, SetField);
-            Setup(conditionGrid, conditionLines, new[] { "#", "type", "code", "count", "shipped", "code is", "where" }, new[] { 28, 80, 70, 50, 90, 90, 80 }, SetCondition);
+            Setup(conditionGrid, conditionLines, new[] { "#", "type", "code", "count", "shipped", "code is", "where" }, new[] { 28, 80, 130, 50, 90, 90, 80 }, SetCondition);
             Setup(rewardGrid, rewardLines, new[] { "#", "item id", "rank", "count", "shipped", "where" }, new[] { 28, 90, 40, 60, 110, 100 }, SetReward);
             Func<EditorSession> session = delegate { return host.SharedSession(); };
             IdPick.Attach(fieldGrid, delegate(int row, int column)
@@ -146,7 +146,7 @@ namespace MS2.Tables
             {
                 Line l = At(conditionLines, row);
                 return l != null && l.Heading == null && column == 2 && draft != null ? IdLookup.QuestCodeKind(l.Cells[1]) : null;
-            }, session);
+            }, session, delegate { return true; });
             IdPick.Attach(rewardGrid, delegate(int row, int column)
             {
                 Line l = At(rewardLines, row);

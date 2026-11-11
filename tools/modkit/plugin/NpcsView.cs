@@ -130,12 +130,17 @@ namespace MS2.Tables
                 GridRow r = RowAt(e.RowIndex);
                 if (r == null || r.Heading != null) e.Cancel = true;
             };
-            // the shop and the drop boxes are ids of the Shops and drop boxes view: picked by id
+            // the shop and the drop boxes are ids of the Shops and drop boxes view (picked by id), the skills and
+            // additional effects ids of the Skills view
             IdPick.Attach(grid, delegate(int row, int column)
             {
                 GridRow r = RowAt(row);
-                return r != null && r.Heading == null && column == 1 && draft != null ? IdLookup.NpcFieldKind(r.Mapped ?? r.Field) : null;
-            }, delegate { return host.SharedSession(); });
+                return r != null && r.Heading == null && column == 1 && draft != null ? IdLookup.NpcFieldKind(FieldOf(r)) : null;
+            }, delegate { return host.SharedSession(); }, delegate(int row, int column)
+            {
+                GridRow r = RowAt(row);
+                return r != null && IdLookup.IsIdList(FieldOf(r));
+            });
 
             // the npc's portrait at the left of the two bars above the grid, as in the item form: 96 pixels, 64 in a
             // low window, and the bars never take more than the height that leaves the grid a header and four rows
@@ -465,6 +470,13 @@ namespace MS2.Tables
         }
 
         GridRow RowAt(int index) { return index >= 0 && index < rows.Count ? rows[index] : null; }
+
+        /// <summary>The field of a row as "element@attribute" (a field of the form: its client side name).</summary>
+        static string FieldOf(GridRow r)
+        {
+            if (r.Mapped != null) return r.Mapped;
+            return r.Section != null && r.Section.Elem != null ? r.Section.Elem.Name + "@" + r.Field : r.Field;
+        }
 
         string Value(GridRow r) { return r.Mapped != null ? draft.GetField(r.Mapped) : draft.Get(r.Section, r.Field); }
         string Shipped(GridRow r) { return r.Mapped != null ? draft.GetFieldShipped(r.Mapped) : draft.GetOriginal(r.Section, r.Field); }

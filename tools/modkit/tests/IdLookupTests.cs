@@ -37,6 +37,37 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void KindsOfNpcAndItemFields_AndTheIdLists()
+        {
+            // npc: the skill list and the additional effect list, by element and attribute
+            Assert.That(IdLookup.NpcFieldKind("skill@ids"), Is.EqualTo(IdLookup.Skill));
+            Assert.That(IdLookup.NpcFieldKind("environment/skill@ids"), Is.EqualTo(IdLookup.Skill));
+            Assert.That(IdLookup.NpcFieldKind("additionalEffect@codes"), Is.EqualTo(IdLookup.Effect));
+            Assert.That(IdLookup.NpcFieldKind("ids"), Is.Null);
+            Assert.That(IdLookup.NpcFieldKind("skill@levels"), Is.Null);
+            // item: the skill it casts, its effects, its repacking scrolls
+            Assert.That(IdLookup.ItemFieldKind("skill@skillID"), Is.EqualTo(IdLookup.Skill));
+            Assert.That(IdLookup.ItemFieldKind("skill@skillLevel"), Is.Null);
+            Assert.That(IdLookup.ItemFieldKind("AdditionalEffect@id"), Is.EqualTo(IdLookup.Effect));
+            Assert.That(IdLookup.ItemFieldKind("AdditionalEffect@level"), Is.Null);
+            Assert.That(IdLookup.ItemFieldKind("property@rePackingScrollID"), Is.EqualTo(IdLookup.Item));
+            Assert.That(IdLookup.ItemFieldKind("property@globalRePackingScrollID"), Is.EqualTo(IdLookup.Item));
+            Assert.That(IdLookup.ItemFieldKind("basic@id"), Is.Null);
+            Assert.That(IdLookup.ItemFieldKind("property@slotMax"), Is.Null);
+            // which of them are comma lists
+            Assert.That(IdLookup.IsIdList("skill@ids"), Is.True);
+            Assert.That(IdLookup.IsIdList("dropiteminfo@globalDropBoxId"), Is.True);
+            Assert.That(IdLookup.IsIdList("AdditionalEffect@id"), Is.True);
+            Assert.That(IdLookup.IsIdList("property@rePackingScrollID"), Is.True);
+            Assert.That(IdLookup.IsIdList("skill@skillID"), Is.False);
+            Assert.That(IdLookup.IsIdList("basic@shopId"), Is.False);
+            // an id put in a list: at the end, once
+            Assert.That(IdLookup.AddToList("", "7"), Is.EqualTo("7"));
+            Assert.That(IdLookup.AddToList("5, 6", "7"), Is.EqualTo("5,6,7"));
+            Assert.That(IdLookup.AddToList("5,7", "7"), Is.EqualTo("5,7"));
+        }
+
+        [Test]
         public void FindsQuestsByIdOrName_AndSaysWhatItHasNoListOf()
         {
             using (var f = new FakeQuests(true, true, true))
