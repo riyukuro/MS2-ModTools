@@ -42,7 +42,7 @@ namespace MS2.ModKit.Tests
             {
                 Ent(Crate1, "Crate_A", "Crate_A_1", "Position", gms ? "0, 0, 300" : "0, 0, 150", "Rotation", "0, 0, 90"),
                 Ent(Spawn1, "SpawnPoint_A", "Spawn_1", "Position", "150, 150, 150", "SpawnPointID", "7"),
-                Ent(Portal1, "Portal_A", "Portal_1", "PortalID", "1", "Position", "450, 0, 150", "TargetFieldSN", "90000002", "TargetPortalID", "1"),
+                Ent(Portal1, "Portal_A", "Portal_1", "TargetFieldSN", "90000002", "TargetPortalID", "1", "PortalID", "1", "Position", "450, 0, 150"),   // not in name order
                 crate2,
             };
         }
@@ -52,7 +52,7 @@ namespace MS2.ModKit.Tests
             return new List<XEntity>
             {
                 Ent(Crate1, "Crate_A", "Crate_B_1", "Position", "0, 0, 150"),
-                Ent(Portal1, "Portal_A", "Portal_B_1", "PortalID", "1", "Position", "450, 0, 150", "TargetFieldSN", "90000001", "TargetPortalID", "1"),
+                Ent(Portal1, "Portal_A", "Portal_B_1", "TargetFieldSN", "90000001", "TargetPortalID", "1", "PortalID", "1", "Position", "450, 0, 150"),
             };
         }
 
@@ -193,6 +193,10 @@ namespace MS2.ModKit.Tests
                 Assert.That(back[0].Key, Is.EqualTo(FakeMaps.MapA + ".xblock"));
                 var ents = new List<XEntity>(back[0].Value);
                 MapConvert.SortById(ents);
+                // an entity whose shipped order is not the name order gets it back from the shipped file
+                var orig = new Dictionary<string, List<string>>();
+                foreach (XEntity e in XBlock.Read(shipped, "a")) orig[e.Id] = e.Props.Select(x => x.Name).ToList();
+                XBlock.ReorderProps(ents, true, orig);
                 Assert.That(XBlock.Bytes(ents, dialect), Is.EqualTo(shipped));
 
                 // the editor file itself survives a read and a write
@@ -295,17 +299,56 @@ namespace MS2.ModKit.Tests
             var crate = new XEntity { Id = MapValues.NewEntityId(modId, FakeMaps.MapA, "crate-1"), Model = "Crate_A", Name = "Crate_A_900", Iterations = 1 };
             crate.Props.Add(new XProp("Position", "150, 300, 450"));
             var spawn = new XEntity { Id = MapValues.NewEntityId(modId, FakeMaps.MapA, "wolves"), Model = "SpawnPoint_A", Name = "Spawn_900", Iterations = 1 };
-            spawn.Props.Add(new XProp("NpcList", new List<XSet> { new XSet("99000001", "2") }));
+            // as the shipped spawn point of the file lists them; the list it does not have, where the model declares it
             spawn.Props.Add(new XProp("Position", "150, 300, 450"));
             spawn.Props.Add(new XProp("SpawnPointID", "140000"));
+            spawn.Props.Add(new XProp("NpcList", new List<XSet> { new XSet("99000001", "2") }));
             var portal = new XEntity { Id = MapValues.NewEntityId(modId, FakeMaps.MapA, "east"), Model = "Portal_A", Name = "Portal_900", Iterations = 1 };
-            portal.Props.Add(new XProp("PortalID", "50000"));
-            portal.Props.Add(new XProp("Position", "150, 300, 450"));
+            // in the order of the file's shipped portal
             portal.Props.Add(new XProp("TargetFieldSN", "90000002"));
             portal.Props.Add(new XProp("TargetPortalID", "50000"));
+            portal.Props.Add(new XProp("PortalID", "50000"));
+            portal.Props.Add(new XProp("Position", "150, 300, 450"));
             ents.Add(crate); ents.Add(spawn); ents.Add(portal);
             MapConvert.SortById(ents);
             return XBlock.Bytes(ents, gms ? XDialect.Spaced : XDialect.Tab);
+        }
+
+        static string[] PropNames(Plan p, string archive, string entry, string id)
+        {
+            string t = Encoding.UTF8.GetString(Bytes(p, archive, entry));
+            int a = t.IndexOf("id=\"" + id + "\"", StringComparison.Ordinal);
+            Assert.That(a, Is.GreaterThan(0), id);
+            t = t.Substring(a, t.IndexOf("</entity>", a, StringComparison.Ordinal) - a);
+            return System.Text.RegularExpressions.Regex.Matches(t, "<property\\s+name=\"([^\"]+)\"").Cast<System.Text.RegularExpressions.Match>().Select(x => x.Groups[1].Value).ToArray();
+        }
+
+        [Test]
+        public void NewEntitiesListPropertiesLikeShippedOnes()
+        {
+            using (var f = new FakeMaps())
+            {
+                Plan p = f.Plan(f.Mod("order",
+                    Map("<add name=\"c\" model=\"Crate_A\" entity-name=\"c\"><property name=\"Scale\" value=\"2\" /><property name=\"Tags\"><set index=\"0\" value=\"x\" /></property>" +
+                        "<property name=\"IsVisible\" value=\"False\" /><property name=\"Rotation\" value=\"0, 0, 0\" /><property name=\"Position\" value=\"150, 300, 450\" /></add>" +
+                        Portal("p", 50000, 90000002, 1)) +
+                    MapB(Spawn("s", 140000, "<row tag=\"wolf\" />").Replace("</spawn>", "<property name=\"NpcList\"><set index=\"99000001\" value=\"2\" /></property></spawn>"))));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                foreach (string ar in new[] { K, G, S })
+                {
+                    // the shipped portal of the file: its order, which is not the name order
+                    Assert.That(PropNames(p, ar, FakeMaps.EntryA, MapValues.NewEntityId("order", FakeMaps.MapA, "p")),
+                        Is.EqualTo(PropNames(p, ar, FakeMaps.EntryA, FakeMaps.Portal1)), ar);
+                    Assert.That(PropNames(p, ar, FakeMaps.EntryA, FakeMaps.Portal1), Is.EqualTo(new[] { "TargetFieldSN", "TargetPortalID", "PortalID", "Position" }));
+                    // the first shipped crate gives Position, Rotation; Tags stands after Position in the second one;
+                    // IsVisible and Scale are in no shipped crate and follow their neighbours of the model's declaration
+                    Assert.That(PropNames(p, ar, FakeMaps.EntryA, MapValues.NewEntityId("order", FakeMaps.MapA, "c")),
+                        Is.EqualTo(new[] { "Position", "Tags", "Rotation", "IsVisible", "Scale" }), ar);
+                    // the other map has no spawn point: the model's declared order
+                    Assert.That(PropNames(p, ar, FakeMaps.EntryB, MapValues.NewEntityId("order", FakeMaps.MapB, "s")),
+                        Is.EqualTo(new[] { "Position", "SpawnPointID", "NpcList" }), ar);
+                }
+            }
         }
 
         [Test]

@@ -295,8 +295,7 @@ namespace MS2.ModKit
                 props.Add(new XProp("TargetPortalID", D(op.ToPortal)));
             }
             var xe = new XEntity { Id = id, Model = op.Model, Name = op.EntityName, Iterations = op.Iterations, Props = props };
-            var order = new Dictionary<string, List<string>>();
-            XBlock.ReorderProps(new List<XEntity> { xe }, true, null);
+            OrderLikeShipped(ms, xe);
 
             var me = new MapEnt { Id = id, Model = op.Model, AddedBy = mod, New = xe, Op = op };
             XProp pp = xe.Find("PortalID"), sp = xe.Find("SpawnPointID"), tm = xe.Find("TargetFieldSN"), tp = xe.Find("TargetPortalID");
@@ -430,6 +429,75 @@ namespace MS2.ModKit
                 if (s.Name == "TargetPortalID") me.ToPortal = Number(s.Value, ms.Flat, me.Model, s.Name);
             }
             mr.Changed[ms.XBlockName] = true;
+        }
+
+        // A new entity lists its properties the way the shipped entities of the same model in this file do: first
+        // those of the shipped entity that shares the most properties with it, in that entity's order; each other
+        // one next to its neighbour in the first shipped entity of the model that has both, else next to its
+        // neighbour in the model's declared order. A file without such an entity gives the declared order alone.
+        static void OrderLikeShipped(MapState ms, XEntity xe)
+        {
+            var names = new List<string>();
+            foreach (XProp p in xe.Props) names.Add(p.Name);
+            names = XBlock.ShippedOrder(names);        // a fixed starting order, so the result does not depend on the mod's
+            var seqs = new List<List<string>>();
+            List<string> best = null;
+            int bestShared = 0;
+            foreach (MapEnt o in ms.Shipped)
+            {
+                if (o.Model != xe.Model || o.Elem == null) continue;
+                var seq = new List<string>();
+                int shared = 0;
+                foreach (XmlElem c in o.Elem.Children)
+                {
+                    if (c.Name != "property") continue;
+                    string n = c.Attr("name") ?? "";
+                    seq.Add(n);
+                    if (names.Contains(n)) shared++;
+                }
+                seqs.Add(seq);
+                if (shared > bestShared) { best = seq; bestShared = shared; }
+            }
+            var declared = new List<string>();
+            FlatModel m = ms.Flat == null ? null : ms.Flat.Get(xe.Model);
+            if (m != null) foreach (FlatProp fp in m.Props) declared.Add(fp.Name ?? "");
+            seqs.Add(declared);
+
+            var placed = new List<string>();
+            if (best != null) foreach (string n in best) if (names.Contains(n) && !placed.Contains(n)) placed.Add(n);
+            foreach (string n in names)
+            {
+                if (placed.Contains(n)) continue;
+                bool done = false;
+                foreach (List<string> seq in seqs)
+                {
+                    int at = seq.IndexOf(n);
+                    if (at < 0) continue;
+                    if (placed.Count == 0 && seq == declared) break;
+                    for (int i = at - 1; i >= 0 && !done; i--)
+                    {
+                        int k = placed.IndexOf(seq[i]);
+                        if (k >= 0) { placed.Insert(k + 1, n); done = true; }
+                    }
+                    for (int i = at + 1; i < seq.Count && !done; i++)
+                    {
+                        int k = placed.IndexOf(seq[i]);
+                        if (k >= 0) { placed.Insert(k, n); done = true; }
+                    }
+                    if (done) break;
+                }
+                if (!done)
+                {
+                    // nothing to stand next to: in declared order among those placed this way, unknown names last
+                    int dn = declared.IndexOf(n), k = placed.Count;
+                    if (dn >= 0 && best == null)
+                        for (k = 0; k < placed.Count; k++) { int d = declared.IndexOf(placed[k]); if (d < 0 || d > dn) break; }
+                    placed.Insert(k, n);
+                }
+            }
+            var pos = new Dictionary<string, int>(StringComparer.Ordinal);
+            for (int i = 0; i < placed.Count; i++) pos[placed[i]] = i;
+            Stable.Sort(xe.Props, delegate (XProp x, XProp y) { return pos[x.Name].CompareTo(pos[y.Name]); });
         }
 
         static int PropOrder(string a, string b)

@@ -759,6 +759,9 @@ operations, and each copy gets the same operations applied to its own file.
   `<map>`. The new entity's id is worked out from the mod id, the map name and that name, so it is the same every
   time and on every copy. Copy the model name and the properties from an entity of the kind you want that is already
   in the map.
+  The order in which you list the properties does not matter: they are written in the order the shipped
+  entities of the same model in that map file use, and in the order the model declares them when the file has no
+  such entity.
 - `<change>` sets or removes properties of an existing entity: `<set name="..." old="..." value="..."/>` and
   `<unset name="..." old="..."/>`. A property with several values takes `index="..."` to name one of them.
 - `<remove>` takes an existing entity out.
