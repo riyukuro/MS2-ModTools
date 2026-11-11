@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
+using MS2.ModKit.M2d;
 using NUnit.Framework;
 
 namespace MS2.ModKit.Tests
@@ -208,6 +209,126 @@ namespace MS2.ModKit.Tests
                 Assert.That(o.KindsOf(555), Is.Empty, "a model without a kind is not indexed");
                 Assert.That(o.LoadsScript("main"), Is.True);
                 Assert.That(o.LoadsScript("orphan"), Is.False);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        static string Dump(TriggerXBlocks xb, string name)
+        {
+            var sb = new StringBuilder();
+            foreach (KeyValuePair<string, List<long>> k in xb.Get(name).Ids())
+            {
+                sb.Append(k.Key).Append(':');
+                foreach (long id in k.Value) sb.Append(' ').Append(id);
+                sb.Append('\n');
+            }
+            return sb.ToString();
+        }
+
+        [Test]
+        public void TheIndexCacheOfAFolderRebuildsWhenAFileChanges()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string ext = Path.Combine(root, "ext"), cache = Path.Combine(root, "ws", "cache");
+                TriggerXBlocks plain = TriggerXBlocks.OfFolder(ext);
+                TriggerXBlocks first = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(first.FromCache, Is.False);
+                Assert.That(File.Exists(first.CacheFile), Is.True);
+                Assert.That(Path.GetDirectoryName(first.CacheFile), Is.EqualTo(Path.GetFullPath(cache)));
+
+                TriggerXBlocks second = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(second.FromCache, Is.True);
+                Assert.That(Dump(second, Map), Is.EqualTo(Dump(plain, Map)));
+                Assert.That(second.Get(NoMap), Is.Null);
+                Assert.That(second.Get(Map).LoadsScript("main"), Is.True);
+                Assert.That(second.Get(Map).LoadsScript("orphan"), Is.False);
+                Assert.That(second.ModelCount, Is.EqualTo(plain.ModelCount));
+                // a loose xblock is read with the cached model kinds
+                byte[] xbBytes = File.ReadAllBytes(Path.Combine(ext, "xblock", Map + ".xblock"));
+                Assert.That(Dump2(second.Read(xbBytes, "loose")), Is.EqualTo(Dump2(plain.Read(xbBytes, "loose"))));
+
+                // the lint gives the same findings either way
+                foreach (string script in new[] { "main.xml", "orphan.xml" })
+                {
+                    string entry = "trigger/" + Map + "/" + script;
+                    byte[] b = File.ReadAllBytes(Path.Combine(root, entry.Replace('/', Path.DirectorySeparatorChar)));
+                    string f;
+                    var a = TriggerLint.Shipped.Lint(entry, b, null, new TriggerLintOptions { ScanImporters = false, XBlock = Map, Objects = plain.Get(Map) }, out f);
+                    var c = TriggerLint.Shipped.Lint(entry, b, null, new TriggerLintOptions { ScanImporters = false, XBlock = Map, Objects = second.Get(Map) }, out f);
+                    Assert.That(string.Join("\n", c.ConvertAll(x => x.ToString()).ToArray()), Is.EqualTo(string.Join("\n", a.ConvertAll(x => x.ToString()).ToArray())));
+                }
+
+                // an xblock changes: one more object (the file's time moves on, as an edit does)
+                string xbFile = Path.Combine(ext, "xblock", Map + ".xblock");
+                File.WriteAllText(xbFile, XBlock.Replace("  </entitySet>", Ent("Mesh_A", "Mesh3999", "TriggerObjectID", "3999") + "  </entitySet>"), new UTF8Encoding(false));
+                File.SetLastWriteTimeUtc(xbFile, DateTime.UtcNow.AddMinutes(1));
+                TriggerXBlocks third = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(third.FromCache, Is.False, "a changed xblock rebuilds the index");
+                Assert.That(third.Get(Map).Has("mesh", 3999), Is.True);
+                Assert.That(TriggerXBlocks.Cached(ext, cache).Get(Map).Has("mesh", 3999), Is.True);
+                Assert.That(TriggerXBlocks.Cached(ext, cache).FromCache, Is.True);
+
+                // a new xblock file: rebuilt and found
+                Write(root, "ext/xblock/" + NoMap + ".xblock", XBlock);
+                TriggerXBlocks fourth = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(fourth.FromCache, Is.False, "a new xblock rebuilds the index");
+                Assert.That(fourth.Get(NoMap), Is.Not.Null);
+                Assert.That(Directory.GetFiles(cache).Length, Is.EqualTo(1), "one cache file per source, rewritten");
+
+                // never in the folder of the source
+                Assert.Throws<ModKitException>(delegate { TriggerXBlocks.Cached(ext, Path.Combine(ext, "cache")); });
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        static string Dump2(TriggerObjects o)
+        {
+            var sb = new StringBuilder();
+            foreach (KeyValuePair<string, List<long>> k in o.Ids()) sb.Append(k.Key).Append(':').Append(string.Join(",", k.Value.ConvertAll(x => x.ToString()).ToArray())).Append('\n');
+            return sb.ToString();
+        }
+
+        [Test]
+        public void TheIndexCacheOfAnArchiveRebuildsWhenItChanges()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string ext = Path.Combine(root, "ext"), m2d = Path.Combine(root, "game", "Exported.m2d"), cache = Path.Combine(root, "ws", "cache");
+                Directory.CreateDirectory(Path.GetDirectoryName(m2d));
+                var entries = new List<KeyValuePair<string, byte[]>>();
+                for (int i = 0; i < Flats.GetLength(0); i++) entries.Add(new KeyValuePair<string, byte[]>(Flats[i, 0], Encoding.UTF8.GetBytes(Flats[i, 1])));
+                entries.Add(new KeyValuePair<string, byte[]>("xblock/" + Map + ".xblock", Encoding.UTF8.GetBytes(XBlock)));
+                M2dWriter.Create(m2d, PackVersion.MS2F, M2dFlag.AesZlib, entries);
+                string want = Dump(TriggerXBlocks.OfFolder(ext), Map);
+
+                TriggerXBlocks a = TriggerXBlocks.Cached(m2d, cache);
+                Assert.That(a.FromCache, Is.False);
+                Assert.That(Dump(a, Map), Is.EqualTo(want));
+                TriggerXBlocks b = TriggerXBlocks.Cached(M2dArchive.Open(m2d), cache);
+                Assert.That(b.FromCache, Is.True, "the path and the opened archive share the cache file");
+                Assert.That(Dump(b, Map), Is.EqualTo(want));
+
+                entries.Add(new KeyValuePair<string, byte[]>("xblock/" + NoMap + ".xblock", Encoding.UTF8.GetBytes(XBlock)));
+                M2dWriter.Create(m2d, PackVersion.MS2F, M2dFlag.AesZlib, entries);
+                File.SetLastWriteTimeUtc(m2d, DateTime.UtcNow.AddMinutes(1));
+                TriggerXBlocks c = TriggerXBlocks.Cached(m2d, cache);
+                Assert.That(c.FromCache, Is.False, "a rewritten archive rebuilds the index");
+                Assert.That(c.Get(NoMap), Is.Not.Null);
+                Assert.That(TriggerXBlocks.Cached(m2d, cache).FromCache, Is.True);
+
+                // the command line: -w puts it in the workspace's cache/
+                string so, se;
+                string ws = Path.Combine(root, "ws2");
+                int rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", ws, "--json");
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("xblock index: built into " + Path.Combine(ws, "cache"), se);
+                string so2;
+                rc = Cli(out so2, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", ws, "--json");
+                StringAssert.Contains("xblock index: read from ", se);
+                Assert.That(so2, Is.EqualTo(so));
             }
             finally { Directory.Delete(root, true); }
         }

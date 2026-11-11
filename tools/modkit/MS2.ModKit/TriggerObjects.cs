@@ -32,13 +32,16 @@ namespace MS2.ModKit
         public readonly string Name;
         readonly Dictionary<string, Dictionary<long, List<string>>> kinds = new Dictionary<string, Dictionary<long, List<string>>>(StringComparer.Ordinal);
         readonly Dictionary<string, List<long>> models = new Dictionary<string, List<long>>(StringComparer.Ordinal);
-        public int Count { get; private set; }
+        // every object in the order read (the index cache writes them out and adds them back the same way)
+        internal readonly List<Obj> All = new List<Obj>();
+        internal struct Obj { public string Kind, Entity, Script; public long? Id; }
+        public int Count { get { return All.Count; } }
 
         internal TriggerObjects(string name) { Name = name.ToLowerInvariant(); }
 
         internal void Add(string kind, long? id, string entity, string script)
         {
-            Count++;
+            All.Add(new Obj { Kind = kind, Id = id, Entity = entity, Script = script });
             Dictionary<long, List<string>> ids;
             if (!kinds.TryGetValue(kind, out ids)) kinds[kind] = ids = new Dictionary<long, List<string>>();
             if (id != null)
@@ -92,7 +95,7 @@ namespace MS2.ModKit
     /// The model kinds of one Exported archive (or extract) and its xblocks, read when asked for and kept.
     /// Safe for one thread at a time.
     /// </summary>
-    public sealed class TriggerXBlocks
+    public sealed partial class TriggerXBlocks
     {
         static readonly string[] TriggerSub = { "MS2TriggerActor", "MS2TriggerAgent", "MS2TriggerBlock", "MS2TriggerBox", "MS2TriggerCamera",
             "MS2TriggerCube", "MS2TriggerEffect", "MS2TriggerLadder", "MS2TriggerMesh", "MS2TriggerPortal", "MS2TriggerRope", "MS2TriggerSkill", "MS2TriggerSound" };
@@ -104,12 +107,17 @@ namespace MS2.ModKit
         // model name (lower case) -> kind and default ids; only models that have a kind
         readonly Dictionary<string, Kind> kinds = new Dictionary<string, Kind>(StringComparer.Ordinal);
         readonly Func<string, byte[]> readXBlock;
+        readonly Func<List<string>> listXBlocks;
         readonly Dictionary<string, TriggerObjects> cache = new Dictionary<string, TriggerObjects>(StringComparer.Ordinal);
 
         /// <summary>readXBlock: the bytes of xblock/&lt;name&gt;.xblock for a lower-case name, null when there is none.</summary>
-        public TriggerXBlocks(FlatIndex flats, Func<string, byte[]> readXBlock)
+        public TriggerXBlocks(FlatIndex flats, Func<string, byte[]> readXBlock) : this(flats, readXBlock, null) { }
+
+        /// <summary>listXBlocks: the lower-case names of all xblocks (for the index cache), null when not known.</summary>
+        public TriggerXBlocks(FlatIndex flats, Func<string, byte[]> readXBlock, Func<List<string>> listXBlocks)
         {
             this.readXBlock = readXBlock;
+            this.listXBlocks = listXBlocks;
             var raw = new Dictionary<string, FlatModel>(StringComparer.Ordinal);
             foreach (string n in flats.Names) raw[n.ToLowerInvariant()] = flats.Get(n);
             foreach (KeyValuePair<string, FlatModel> m in raw)
@@ -144,6 +152,16 @@ namespace MS2.ModKit
             {
                 M2dEntry e = exported.Find("xblock/" + name + ".xblock");
                 return e == null ? null : exported.Read(e);
+            }, delegate
+            {
+                var l = new List<string>();
+                foreach (M2dEntry e in exported.Entries)
+                {
+                    string n = e.Name.Replace('\\', '/');
+                    if (n.StartsWith("xblock/", StringComparison.OrdinalIgnoreCase) && n.EndsWith(".xblock", StringComparison.OrdinalIgnoreCase) && n.IndexOf('/', 7) < 0)
+                        l.Add(n.Substring(7, n.Length - 7 - 7).ToLowerInvariant());
+                }
+                return l;
             });
         }
 
@@ -160,7 +178,7 @@ namespace MS2.ModKit
             {
                 string f;
                 return files.TryGetValue(name, out f) ? File.ReadAllBytes(f) : null;
-            });
+            }, delegate { return new List<string>(files.Keys); });
         }
 
         /// <summary>An Exported archive (.m2d) or a folder holding flat/ and xblock/.</summary>

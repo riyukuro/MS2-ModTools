@@ -86,6 +86,7 @@ namespace MS2.ModKit.Cli
         static TriggerXBlocks OpenExported(Args a, DataSet data, string archive)
         {
             string ex = a.Get("--exported");
+            string cache = XBlockCacheDir(a);
             if (ex == null)
             {
                 if (data == null) throw new UsageException("--xblock on a folder needs --exported ARCHIVE|DIR (the map files: flat/ and xblock/)");
@@ -93,11 +94,26 @@ namespace MS2.ModKit.Cli
                 int colon = norm.IndexOf(':');
                 ex = (colon > 0 ? norm.Substring(0, colon) : norm) + ":" + Planner.MapArchivePath;
                 if (!data.Exists(ex)) throw new ModKitException("--xblock: no " + ex + "; give --exported ARCHIVE|DIR");
-                return TriggerXBlocks.OfArchive(data.Open(ex));
+                return Said(TriggerXBlocks.Cached(data.Open(ex), cache));
             }
-            if (Directory.Exists(ex) || File.Exists(ex)) return TriggerXBlocks.Load(ex);
-            if (data != null && data.Exists(ex)) return TriggerXBlocks.OfArchive(data.Open(ex));
+            if (Directory.Exists(ex) || File.Exists(ex)) return Said(TriggerXBlocks.Cached(ex, cache));
+            if (data != null && data.Exists(ex)) return Said(TriggerXBlocks.Cached(data.Open(ex), cache));
             throw new ModKitException("--exported: no archive or folder " + ex);
+        }
+
+        /// <summary>The index cache folder: --cache, else the cache/ folder of the workspace (-w), else none.</summary>
+        static string XBlockCacheDir(Args a)
+        {
+            string c = a.Get("--cache");
+            if (c != null) return c;
+            string w = a.Get("-w");
+            return w == null ? null : Path.Combine(w, "cache");
+        }
+
+        static TriggerXBlocks Said(TriggerXBlocks x)
+        {
+            if (x.CacheFile != null) Console.Error.WriteLine("xblock index: " + (x.FromCache ? "read from " : "built into ") + x.CacheFile);
+            return x;
         }
 
         static string Js(string s)
