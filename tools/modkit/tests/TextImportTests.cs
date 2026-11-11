@@ -424,6 +424,38 @@ namespace MS2.ModKit.Tests
             Assert.That(head.Length, Is.LessThan(5200));
             Assert.That(whole, Does.StartWith(head.Substring(0, head.LastIndexOf("\r\n...", System.StringComparison.Ordinal) + 2)));
             Assert.That(head, Does.Match(@"\.\.\. [0-9,]+ more lines of [0-9,]+ not shown here"));
+            Assert.That(whole, Is.EqualTo(m.ToXml().Replace("\n", "\r\n")), "the pieces give the whole text");
+            int lines = m.ToXml().Split('\n').Length - 1;
+            Assert.That(head, Does.Contain(" more lines of " + lines.ToString("N0", System.Globalization.CultureInfo.InvariantCulture) + " not shown"));
+        }
+
+        [Test]
+        public void XmlPrint_FollowsTheText()
+        {
+            string text = "<mod id=\"p\" name=\"t\" version=\"1\">\n<edit archive=\"client:Xml.m2d\" entry=\"string/kr/itemname.xml\"><change at=\"key[id=1]\"><set name=\"name\" value=\"a\"/></change></edit>\n</mod>";
+            Mod a = Mod.Parse(text, "a"), b = Mod.Parse(text, "b");
+            Assert.That(a.XmlPrint(), Is.EqualTo(b.XmlPrint()));
+            Assert.That(a.XmlPrint(), Does.StartWith(a.ToXml().Length + ":"));
+            ((EditOp)b.Ops[0]).Rows[0].Attrs[0].Value = "b";
+            Assert.That(b.XmlPrint(), Is.Not.EqualTo(a.XmlPrint()));
+        }
+
+        [Test]
+        public void Save_ThatFails_LeavesTheOldManifest()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "modkit-save-" + System.Guid.NewGuid().ToString("N"));
+            try
+            {
+                Mod m = Mod.Parse("<mod id=\"s\" name=\"t\" version=\"1\">\n<edit archive=\"client:Xml.m2d\" entry=\"table/x.xml\"><add after=\"row[id=1]\"><xml><![CDATA[<row id=\"2\" />]]></xml></add></edit>\n</mod>", "s");
+                m.Save(dir);
+                string before = File.ReadAllText(Path.Combine(dir, "mod.xml"));
+                Assert.That(before, Is.EqualTo(m.ToXml()));
+                ((EditOp)m.Ops[0]).Rows[0].Xml = "<row id=\"2\" a=\"]]>\" />";
+                Assert.Throws<ModKitException>(delegate { m.Save(dir); });
+                Assert.That(File.ReadAllText(Path.Combine(dir, "mod.xml")), Is.EqualTo(before));
+                Assert.That(File.Exists(Path.Combine(dir, "mod.xml.new")), Is.False);
+            }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
         }
     }
 }

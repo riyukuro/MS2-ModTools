@@ -309,11 +309,39 @@ namespace MS2.ModKit
         /// <summary>The manifest text (UTF-8, LF). Load of the result gives the same mod.</summary>
         public string ToXml()
         {
+            var all = new StringBuilder();
+            WriteXml(delegate(StringBuilder c) { all.Append(c.ToString()); });
+            return all.ToString();
+        }
+
+        /// <summary>
+        /// A print of the manifest text (its length and a 64-bit FNV-1a hash of its chars) without the text itself:
+        /// for a dirty check or a cache key on a mod of 100,000s of sets, where the whole text would be tens of MB.
+        /// </summary>
+        public string XmlPrint()
+        {
+            ulong h = 14695981039346656037UL;
+            long n = 0;
+            WriteXml(delegate(StringBuilder c)
+            {
+                for (int i = 0; i < c.Length; i++) { h = (h ^ c[i]) * 1099511628211UL; }
+                n += c.Length;
+            });
+            return n.ToString(CultureInfo.InvariantCulture) + ":" + h.ToString("x16", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>
+        /// Writes the manifest text in pieces: chunk gets the builder after the head and after each op, row op, group
+        /// and section, then the builder is emptied. Every piece ends at a line end.
+        /// </summary>
+        void WriteXml(Action<StringBuilder> chunk)
+        {
             var sb = new StringBuilder();
             sb.Append("<mod"); A(sb, "id", Id); A(sb, "name", Name); A(sb, "version", Version); A(sb, "modkit", "1");
             if (TriggerLintWarn) A(sb, "trigger-lint", "warn");
             sb.Append(">\n");
             if (!string.IsNullOrEmpty(Description)) sb.Append("  <description>").Append(XmlDoc.EscapeText(Description)).Append("</description>\n");
+            Flush(sb, chunk);
             foreach (IdRange r in Ids)
             {
                 sb.Append("  <ids"); A(sb, "space", r.Space); A(sb, "from", r.From.ToString(CultureInfo.InvariantCulture)); A(sb, "to", r.To.ToString(CultureInfo.InvariantCulture));
@@ -326,6 +354,7 @@ namespace MS2.ModKit
                     sb.Append(" />\n");
                 }
                 sb.Append("  </ids>\n");
+                Flush(sb, chunk);
             }
             foreach (ModOp op in Ops)
             {
@@ -335,6 +364,7 @@ namespace MS2.ModKit
                     sb.Append("  <entry"); A(sb, "archive", en.Archive); A(sb, "name", en.Name); A(sb, "copy", en.Copy); A(sb, "file", en.File);
                     if (en.Delete) A(sb, "delete", "true");
                     sb.Append(" />\n");
+                    Flush(sb, chunk);
                     continue;
                 }
                 var ed = (EditOp)op;
@@ -363,14 +393,24 @@ namespace MS2.ModKit
                         sb.Append(" />\n");
                     }
                     sb.Append("    </").Append(tag).Append(">\n");
+                    Flush(sb, chunk);
                 }
                 sb.Append("  </edit>\n");
+                Flush(sb, chunk);
             }
-            foreach (GroupOp g in Groups) WriteGroup(sb, g);
+            foreach (GroupOp g in Groups) { WriteGroup(sb, g); Flush(sb, chunk); }
             WriteSkills(sb);
+            Flush(sb, chunk);
             WriteMaps(sb);
             sb.Append("</mod>\n");
-            return sb.ToString();
+            Flush(sb, chunk);
+        }
+
+        static void Flush(StringBuilder sb, Action<StringBuilder> chunk)
+        {
+            if (sb.Length == 0) return;
+            chunk(sb);
+            sb.Length = 0;
         }
 
         /// <summary>
@@ -416,7 +456,7 @@ namespace MS2.ModKit
             }
             Removed.Clear();
             if (own) RemoveOrphans(dir);
-            File.WriteAllBytes(Path.Combine(dir, "mod.xml"), new UTF8Encoding(false).GetBytes(ToXml()));
+            WriteManifest(Path.Combine(dir, "mod.xml"));
             Dir = Path.GetFullPath(dir);
             Files.Clear();      // on disk now; the planner and the editors read them from the folder
         }
@@ -427,28 +467,62 @@ namespace MS2.ModKit
         /// </summary>
         public string PendingText(int maxChars)
         {
-            string x = ToXml();
-            var sb = new StringBuilder(Math.Min(x.Length, maxChars) + 256);
+            // the text is walked in the pieces WriteXml gives (each ends at a line end): it is never whole in memory
+            var sb = new StringBuilder(Math.Min(maxChars, 1 << 16) + 256);
             int lines = 0, shown = 0;
-            for (int i = 0; i < x.Length; )
+            WriteXml(delegate(StringBuilder c)
             {
-                int e = x.IndexOf('\n', i);
-                int end = e < 0 ? x.Length : e;
-                int len = end - i;
-                if (len > 0 && x[end - 1] == '\r') len--;
-                lines++;
-                if (shown == lines - 1 && sb.Length + len + 2 <= maxChars)
+                if (shown < lines) { lines += CountLines(c); return; }
+                string x = c.ToString();
+                for (int i = 0; i < x.Length; )
                 {
-                    sb.Append(x, i, len).Append("\r\n");
-                    shown++;
+                    int e = x.IndexOf('\n', i);
+                    int end = e < 0 ? x.Length : e;
+                    int len = end - i;
+                    if (len > 0 && x[end - 1] == '\r') len--;
+                    lines++;
+                    if (shown == lines - 1 && sb.Length + len + 2 <= maxChars)
+                    {
+                        sb.Append(x, i, len).Append("\r\n");
+                        shown++;
+                    }
+                    i = e < 0 ? x.Length : e + 1;
                 }
-                i = e < 0 ? x.Length : e + 1;
-            }
+            });
             if (shown < lines)
                 sb.Append("... ").Append((lines - shown).ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
                   .Append(" more lines of ").Append(lines.ToString("N0", System.Globalization.CultureInfo.InvariantCulture))
                   .Append(" not shown here; Save mod writes them all\r\n");
             return sb.ToString();
+        }
+
+        /// <summary>
+        /// Writes mod.xml piece by piece (no whole-text string), first to mod.xml.new, which then takes the place of
+        /// mod.xml: a mod that cannot be saved (a "]]>" in literal XML) leaves the old file as it was.
+        /// </summary>
+        void WriteManifest(string path)
+        {
+            string tmp = path + ".new";
+            try
+            {
+                using (var w = new StreamWriter(tmp, false, new UTF8Encoding(false)))
+                    WriteXml(delegate(StringBuilder c) { w.Write(c.ToString()); });
+            }
+            catch
+            {
+                if (File.Exists(tmp)) File.Delete(tmp);
+                throw;
+            }
+            if (File.Exists(path)) File.Delete(path);
+            File.Move(tmp, path);
+        }
+
+        static int CountLines(StringBuilder c)
+        {
+            int n = 0;
+            for (int i = 0; i < c.Length; i++) if (c[i] == '\n') n++;
+            if (c.Length > 0 && c[c.Length - 1] != '\n') n++;
+            return n;
         }
 
         /// <summary>The files under files/ that the last Save took out: no entry op names them any more (reverted scripts).</summary>

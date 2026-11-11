@@ -493,7 +493,7 @@ namespace MS2.ModKit
         {
             try
             {
-                var sb = new StringBuilder(Mod.ToXml());
+                var sb = new StringBuilder(Mod.XmlPrint());
                 sb.Append('\n').Append(Mod.Dir);
                 foreach (ModOp op in Mod.Ops)
                 {
@@ -884,7 +884,7 @@ namespace MS2.ModKit
                 var m = new Mod { Id = "groups", Name = "groups", Version = "1", Dir = Mod.Dir };
                 foreach (GroupOp g in Mod.Groups) m.Groups.Add(g);
                 foreach (EditOp ed in RawEdits(RowEntries())) m.Ops.Add(ed);
-                return m.ToXml() + "\n" + Mod.Dir;
+                return m.XmlPrint() + "\n" + Mod.Dir;
             }
             catch (ModKitException) { return null; }
         }

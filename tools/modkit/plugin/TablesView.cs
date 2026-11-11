@@ -280,6 +280,13 @@ namespace MS2.Tables
                 Say(ex.Message);
                 Logger.Warning("MS2 Tables: " + ex.Message);
             }
+            catch (OutOfMemoryException)
+            {
+                // the 32-bit host: a very large mod or table; the step is dropped, the view and the mod stay usable
+                GC.Collect();
+                Say("out of memory: the step was not done (the host is 32-bit; a smaller mod or fewer rows at a time may fit)");
+                Logger.Warning("MS2 Tables: out of memory");
+            }
             finally
             {
                 Cursor.Current = old;
@@ -732,18 +739,19 @@ namespace MS2.Tables
 
         // ---- unsaved changes ----
 
-        // the mod's text when it was last saved, loaded or started; the mod has unsaved changes when its text differs
-        // or it holds files not written yet (Mod.Files: trigger scripts)
-        string savedXml;
+        // a print of the mod's text (length and hash, Mod.XmlPrint) when it was last saved, loaded or started; the mod
+        // has unsaved changes when the print differs or it holds files not written yet (Mod.Files: trigger scripts).
+        // A print, not the text: a text import's mod.xml is tens of MB, too much to keep twice in the 32-bit host
+        string savedPrint;
         bool closeAsked;
 
-        void MarkSaved() { savedXml = session != null ? session.Mod.ToXml() : null; }
+        void MarkSaved() { savedPrint = session != null ? session.Mod.XmlPrint() : null; }
 
         bool Unsaved()
         {
             if (session == null) return false;
             try { FlushEdits(); } catch (Exception) { }
-            return session.Mod.ToXml() != savedXml || session.Mod.Files.Count > 0;
+            return session.Mod.XmlPrint() != savedPrint || session.Mod.Files.Count > 0;
         }
 
         /// <summary>
