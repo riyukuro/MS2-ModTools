@@ -290,6 +290,52 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ASaveIntoAFolderNewToTheMod_KeepsTheFilesThere()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                // map-diff -o <folder> and a first Save into <mods>/<id> both save into a folder the mod did not come from
+                string dir = Path.Combine(f.Dir, "out");
+                string mine = Path.Combine(dir, "files", "x.txt");
+                Directory.CreateDirectory(Path.GetDirectoryName(mine));
+                File.WriteAllText(mine, "the user's");
+                Mod m = s.NewMod("t.new");
+                m.Save(dir);
+                Assert.That(File.Exists(mine), Is.True);
+                Assert.That(m.Removed, Is.Empty);
+                var ed = new TriggerEditor(s.Data, m);
+                ed.NewScript(S, "fake_meadow", "bell", "Ring");
+                m.Save(Path.Combine(f.Dir, "other"));
+                Assert.That(File.Exists(mine), Is.True, "the mod moved on; the old folder is not cleaned");
+            }
+        }
+
+        [Test]
+        public void ALinkedFolderUnderFiles_IsNotEntered()
+        {
+            using (var f = new FakeIdTables())
+            using (EditorSession s = Session(f.Dir))
+            {
+                string outside = Path.Combine(f.Dir, "outside");
+                Directory.CreateDirectory(outside);
+                string theirs = Path.Combine(outside, "keep.txt");
+                File.WriteAllText(theirs, "outside of the mod");
+                Mod m = s.NewMod("t.link");
+                var ed = new TriggerEditor(s.Data, m);
+                ed.NewScript(S, "fake_meadow", "bell", "Ring");
+                string dir = s.SaveMod();
+                string link = Path.Combine(dir, "files", "linked");
+                try { Directory.CreateSymbolicLink(link, outside); }
+                catch (System.Exception ex) { Assert.Ignore("no symbolic link here: " + ex.Message); }
+                s.SaveMod();
+                Assert.That(File.Exists(theirs), Is.True);
+                Assert.That(m.Removed, Is.Empty);
+                Assert.That(File.Exists(Path.Combine(dir, "files", "server", "trigger", "fake_meadow", "bell.xml")), Is.True);
+            }
+        }
+
+        [Test]
         public void SavedUnderANewId_TheModCarriesItsFiles()
         {
             using (var f = new FakeIdTables())

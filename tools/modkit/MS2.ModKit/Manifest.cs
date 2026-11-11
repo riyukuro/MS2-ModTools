@@ -395,8 +395,11 @@ namespace MS2.ModKit
         {
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
             string full = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            // saved over its own folder (the one it was loaded from or saved to last); else the folder is new to the
+            // mod, and what is in it is the user's
+            bool own = Dir != null && string.Equals(Path.GetFullPath(Dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, full, StringComparison.OrdinalIgnoreCase);
             // saved to another folder (a new id): the files of the old folder go along
-            if (Dir != null && !string.Equals(Path.GetFullPath(Dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, full, StringComparison.OrdinalIgnoreCase))
+            if (Dir != null && !own)
                 foreach (ModOp o in Ops)
                 {
                     var en = o as EntryOp;
@@ -411,7 +414,8 @@ namespace MS2.ModKit
                 Directory.CreateDirectory(Path.GetDirectoryName(p));
                 File.WriteAllBytes(p, f.Value);
             }
-            RemoveOrphans(dir);
+            Removed.Clear();
+            if (own) RemoveOrphans(dir);
             File.WriteAllBytes(Path.Combine(dir, "mod.xml"), new UTF8Encoding(false).GetBytes(ToXml()));
             Dir = Path.GetFullPath(dir);
             Files.Clear();      // on disk now; the planner and the editors read them from the folder
@@ -423,13 +427,15 @@ namespace MS2.ModKit
         /// <summary>
         /// Takes out the files under the folder's files/ that no entry op of the mod names (a script reverted or
         /// edited back to the shipped bytes leaves its saved file behind otherwise, and it would ship with the mod),
-        /// then the folders left empty. Files elsewhere in the mod folder are the author's and stay.
+        /// then the folders left empty. Files elsewhere in the mod folder are the author's and stay. Only for a save
+        /// over the mod's own folder: a folder the mod is saved to the first time has nothing of it to take out.
+        /// A linked folder (junction or symbolic link) under files/ is not entered, and nothing outside of the mod
+        /// folder is deleted.
         /// </summary>
         void RemoveOrphans(string dir)
         {
-            Removed.Clear();
             string files = Path.Combine(dir, FilesFolder);
-            if (!Directory.Exists(files)) return;
+            if (!Directory.Exists(files) || IsLink(files)) return;
             var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (ModOp o in Ops)
             {
@@ -439,19 +445,35 @@ namespace MS2.ModKit
                 if (p != null) named.Add(p);
             }
             string root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
-            foreach (string f in Directory.GetFiles(files, "*", SearchOption.AllDirectories))
+            var found = new List<string>();
+            var dirs = new List<string>();
+            Walk(files, found, dirs);
+            foreach (string f in found)
             {
                 string full = Path.GetFullPath(f);
-                if (named.Contains(full)) continue;
+                if (named.Contains(full) || !full.StartsWith(root, StringComparison.Ordinal)) continue;
                 File.Delete(full);
                 Removed.Add(full.Substring(root.Length).Replace(Path.DirectorySeparatorChar, '/'));
             }
             Removed.Sort(StringComparer.Ordinal);
-            string[] dirs = Directory.GetDirectories(files, "*", SearchOption.AllDirectories);
-            Array.Sort(dirs, delegate(string x, string y) { return y.Length.CompareTo(x.Length); });
+            dirs.Sort(delegate(string x, string y) { return y.Length.CompareTo(x.Length); });
             foreach (string d in dirs)
-                if (Directory.GetFileSystemEntries(d).Length == 0) Directory.Delete(d);
+                if (Path.GetFullPath(d).StartsWith(root, StringComparison.Ordinal) && Directory.GetFileSystemEntries(d).Length == 0) Directory.Delete(d);
             if (Directory.GetFileSystemEntries(files).Length == 0) Directory.Delete(files);
         }
+
+        // the files and folders under d, not entering a linked folder (net35's AllDirectories follows them)
+        static void Walk(string d, List<string> files, List<string> dirs)
+        {
+            files.AddRange(Directory.GetFiles(d));
+            foreach (string sub in Directory.GetDirectories(d))
+            {
+                if (IsLink(sub)) continue;
+                dirs.Add(sub);
+                Walk(sub, files, dirs);
+            }
+        }
+
+        static bool IsLink(string path) { return (File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0; }
     }
 }
