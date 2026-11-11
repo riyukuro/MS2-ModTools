@@ -763,6 +763,77 @@ Revert puts the data files back. It does not touch the game's database. When a c
 the server can keep per-character shop state there, such as how much of a limited stock row is bought. That stays
 after Revert, and also after the shop is removed. Clear it with your server's own tools if you need a clean state.
 
+## Quests
+
+The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,
+the global client and the server. It writes into the same mod as the other views, with the same Save, Plan, Apply,
+Revert and the same question when Toolbench is closed.
+
+### What one quest is made of
+
+| Piece | Where it is | Who reads it |
+|-|-|-|
+| table row | `kms-client`: `questdata/questdata.xml`, one `<quest id>` row | the Korean client. The row is sparse: an attribute at its default and an empty element are left out |
+| quest file | every target: `quest/<id>.xml`, the id written with 8 digits, `<environment>/<quest>` | the server and the global client. The Korean client ships these files too, beside its table |
+| texts | `string/<language>/questdescription*.xml`, one `<quest questID>` row with `name`, `desc`, `manual`, `complete` | the client shows all four; the server uses the name. Some languages have one file, others one file per quest group; the editor finds the row in any of them |
+
+The fields of the view, with the element and attribute they are in the table row and in the quest file alike:
+
+| Field | Where |
+|-|-|
+| level requirement | `require@level` |
+| start NPC, complete NPC | `start@npc`, `complete@npc` |
+| reward exp, reward meso | `completeReward@exp`, `completeReward@money` |
+| reward items | rows with `code`, `rank`, `count`: `completeReward/v` in the table row; `essentialItem`, `globalEssentialItem` and the two job lists (`essentialJobItem`, `globalEssentialJobItem`) in the quest files |
+| condition count | `condition@value` of the n-th `<condition>`; empty or 0 means once |
+| texts | the four attributes of the text row, per language. `manual` is a list with `|` between the lines, one per condition |
+
+### Using it
+
+1. Type an id, or part of a name, into **Quest id or name** and press Enter or **Find**. **Names in** picks the
+   language whose names are searched and listed (the shipped names). Quests the mod adds come first.
+2. Pick a quest. Three grids fill the view: **Fields and texts** at the left, **Conditions** and **Reward items**
+   at the right. Each line has the value, the shipped value and where the value is: the number of places, or each
+   place with its own value when the targets do not agree.
+3. Type into a value. The edit goes to every place of the quest: the table row and the quest file of each target.
+   Where a sparse row has no such element or attribute yet, it is added. An edited line turns yellow and gets a
+   `*`; typing the shipped value back takes the edit out of the mod. A new quest's lines are green.
+4. A text goes to the language of its line, on every target that has that language. With **texts to every
+   language** ticked it goes to the quest's row in every language.
+5. In **Conditions** only the count can be typed; the type and code of a condition are edited in the MS2 Tables
+   view.
+6. **Reward items** shows each list under its own name, because shipped data does not always hold the same rows in
+   the table's `v` list and in the files' lists. Typing into a row changes that row on every target that has it.
+   **Add row** and **Remove row** work on the list chosen in **List**. **Same on every target** writes the chosen
+   list's rows to `v`, `essentialItem` and `globalEssentialItem` everywhere, so the client shows what the server
+   gives; the two job lists stay as they are.
+7. **Plan** lists every change, entry by entry, under one line per target. **Apply** writes them, **Revert** takes
+   them back.
+
+### A new quest: Clone to new id
+
+Select a shipped quest and press **Clone to new id**. An empty id box takes the next free id after the source.
+
+- The id must be free in the data and in the mod, and at most 8 digits. It is written into the mod's
+  `<ids space="quest">`, so two mods that take the same id are reported as a conflict.
+- The clone gets a copy of the source's table row, of its quest file on every target (with `basic@questID` set to
+  the new id), and of its text row in every language, in the file the source's row is in.
+- The copies are the source as shipped, not as your mod has changed it.
+- A clone cannot be cloned again; clone the shipped quest once more. **Remove clone** takes a clone out of the mod.
+- The talk scripts (`string/<language>/scriptquest*.xml`) and the tables that list quests are not copied. A new
+  quest that an npc should offer needs those rows too; add them in the MS2 Tables view.
+
+### What the client shows and what the server decides
+
+- **Client side**: the quest's texts, the level, npcs and rewards shown in the quest window come from the client's
+  own table (Korean client) or quest file (global client).
+- **Server side**: whether a quest can be taken, what counts towards a condition and what is given on completion
+  are decided by the server's quest file. For reward items the server gives `globalEssentialItem` when that list
+  is not empty and the global feature is on, else `essentialItem`.
+- The Korean client's table has no field map to the server's quest files; the view keeps the sides together by
+  writing each edit to all of them. A quest edit made by hand on one side only is a warning in Plan (see
+  [What the warnings mean](#what-the-warnings-mean-2)).
+
 ## Maps
 
 A map mod changes a map the game already ships: it adds, moves or removes props, monster spawn places, NPC spawn
