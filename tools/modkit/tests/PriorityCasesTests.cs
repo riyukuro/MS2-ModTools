@@ -233,6 +233,39 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AnEditOfAModsOwnFileWhereASecondFileAndAnEditMeet()
+        {
+            // "own": a file for the entry and an edit of a row only that file has; "file": another file for the same
+            // entry; "edit": an edit of the entry. In every order of priority there is no error, and the written
+            // text is the one of the highest of the three
+            string[][] orders =
+            {
+                new[] { "own", "file", "edit" }, new[] { "file", "own", "edit" }, new[] { "own", "edit", "file" },
+                new[] { "edit", "own", "file" }, new[] { "file", "edit", "own" }, new[] { "edit", "file", "own" },
+            };
+            foreach (string[] order in orders)
+                using (var f = new Fake())
+                {
+                    string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
+                    string d = Path.Combine(f.ModDir("own", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" file=\"data/p.xml\"/>" + Set(S, "pet/100.xml", "environment/own[id=1]", "v", "2")), "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(filed));
+                    Mod own = Mod.Load(Path.GetDirectoryName(d));
+                    Mod file = FileMod(f, "file", "pet/100.xml", Fake.PetFile(100, "Other"));
+                    Mod edit = f.Mod("edit", Set(S, "pet/100.xml", "environment/basic", "kind", "4"));
+                    Plan p = f.Plan(order.Select(n => n == "own" ? own : n == "file" ? file : edit).ToArray());
+                    string dump = string.Join(" < ", order) + "\n" + Fake.Dump(p), text = Fake.Text(p, S, "pet/100.xml");
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Conflicts.All(x => x.WinnerId != null), dump);
+                    if (order[2] == "edit") Assert.That(text, Does.Contain("name=\"Mossy\" kind=\"4\"").And.Not.Contain("<own"), dump);
+                    else if (order[2] == "file") Assert.That(text, Does.Contain("name=\"Other\" kind=\"3\"").And.Not.Contain("<own"), dump);
+                    else Assert.That(text, Does.Contain("<own id=\"1\" v=\"2\"/>").And.Contain("name=\"Filed\" kind=\"3\""), dump);
+                    // own's edit is in the list of changes only where its file is written
+                    Assert.That(p.Changes.Any(x => x.ModId == "own"), Is.EqualTo(order[2] == "own"), dump);
+                }
+        }
+
+        [Test]
         public void AnEditOfAnAddedEntryThatAThirdModDeletes()
         {
             using (var f = new Fake())

@@ -761,6 +761,38 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void MapLinesOfAModWhoseOwnMapFileIsLeftOut()
+        {
+            using (var f = new FakeMaps())
+            {
+                M2dArchive arch = f.Data.Open(K);
+                string shipped = Encoding.UTF8.GetString(arch.Read(arch.Find(FakeMaps.EntryA)));
+                Func<string, string, string, Mod> file = (id, angle, rest) =>
+                {
+                    string d = Path.Combine(f.Dir, "mods", id, "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "a.xblock"), Encoding.UTF8.GetBytes(shipped.Replace("0, 0, 90", angle)));
+                    return f.Mod(id, "<entry archive=\"" + K + "\" name=\"" + FakeMaps.EntryA + "\" file=\"data/a.xblock\"/>" + rest);
+                };
+                // own: a whole file for the map and a line for it; file: another whole file; edit: a line. The line
+                // of the highest mod brings the shipped file back, and own's line goes with own's file
+                string crate2 = AddCrate.Replace("crate-1", "crate-2").Replace("Crate_A_900", "Crate_A_901");
+                Mod own = file("own", "0, 0, 45", Map(AddCrate)), other = file("file", "0, 0, 30", ""), edit = f.Mod("edit", Map(crate2));
+                foreach (Mod[] order in new[] { new[] { own, other, edit }, new[] { other, own, edit } })
+                {
+                    Plan p = f.Plan(order);
+                    string dump = order[0].Id + " < " + order[1].Id + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    string text = Encoding.UTF8.GetString(Bytes(p, K, FakeMaps.EntryA));
+                    Assert.That(text, Does.Contain(MapValues.NewEntityId("edit", FakeMaps.MapA, "crate-2")).And.Contain("0, 0, 90"), dump);
+                    Assert.That(text, Does.Not.Contain(MapValues.NewEntityId("own", FakeMaps.MapA, "crate-1")), dump);
+                    PlanMessage c = p.Conflicts.Single(x => x.Archive == K && x.ModId == "own" && x.Text.Contains("its own map file"));
+                    Assert.That(c.WinnerId, Is.Not.Null.And.Not.EqualTo("own"), dump);
+                }
+            }
+        }
+
+        [Test]
         public void TwoModsOnOneMap()
         {
             using (var f = new FakeMaps())

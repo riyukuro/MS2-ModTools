@@ -467,7 +467,9 @@ namespace MS2.ModKit
                 if (M2dWriter.BytesEqual(bytes, st.Base)) { plan.Msg(plan.Notes, mod, op.Archive, st.Name, "same entry content as " + Who(st.BaseMod, mod)); return; }
                 bool loses = run.Outranks(st.BaseMod, mod);
                 plan.Conflict(mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry that " + Who(st.BaseMod, mod) + " also " + (st.Existed ? "replaces" : "adds"), loses ? st.BaseMod : mod, st.BaseMod);
-                if (loses) return;
+                // the file that loses is left out, and so are its mod's edits of it (DoEditOp, OpenMap)
+                if (loses) { st.FileLeftOut[mod] = st.BaseMod; return; }
+                st.FileLeftOut[st.BaseMod] = mod;
                 DropEntryChange(plan, st);
             }
             st.DeletedBy = null; st.Base = bytes; st.BaseMod = mod;
