@@ -23,7 +23,16 @@
 // The mod's lines: a change of a shipped element is <change at>, a new element under a shipped one is
 // <add in> with literal XML, a removed one is <delete at>. A cloned quest is a literal <quest> row in the table
 // (its edits rewrite that text), a copy of the source's file with edits on the new entry, and copies of the
-// source's string rows.
+// source's string rows. With "listed" (the default) it also gets copies of the source's rows in the files that
+// list quests by id:
+//   every target        script/quest/questscript*.xml          <quest id> rows: the talk script of the quest
+//   every target        table/questtofieldtable.xml            <quest id fields>
+//   every target        string/<lang>/specialquesttype.xml     <key id name>
+//   server:Server.m2d   table/Server/QuestScriptCondition*.xml <condition questID ...>, any number per quest
+//   server:Server.m2d   table/Server/QuestScriptFunction*.xml  <function questID ...>, any number per quest
+// The copied talk script keeps the source's text keys ($script:<n>$): the talk texts are keyed by a text id.
+//
+// <acceptReward> has item rows only (the same list names as <completeReward>) and no "code 0" row.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -241,23 +250,31 @@ namespace MS2.ModKit
 
         // ---- reward items ----
 
+        /// <summary>The reward elements: what the quest gives when it is completed and when it is accepted.</summary>
+        public const string CompleteReward = "completeReward", AcceptReward = "acceptReward";
+
         static void CheckList(string list)
         {
             if (Array.IndexOf(RewardLists, list) < 0) throw new ModKitException("no reward list \"" + list + "\"");
         }
 
+        static void CheckReward(string reward)
+        {
+            if (reward != CompleteReward && reward != AcceptReward) throw new ModKitException("no reward element \"" + reward + "\" (completeReward, acceptReward)");
+        }
+
         List<QuestNode> ListRoots(string list) { return Roots(list == "v" ? QuestPlace.Table : QuestPlace.File); }
 
         // every row of a list in one place, with the "code 0" row the full format writes for an empty list
-        List<QuestNode> RawRows(QuestNode root, string list)
+        List<QuestNode> RawRows(QuestNode root, string reward, string list)
         {
-            QuestNode cr = Kid(root, "completeReward");
+            QuestNode cr = Kid(root, reward);
             return cr == null ? new List<QuestNode>() : Editor.Kids(cr, list);
         }
 
-        List<QuestNode> Rows(QuestNode root, string list)
+        List<QuestNode> Rows(QuestNode root, string reward, string list)
         {
-            List<QuestNode> rows = RawRows(root, list);
+            List<QuestNode> rows = RawRows(root, reward, list);
             rows.RemoveAll(delegate(QuestNode r) { return Norm(Editor.Attr(r, "code")).Length == 0; });
             return rows;
         }
@@ -266,12 +283,15 @@ namespace MS2.ModKit
         public bool HasList(string list) { CheckList(list); return ListRoots(list).Count > 0; }
 
         /// <summary>The rows of one reward list. Row i is read from the first place that has an i-th row.</summary>
-        public List<QuestReward> Rewards(string list)
+        public List<QuestReward> Rewards(string list) { return Rewards(CompleteReward, list); }
+
+        /// <summary>The rows of one list of a reward element (CompleteReward or AcceptReward).</summary>
+        public List<QuestReward> Rewards(string reward, string list)
         {
-            CheckList(list);
+            CheckReward(reward); CheckList(list);
             var per = new List<List<QuestNode>>();
             int max = 0;
-            foreach (QuestNode root in ListRoots(list)) { List<QuestNode> r = Rows(root, list); per.Add(r); max = Math.Max(max, r.Count); }
+            foreach (QuestNode root in ListRoots(list)) { List<QuestNode> r = Rows(root, reward, list); per.Add(r); max = Math.Max(max, r.Count); }
             var l = new List<QuestReward>();
             for (int i = 0; i < max; i++)
             {
@@ -306,13 +326,15 @@ namespace MS2.ModKit
         }
 
         /// <summary>Sets row index of a list in every place that has such a row. Returns the number of places.</summary>
-        public int SetReward(string list, int index, QuestItem item)
+        public int SetReward(string list, int index, QuestItem item) { return SetReward(CompleteReward, list, index, item); }
+
+        public int SetReward(string reward, string list, int index, QuestItem item)
         {
-            CheckList(list); CheckItem(item);
+            CheckReward(reward); CheckList(list); CheckItem(item);
             int n = 0;
             foreach (QuestNode root in ListRoots(list))
             {
-                List<QuestNode> rows = Rows(root, list);
+                List<QuestNode> rows = Rows(root, reward, list);
                 if (index < 0 || index >= rows.Count) continue;
                 Write(rows[index], item); n++;
             }
@@ -320,11 +342,11 @@ namespace MS2.ModKit
             return n;
         }
 
-        void AddRow(QuestNode root, string list, QuestItem it)
+        void AddRow(QuestNode root, string reward, string list, QuestItem it)
         {
-            foreach (QuestNode r in RawRows(root, list))
+            foreach (QuestNode r in RawRows(root, reward, list))
                 if (Norm(Editor.Attr(r, "code")).Length == 0) { Write(r, it); return; }
-            QuestNode cr = Kid(root, "completeReward") ?? Editor.AddKid(root, "<completeReward />");
+            QuestNode cr = Kid(root, reward) ?? Editor.AddKid(root, "<" + reward + " />");
             Editor.AddKid(cr, "<" + list + " code=\"" + it.Code + "\" rank=\"" + it.Rank + "\" count=\"" + it.Count + "\" />");
         }
 
@@ -337,35 +359,40 @@ namespace MS2.ModKit
         /// Adds a row to a list in every place of that list. A row equal to one that is there is refused (two equal
         /// new rows are one line twice for the plan): raise the count of the row instead.
         /// </summary>
-        public int AddReward(string list, QuestItem item)
+        public int AddReward(string list, QuestItem item) { return AddReward(CompleteReward, list, item); }
+
+        public int AddReward(string reward, string list, QuestItem item)
         {
-            CheckList(list); CheckItem(item);
+            CheckReward(reward); CheckList(list); CheckItem(item);
             List<QuestNode> roots = ListRoots(list);
             if (roots.Count == 0) throw new ModKitException("no target of this data set has the list " + list);
             foreach (QuestNode root in roots)
-                foreach (QuestNode r in Rows(root, list))
+                foreach (QuestNode r in Rows(root, reward, list))
                     if (Same(r, item)) throw new ModKitException("the list " + list + " already has item " + item.Code + " rank " + item.Rank + " count " + item.Count + "; change the count of that row");
-            foreach (QuestNode root in roots) AddRow(root, list, item);
+            foreach (QuestNode root in roots) AddRow(root, reward, list, item);
             return roots.Count;
         }
 
-        // The files write an empty list as one row with code 0: the last row of a file's list becomes that row.
-        void RemoveRow(QuestNode root, string list, QuestNode row)
+        // The files write an empty completeReward list as one row with code 0: the last row of a file's list becomes
+        // that row. acceptReward has no such row.
+        void RemoveRow(QuestNode root, string reward, string list, QuestNode row)
         {
-            if (root.Place.Kind == QuestPlace.File && RawRows(root, list).Count == 1) Write(row, new QuestItem { Code = "0", Rank = "0", Count = "0" });
+            if (reward == CompleteReward && root.Place.Kind == QuestPlace.File && RawRows(root, reward, list).Count == 1) Write(row, new QuestItem { Code = "0", Rank = "0", Count = "0" });
             else Editor.Remove(row);
         }
 
         /// <summary>Removes row index of a list in every place that has such a row.</summary>
-        public int RemoveReward(string list, int index)
+        public int RemoveReward(string list, int index) { return RemoveReward(CompleteReward, list, index); }
+
+        public int RemoveReward(string reward, string list, int index)
         {
-            CheckList(list);
+            CheckReward(reward); CheckList(list);
             int n = 0;
             foreach (QuestNode root in ListRoots(list))
             {
-                List<QuestNode> rows = Rows(root, list);
+                List<QuestNode> rows = Rows(root, reward, list);
                 if (index < 0 || index >= rows.Count) continue;
-                RemoveRow(root, list, rows[index]); n++;
+                RemoveRow(root, reward, list, rows[index]); n++;
             }
             if (n == 0) throw new ModKitException("the list " + list + " has no row " + (index + 1));
             return n;
@@ -389,10 +416,10 @@ namespace MS2.ModKit
             foreach (string list in new[] { "v", "essentialItem", "globalEssentialItem" })
                 foreach (QuestNode root in ListRoots(list))
                 {
-                    List<QuestNode> rows = Rows(root, list);
-                    for (int i = rows.Count - 1; i >= items.Count; i--) RemoveRow(root, list, rows[i]);
+                    List<QuestNode> rows = Rows(root, CompleteReward, list);
+                    for (int i = rows.Count - 1; i >= items.Count; i--) RemoveRow(root, CompleteReward, list, rows[i]);
                     for (int i = 0; i < items.Count && i < rows.Count; i++) Write(rows[i], items[i]);
-                    for (int i = rows.Count; i < items.Count; i++) AddRow(root, list, items[i]);
+                    for (int i = rows.Count; i < items.Count; i++) AddRow(root, CompleteReward, list, items[i]);
                     n++;
                 }
             return n;
@@ -438,6 +465,93 @@ namespace MS2.ModKit
             }
             if (n == 0) throw new ModKitException("the quest has no condition " + (index + 1));
             return n;
+        }
+
+        // The table a condition's code is an id of, by the condition type; null: the code is free text (a trigger
+        // name, a word, a small number).
+        static readonly string[][] CodeTables =
+        {
+            new[] { "npc", "npc", "talk_in", "dialogue", "skill_damage_npc" },
+            new[] { "item", "item*", "openitembox", "equip_exist", "install_item", "uninstall_item" },
+            new[] { "map", "map", "stay_map", "survive_map" },
+            new[] { "skill", "skill", "buff" },
+            new[] { "quest", "quest", "quest_daily", "quest_clear" },
+            new[] { "interact object", "interact_object*" },
+            new[] { "dungeon", "dungeon_clear", "dungeon_rank*" },
+        };
+
+        /// <summary>
+        /// The table whose id the code of a condition is ("npc", "item", "map", "skill", "quest", "interact object",
+        /// "dungeon"; "id" for a number of 7 digits or more under a type not listed), or null when the code is free.
+        /// Such a code is not edited here: the editor has no list of that table to pick from.
+        /// </summary>
+        public static string CodeTable(string type, string code)
+        {
+            type = type ?? "";
+            foreach (string[] t in CodeTables)
+                for (int i = 1; i < t.Length; i++)
+                    if (t[i].EndsWith("*", StringComparison.Ordinal) ? type.StartsWith(t[i].Substring(0, t[i].Length - 1), StringComparison.Ordinal) : type == t[i]) return t[0];
+            int run = 0;
+            foreach (char c in code ?? "")
+            {
+                run = c >= '0' && c <= '9' ? run + 1 : 0;
+                if (run >= 7) return "id";
+            }
+            return null;
+        }
+
+        delegate void RowEdit(QuestNode row);
+
+        int EachCondition(int index, RowEdit edit)
+        {
+            int n = 0;
+            foreach (QuestNode root in Roots(null))
+            {
+                List<QuestNode> rows = Editor.Kids(root, "condition");
+                if (index < 0 || index >= rows.Count) continue;
+                edit(rows[index]); n++;
+            }
+            if (n == 0) throw new ModKitException("the quest has no condition " + (index + 1));
+            return n;
+        }
+
+        QuestCondition Condition(int index)
+        {
+            List<QuestCondition> l = Conditions();
+            if (index < 0 || index >= l.Count) throw new ModKitException("the quest has no condition " + (index + 1));
+            return l[index];
+        }
+
+        /// <summary>
+        /// Sets the type of condition index in every place that has it. The type must be one the shipped table uses
+        /// (when the data set has the table), and the code must stay an id of the same table: npc to talk_in is
+        /// taken, npc to item is not.
+        /// </summary>
+        public int SetConditionType(int index, string type)
+        {
+            type = (type ?? "").Trim();
+            if (type.Length == 0) throw new ModKitException("the condition type is empty");
+            QuestCondition c = Condition(index);
+            List<string> known = Editor.ConditionTypes();
+            if (known.Count > 0 && !known.Contains(type)) throw new ModKitException("no shipped quest has a condition of type \"" + type + "\"");
+            string was = CodeTable(c.Type, c.Code), now = CodeTable(type, c.Code);
+            if (was != now)
+                throw new ModKitException("the code " + c.Code + " of this condition is " + (was != null ? "an id of the " + was + " table" : "free text") + "; type \"" + type + "\" takes " + (now != null ? "an id of the " + now + " table" : "free text"));
+            return EachCondition(index, delegate(QuestNode row) { if (Editor.Attr(row, "type") != type) Editor.SetAttr(row, "type", type); });
+        }
+
+        /// <summary>
+        /// Sets the code of condition index in every place that has it. A code that is an id of another table
+        /// (CodeTable) is refused, and so is a new code that would be one.
+        /// </summary>
+        public int SetConditionCode(int index, string code)
+        {
+            code = (code ?? "").Trim();
+            QuestCondition c = Condition(index);
+            string table = CodeTable(c.Type, c.Code);
+            if (table != null) throw new ModKitException("the code of a \"" + c.Type + "\" condition is an id of the " + table + " table; it is not edited here");
+            if (CodeTable(c.Type, code) != null) throw new ModKitException("\"" + code + "\" holds an id of another table; it is not set here");
+            return EachCondition(index, delegate(QuestNode row) { if ((Editor.Attr(row, "code") ?? "") != code) Editor.SetAttr(row, "code", code); });
         }
 
         // ---- texts ----
@@ -510,6 +624,43 @@ namespace MS2.ModKit
         static readonly Regex FileRx = new Regex(@"^quest/(\d+)\.xml$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         static readonly Regex StringRx = new Regex(@"^string/([^/]+)/questdescription[^/]*\.xml$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+        /// <summary>The server-only archive; its two quest script tables list quests by id.</summary>
+        public const string ServerM2d = "server:Server.m2d";
+
+        // A file that lists quests by id: rows of one element name under the root, the quest id in one attribute.
+        sealed class ListSpec
+        {
+            internal readonly Regex Rx;
+            internal readonly string Row, Key, What;
+            internal ListSpec(string rx, string row, string key, string what)
+            {
+                Rx = new Regex(rx, RegexOptions.IgnoreCase | RegexOptions.CultureInvariant); Row = row; Key = key; What = what;
+            }
+        }
+
+        static readonly ListSpec[] Lists =
+        {
+            new ListSpec(@"^script/quest/questscript[^/]*\.xml$", "quest", "id", "talk script"),
+            new ListSpec(@"^table/questtofieldtable\.xml$", "quest", "id", "fields of the quest"),
+            new ListSpec(@"^string/[^/]+/specialquesttype\.xml$", "key", "id", "special type name"),
+            new ListSpec(@"^table/server/questscriptcondition[^/]*\.xml$", "condition", "questID", "script condition"),
+            new ListSpec(@"^table/server/questscriptfunction[^/]*\.xml$", "function", "questID", "script function"),
+        };
+
+        static ListSpec SpecOf(string entry)
+        {
+            entry = entry.Replace('\\', '/');
+            foreach (ListSpec s in Lists) if (s.Rx.IsMatch(entry)) return s;
+            return null;
+        }
+
+        sealed class ListDoc
+        {
+            internal string Name;
+            internal ListSpec Spec;
+            internal readonly Dictionary<long, List<XmlElem>> Rows = new Dictionary<long, List<XmlElem>>();
+        }
+
         sealed class DocInfo { internal XmlDoc Doc; internal string Name; }
         sealed class StringDoc
         {
@@ -537,6 +688,63 @@ namespace MS2.ModKit
             var l = new List<string>();
             if (TableXml != null) l.Add(TableXml);
             if (FileXml != null) l.Add(FileXml);
+            return l;
+        }
+
+        // the archives with files that list quests: the editor's sides and the server-only archive
+        List<string> ListArchives()
+        {
+            List<string> l = Sides();
+            if (Data.Exists(ServerM2d)) l.Add(ServerM2d);
+            return l;
+        }
+
+        // every file of an archive that lists quests by id, with its rows by quest id
+        List<ListDoc> ListDocs(string archive)
+        {
+            string key = "questlists\n" + archive;
+            object o;
+            if (Data.Cache.TryGetValue(key, out o)) return (List<ListDoc>)o;
+            var list = new List<ListDoc>();
+            M2dArchive arch = Data.Open(archive);
+            foreach (M2dEntry e in arch.Entries)
+            {
+                ListSpec spec = SpecOf(e.Name);
+                if (spec == null) continue;
+                XmlDoc doc = XmlDoc.Parse(arch.Read(e), archive + " " + e.Name);
+                if (doc.Root == null) continue;
+                var ld = new ListDoc { Name = e.Name, Spec = spec };
+                foreach (XmlElem c in doc.Root.Children)
+                {
+                    long id;
+                    if (c.Name != spec.Row || !TryId(c.Attr(spec.Key), out id)) continue;
+                    List<XmlElem> l;
+                    if (!ld.Rows.TryGetValue(id, out l)) ld.Rows[id] = l = new List<XmlElem>();
+                    l.Add(c);
+                }
+                list.Add(ld);
+            }
+            list.Sort(delegate(ListDoc a, ListDoc b) { return string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase); });
+            Data.Cache[key] = list;
+            return list;
+        }
+
+        /// <summary>The condition types the shipped quest table uses, sorted; empty when the data set has no table.</summary>
+        public List<string> ConditionTypes()
+        {
+            const string key = "questcondtypes";
+            object o;
+            if (Data.Cache.TryGetValue(key, out o)) return (List<string>)o;
+            var l = new List<string>();
+            foreach (List<XmlElem> rows in TableRows().Values)
+                foreach (XmlElem row in rows)
+                    foreach (XmlElem c in row.Children)
+                    {
+                        string t = c.Name == "condition" ? c.Attr("type") : null;
+                        if (!string.IsNullOrEmpty(t) && !l.Contains(t)) l.Add(t);
+                    }
+            l.Sort(StringComparer.Ordinal);
+            Data.Cache[key] = l;
             return l;
         }
 
@@ -919,6 +1127,21 @@ namespace MS2.ModKit
                 try { name = Open(id).Name; } catch (ModKitException) { }
                 hits.Add(new QuestHit { Id = id, Name = name, Added = true });
             }
+            // a shipped quest whose string rows the mod changes is listed under the mod's name
+            var renamed = new Dictionary<long, string>();
+            foreach (string archive in Sides())
+                foreach (StringDoc sd in Strings(archive))
+                    foreach (EditOp ed in Edits(archive, sd.Name))
+                        foreach (RowOp r in ed.Rows)
+                        {
+                            if (r.Kind != RowOpKind.Change || r.At == null) continue;
+                            long id;
+                            string err;
+                            XmlElem row;
+                            try { row = RowPath.Parse(r.At).TryResolve(sd.Doc.Root, out err); } catch (ModKitException) { continue; }
+                            if (row == null || !TryId(row.Attr("questID"), out id) || renamed.ContainsKey(id)) continue;
+                            try { renamed[id] = Open(id).Name; } catch (ModKitException) { }
+                        }
             var ids = new List<long>(TableRows().Keys);
             foreach (string a in FileArchives()) foreach (long id in FileIndex(a).Keys) if (!TableRows().ContainsKey(id)) ids.Add(id);
             ids.Sort();
@@ -928,7 +1151,7 @@ namespace MS2.ModKit
                 if (id == last || added.Contains(id)) continue;
                 last = id;
                 string name;
-                names.TryGetValue(id, out name);
+                if (!renamed.TryGetValue(id, out name)) names.TryGetValue(id, out name);
                 hits.Add(new QuestHit { Id = id, Name = name ?? "" });
             }
             var l = new List<QuestHit>();
@@ -1057,7 +1280,13 @@ namespace MS2.ModKit
         /// one (basic@questID set), and its string rows in every language, all under the new id. The id is reserved
         /// in the mod's &lt;ids space="quest"&gt;.
         /// </summary>
-        public QuestDraft Clone(long sourceId, long newId)
+        public QuestDraft Clone(long sourceId, long newId) { return Clone(sourceId, newId, true); }
+
+        /// <summary>
+        /// Clone, and with listed also a copy of every row of the source in the files that list quests by id (its
+        /// talk script, its fields, its special type name and the server's script conditions and functions).
+        /// </summary>
+        public QuestDraft Clone(long sourceId, long newId, bool listed)
         {
             if (newId <= 0 || newId > MaxId) throw new ModKitException("the new id must be from 1 to " + MaxId + " (the file name has 8 digits)");
             if (AddedIds().Contains(newId)) throw new ModKitException("the mod already adds a quest " + newId);
@@ -1101,6 +1330,19 @@ namespace MS2.ModKit
                         Edit(archive, sd.Name).Rows.Add(add);
                     }
                 }
+            if (listed)
+                foreach (string archive in ListArchives())
+                    foreach (ListDoc ld in ListDocs(archive))
+                    {
+                        List<XmlElem> lrows;
+                        if (!ld.Rows.TryGetValue(sourceId, out lrows)) continue;
+                        foreach (XmlElem r in lrows)
+                        {
+                            var add = new RowOp { Kind = RowOpKind.Add, Copy = RowPath.Canonical(r) };
+                            add.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = ld.Spec.Key, Value = PadLike(r.Attr(ld.Spec.Key), newId) });
+                            Edit(archive, ld.Name).Rows.Add(add);
+                        }
+                    }
             Reserve(newId, row, files);
             QuestDraft d = Open(newId);
             foreach (QuestPlace p in d.PlacesOf(QuestPlace.File))
@@ -1141,7 +1383,10 @@ namespace MS2.ModKit
             Mod.Ids.Add(made);
         }
 
-        /// <summary>Takes a new quest out of the mod again: its table row, its files with their edits and its string rows.</summary>
+        /// <summary>
+        /// Takes a new quest out of the mod again: its table row, its files with their edits, its string rows and
+        /// its copies of the rows that list it (talk script, fields, special type name, script tables).
+        /// </summary>
         public void RemoveClone(long id)
         {
             if (!AddedIds().Contains(id)) throw new ModKitException("the mod adds no quest " + id);
@@ -1163,7 +1408,54 @@ namespace MS2.ModKit
                         ed.Rows.RemoveAll(delegate(RowOp r) { long v; return r.Kind == RowOpKind.Add && r.Copy != null && TryId(KeyValue(r, "questID"), out v) && v == id; });
                         if (ed.Rows.Count == 0) Mod.Ops.Remove(ed);
                     }
+            foreach (KeyValuePair<EditOp, RowOp> kv in ListedOps(id))
+            {
+                kv.Key.Rows.Remove(kv.Value);
+                if (kv.Key.Rows.Count == 0) Mod.Ops.Remove(kv.Key);
+            }
             IdSpaces.Unreserve(Mod, IdSpace, id);
+        }
+
+        // the mod's copies of rows that list a quest of the id; read from the mod alone
+        List<KeyValuePair<EditOp, RowOp>> ListedOps(long id)
+        {
+            var l = new List<KeyValuePair<EditOp, RowOp>>();
+            foreach (ModOp op in Mod.Ops)
+            {
+                var ed = op as EditOp;
+                ListSpec spec = ed == null ? null : SpecOf(ed.Entry);
+                if (spec == null) continue;
+                foreach (RowOp r in ed.Rows)
+                {
+                    long v;
+                    if (r.Kind == RowOpKind.Add && r.Copy != null && TryId(KeyValue(r, spec.Key), out v) && v == id) l.Add(new KeyValuePair<EditOp, RowOp>(ed, r));
+                }
+            }
+            return l;
+        }
+
+        /// <summary>
+        /// The rows the mod copies for a new quest in the files that list quests by id, one text line per file:
+        /// archive, entry, what the row is and how many.
+        /// </summary>
+        public List<string> ListedRows(long id)
+        {
+            var l = new List<string>();
+            EditOp last = null;
+            int n = 0;
+            foreach (KeyValuePair<EditOp, RowOp> kv in ListedOps(id))
+            {
+                if (kv.Key != last && last != null) { l.Add(ListedLine(last, id, n)); n = 0; }
+                last = kv.Key; n++;
+            }
+            if (last != null) l.Add(ListedLine(last, id, n));
+            return l;
+        }
+
+        static string ListedLine(EditOp ed, long id, int n)
+        {
+            ListSpec s = SpecOf(ed.Entry);
+            return ed.Archive + "  " + ed.Entry.Replace('\\', '/') + "  <" + s.Row + " " + s.Key + "=\"" + id + "\"> " + (n == 1 ? "row" : n + " rows") + " (" + s.What + ")";
         }
 
         /// <summary>The places a new quest id is written to, per target, as text lines: for the plan view and the README.</summary>
@@ -1177,6 +1469,7 @@ namespace MS2.ModKit
                 List<string> langs = LanguagesIn(a);
                 if (langs.Count > 0) l.Add(a + "  string/<" + string.Join(",", langs.ToArray()) + ">/questdescription*.xml  <quest questID=\"" + Padded(id) + "\"> row, where the source has one");
             }
+            l.AddRange(ListedRows(id));
             if (FileXml == ServerXml && Data.Exists(GmsXml))
                 l.Add(GmsXml + "  the server's lines above, mirrored: the same files, rows and attributes");
             return l;

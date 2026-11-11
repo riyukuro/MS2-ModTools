@@ -25,6 +25,9 @@ namespace MS2.ModKit.Tests
             "\t\t<require level=\"5\" />\n" +
             "\t\t<start npc=\"31\" />\n" +
             "\t\t<complete npc=\"32\" />\n" +
+            "\t\t<acceptReward>\n" +
+            "\t\t\t<v code=\"9100\" rank=\"1\" count=\"1\" />\n" +
+            "\t\t</acceptReward>\n" +
             "\t\t<completeReward exp=\"100\" money=\"20\">\n" +
             "\t\t\t<v code=\"9001\" rank=\"1\" count=\"2\" />\n" +
             "\t\t</completeReward>\n" +
@@ -47,7 +50,7 @@ namespace MS2.ModKit.Tests
         static string Sparse(long id)
         {
             return Head + "<ms2>\n\t<environment feature=\"\">\n\t\t<quest>\n\t\t\t<basic chapter=\"1\" questID=\"" + QuestEditor.Padded(id) + "\" />\n" +
-                (id == 701 ? "\t\t\t<require level=\"5\" />\n\t\t\t<start npc=\"31\" />\n\t\t\t<complete npc=\"32\" />\n\t\t\t<completeReward exp=\"100\" money=\"20\">\n\t\t\t\t<essentialItem code=\"9001\" rank=\"1\" count=\"1\" />\n\t\t\t</completeReward>\n" +
+                (id == 701 ? "\t\t\t<require level=\"5\" />\n\t\t\t<start npc=\"31\" />\n\t\t\t<complete npc=\"32\" />\n\t\t\t<acceptReward>\n\t\t\t\t<essentialItem code=\"9100\" rank=\"1\" count=\"1\" />\n\t\t\t</acceptReward>\n\t\t\t<completeReward exp=\"100\" money=\"20\">\n\t\t\t\t<essentialItem code=\"9001\" rank=\"1\" count=\"1\" />\n\t\t\t</completeReward>\n" +
                              "\t\t\t<condition type=\"npc\" code=\"41\" value=\"3\" />\n\t\t\t<condition type=\"talk\" code=\"32\" />\n"
                            : "\t\t\t<condition type=\"npc\" code=\"42\" value=\"10\" />\n") +
                 "\t\t</quest>\n\t</environment>\n</ms2>\n";
@@ -60,6 +63,7 @@ namespace MS2.ModKit.Tests
                 "\t\t\t<require level=\"" + level + "\" />\n" +
                 "\t\t\t<start npc=\"" + start + "\" />\n" +
                 "\t\t\t<complete npc=\"" + complete + "\" map=\"0\" />\n" +
+                (id == 701 ? "\t\t\t<acceptReward>\n" + Item("essentialItem", 9100, 1, 1) + "\t\t\t</acceptReward>\n" : "\t\t\t<acceptReward />\n") +
                 "\t\t\t<completeReward exp=\"" + exp + "\" money=\"" + money + "\">\n" + items +
                 "\t\t\t\t<globalEssentialItem code=\"0\" rank=\"0\" count=\"0\" />\n" +
                 "\t\t\t\t<essentialJobItem code=\"0\" rank=\"0\" count=\"0\" />\n" +
@@ -84,6 +88,36 @@ namespace MS2.ModKit.Tests
         {
             return "\t<quest questID=\"" + QuestEditor.Padded(id) + "\" name=\"" + name + suffix + "\" desc=\"About " + name + suffix + "\" manual=\"Go|Talk\" complete=\"Done" + suffix + "\" count=\"2\" />\n";
         }
+
+        // the files that list quests by id: the talk script (one file in the kms-client, group files elsewhere),
+        // the quest's fields and its special type name
+        static string Script(long id, string ask)
+        {
+            return "\t<quest id=\"" + id + "\">\n" +
+                "\t\t<script id=\"100\">\n\t\t\t<content text=\"$script:" + id + "100$\">\n\t\t\t\t<distractor text=\"$script:" + id + "101$\" goto=\"200\" />\n\t\t\t</content>\n\t\t</script>\n" +
+                "\t\t<script id=\"200\" feature=\"F1\">\n\t\t\t<content text=\"$script:" + id + "200$\" voiceID=\"" + ask + "\" />\n\t\t</script>\n" +
+                "\t</quest>\n";
+        }
+
+        static void Listed(List<KeyValuePair<string, byte[]>> l, bool oneFile)
+        {
+            l.Add(E("script/quest/questscript_" + (oneFile ? "final" : "a") + ".xml", Head + "<ms2>\n" + Script(701, "v1") + (oneFile ? Script(702, "v2") : "") + "</ms2>\n"));
+            if (!oneFile) l.Add(E("script/quest/questscript_b.xml", Head + "<ms2>\n" + Script(702, "v2") + "</ms2>\n"));
+            l.Add(E("table/questtofieldtable.xml", Head + "<ms2>\n\t<quest id=\"701\" fields=\"61,62\" />\n\t<quest id=\"702\" fields=\"63\" />\n</ms2>\n"));
+            l.Add(E("string/en/specialquesttype.xml", Head + "<ms2>\n\t<key id=\"701\" name=\"Fake Type\" />\n</ms2>\n"));
+        }
+
+        // the server-only archive: several rows per quest, two of them with the same quest and script
+        const string ScriptCondition = Head + "<ms2>\n" +
+            "\t<condition questID=\"701\" scriptID=\"100\" item=\"9001\" />\n" +
+            "\t<condition questID=\"701\" scriptID=\"100\" feature=\"F1\" item=\"9002\" />\n" +
+            "\t<condition questID=\"702\" scriptID=\"100\" item=\"9003\" />\n" +
+            "\t<condition questID=\"701\" scriptID=\"200\" item=\"9004\" />\n" +
+            "</ms2>\n";
+        const string ScriptFunction = Head + "<ms2>\n" +
+            "\t<function questID=\"701\" scriptID=\"100\" functionID=\"1\" presentItemID=\"9001\" />\n" +
+            "\t<function questID=\"701\" scriptID=\"100\" functionID=\"2\" emoticon=\"wave\" />\n" +
+            "</ms2>\n";
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
@@ -110,6 +144,7 @@ namespace MS2.ModKit.Tests
                 k = Path.Combine(Dir, "kms"); Directory.CreateDirectory(k);
                 var l = new List<KeyValuePair<string, byte[]>> { E("questdata/questdata.xml", Table), E("quest/00000701.xml", Sparse(701)), E("quest/00000702.xml", Sparse(702)) };
                 Strings(l, "en", true); Strings(l, "zz", false);
+                Listed(l, true);
                 M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, l);
             }
             foreach (bool server2 in new[] { false, true })
@@ -120,6 +155,10 @@ namespace MS2.ModKit.Tests
                 var l = new List<KeyValuePair<string, byte[]>> { E("quest/00000701.xml", Full(701)), E("quest/00000702.xml", Full(702)) };
                 Strings(l, "en", true);
                 if (server2) Strings(l, "zz", false);
+                Listed(l, false);
+                if (server2)
+                    M2dWriter.Create(Path.Combine(d, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> {
+                        E("table/Server/QuestScriptCondition_final.xml", ScriptCondition), E("table/Server/QuestScriptFunction_final.xml", ScriptFunction) });
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, l);
             }
             Data = new DataSet(k, g, s);
@@ -320,7 +359,7 @@ namespace MS2.ModKit.Tests
                 d = f.Editor().Open(701);
                 foreach (string list in QuestDraft.RewardLists) Assert.That(d.Rewards(list), Is.Empty, list);
                 p = f.Plan();
-                Assert.That(FakeQuests.Out(p, K, T), Does.Not.Contain("<v "));
+                Assert.That(FakeQuests.Out(p, K, T), Does.Not.Contain("<v code=\"90"));
                 s = FakeQuests.Out(p, S, F1);
                 Assert.That(s, Does.Contain("<completeReward exp=\"100\" money=\"20\">\n\t\t\t\t<essentialItem code=\"0\" rank=\"0\" count=\"0\" />\n\t\t\t\t<globalEssentialItem code=\"0\" rank=\"0\" count=\"0\" />"));
                 // and a row can be added again after that
@@ -458,12 +497,239 @@ namespace MS2.ModKit.Tests
                 }
                 Assert.That(FakeQuests.Out(p, G, "quest/00000750.xml"), Is.EqualTo(FakeQuests.Out(p, S, "quest/00000750.xml")));
                 Assert.That(FakeQuests.Out(p, S, "string/zz/questdescription_final.xml"), Does.Contain("questID=\"00000750\" name=\"Second Errand\""));
-                Assert.That(e.Registration(750).Count, Is.EqualTo(6));
+                Assert.That(e.Registration(750).Count, Is.EqualTo(14), "6 and the 8 files that list the quest");
 
                 e.RemoveClone(750);
                 Assert.That(f.Mod.Ops, Is.Empty);
                 Assert.That(f.Mod.Ids, Is.Empty);
                 Assert.Throws<ModKitException>(delegate { e.RemoveClone(750); });
+            }
+        }
+
+        const string QS = "script/quest/questscript_a.xml", QF = "table/questtofieldtable.xml", QT = "string/en/specialquesttype.xml";
+        const string M = QuestEditor.ServerM2d, MC = "table/Server/QuestScriptCondition_final.xml", MF = "table/Server/QuestScriptFunction_final.xml";
+
+        static int Count(string text, string part) { return text.Split(new[] { part }, StringSplitOptions.None).Length - 1; }
+
+        [Test]
+        public void Clone_CopiesTheTalkScriptAndTheRowsThatListTheQuest()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor e = f.Editor();
+                e.Clone(701, 750);
+                List<string> listed = e.ListedRows(750);
+                Assert.That(listed.Count, Is.EqualTo(8), string.Join("\n", listed.ToArray()));
+                Assert.That(listed, Has.Some.Contains(M + "  " + MC + "  <condition questID=\"750\"> 3 rows (script condition)"));
+                Assert.That(listed, Has.Some.Contains(K + "  script/quest/questscript_final.xml  <quest id=\"750\"> row (talk script)"));
+                f.Reload();
+                e = f.Editor();
+                Assert.That(e.ListedRows(750).Count, Is.EqualTo(8), "read from the saved mod");
+                Plan p = f.Plan();
+                string script = "<quest id=\"750\">\n\t\t<script id=\"100\">\n\t\t\t<content text=\"$script:701100$\">\n\t\t\t\t<distractor text=\"$script:701101$\" goto=\"200\" />";
+                string k = FakeQuests.Out(p, K, "script/quest/questscript_final.xml");
+                Assert.That(k, Does.Contain(script).And.Contain("<quest id=\"701\">").And.Contain("<quest id=\"702\">"));
+                Assert.That(Count(k, "<script id=\"200\" feature=\"F1\">"), Is.EqualTo(3), "the whole row with its children");
+                foreach (string a in new[] { G, S })
+                {
+                    Assert.That(FakeQuests.Out(p, a, QS), Does.Contain(script).And.Contain("<quest id=\"701\">"), a);
+                    Assert.That(FakeQuests.Out(p, a, "script/quest/questscript_b.xml"), Is.Null, "the other group file is not written: " + a);
+                }
+                foreach (string a in new[] { K, G, S })
+                {
+                    Assert.That(FakeQuests.Out(p, a, QF), Does.Contain("<quest id=\"701\" fields=\"61,62\" />").And.Contain("<quest id=\"750\" fields=\"61,62\" />"), a);
+                    Assert.That(FakeQuests.Out(p, a, QT), Does.Contain("<key id=\"750\" name=\"Fake Type\" />").And.Contain("<key id=\"701\" name=\"Fake Type\" />"), a);
+                }
+                Assert.That(FakeQuests.Out(p, G, QS), Is.EqualTo(FakeQuests.Out(p, S, QS)), "the gms-client gets the server's lines");
+                string c = FakeQuests.Out(p, M, MC);
+                Assert.That(c, Does.Contain("<condition questID=\"750\" scriptID=\"100\" item=\"9001\" />").And.Contain("<condition questID=\"750\" scriptID=\"100\" feature=\"F1\" item=\"9002\" />").And.Contain("<condition questID=\"750\" scriptID=\"200\" item=\"9004\" />"));
+                Assert.That(Count(c, "questID=\"701\""), Is.EqualTo(3), "the source rows stay");
+                Assert.That(Count(c, "questID=\"750\""), Is.EqualTo(3));
+                Assert.That(Count(c, "questID=\"702\""), Is.EqualTo(1));
+                string fn = FakeQuests.Out(p, M, MF);
+                Assert.That(fn, Does.Contain("<function questID=\"750\" scriptID=\"100\" functionID=\"1\" presentItemID=\"9001\" />").And.Contain("<function questID=\"750\" scriptID=\"100\" functionID=\"2\" emoticon=\"wave\" />"));
+
+                // remove: no row is left behind, in the mod and in the plan
+                e.RemoveClone(750);
+                Assert.That(f.Mod.Ops, Is.Empty);
+                Assert.That(f.Mod.Ids, Is.Empty);
+                Assert.That(e.ListedRows(750), Is.Empty);
+                p = f.Plan();
+                foreach (string a in new[] { K, G, S, M }) Assert.That(p.Find(a) == null || p.Find(a).Put.Count == 0, Is.True, a);
+            }
+        }
+
+        [Test]
+        public void Clone_TwoQuests_RemoveTakesOnlyItsOwnRows()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor e = f.Editor();
+                e.Clone(701, 750);
+                e.Clone(702, 751);
+                Assert.That(e.ListedRows(751).Count, Is.EqualTo(5), "702 has a script, a fields row and one condition; no type name, no function");
+                f.Reload();
+                e = f.Editor();
+                e.RemoveClone(750);
+                Assert.That(e.ListedRows(750), Is.Empty);
+                Assert.That(e.ListedRows(751).Count, Is.EqualTo(5));
+                Plan p = f.Plan();
+                string c = FakeQuests.Out(p, M, MC);
+                Assert.That(Count(c, "questID=\"750\""), Is.EqualTo(0));
+                Assert.That(c, Does.Contain("<condition questID=\"751\" scriptID=\"100\" item=\"9003\" />"));
+                Assert.That(FakeQuests.Out(p, M, MF), Is.Null);
+                Assert.That(FakeQuests.Out(p, K, "script/quest/questscript_final.xml"), Does.Contain("<quest id=\"751\">").And.Not.Contain("<quest id=\"750\">"));
+                Assert.That(FakeQuests.Out(p, S, QF), Does.Contain("<quest id=\"751\" fields=\"63\" />").And.Not.Contain("id=\"750\""));
+                e.RemoveClone(751);
+                Assert.That(f.Mod.Ops, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void Clone_WithoutTheListedRows()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor e = f.Editor();
+                e.Clone(701, 750, false);
+                Assert.That(e.ListedRows(750), Is.Empty);
+                Assert.That(e.Registration(750).Count, Is.EqualTo(6));
+                Plan p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, "script/quest/questscript_final.xml"), Is.Null);
+                Assert.That(FakeQuests.Out(p, S, QF), Is.Null);
+                Assert.That(p.Find(M) == null || p.Find(M).Put.Count == 0, Is.True);
+                e.RemoveClone(750);
+                Assert.That(f.Mod.Ops, Is.Empty);
+            }
+            // a data set without the server: the clients' rows only
+            using (var f = new FakeQuests(true, true, false))
+            {
+                QuestEditor e = f.Editor();
+                e.Clone(701, 750);
+                Assert.That(e.ListedRows(750).Count, Is.EqualTo(6));
+                f.Plan();
+            }
+        }
+
+        [Test]
+        public void Find_ShowsTheModsNameOfARenamedQuest()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor e = f.Editor();
+                e.Open(702).SetText("en", "name", "Mud Hunt");
+                e.Open(701).SetText("zz", "desc", "only the zz text");
+                f.Reload();
+                e = f.Editor();
+                List<QuestHit> hits = e.Find("", 10);
+                Assert.That(hits[0].Name, Is.EqualTo("Fake Errand"));
+                Assert.That(hits[1].Name, Is.EqualTo("Mud Hunt"));
+                Assert.That(hits[1].Added, Is.False);
+                Assert.That(e.Find("mud", 10).Count, Is.EqualTo(1), "found by the new name");
+                Assert.That(e.Find("clay", 10), Is.Empty, "and no longer by the shipped one");
+                e.Language = "zz";
+                Assert.That(e.Find("702", 10)[0].Name, Is.EqualTo("Clay Hunt (zz)"), "the zz name is not changed");
+            }
+        }
+
+        [Test]
+        public void AcceptReward_ReadSetAddRemove()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestDraft d = f.Editor().Open(701);
+                const string A = QuestDraft.AcceptReward;
+                Assert.That(d.Rewards(A, "v").Count, Is.EqualTo(1));
+                Assert.That(d.Rewards(A, "v")[0].Code, Is.EqualTo("9100"));
+                Assert.That(d.Rewards(A, "essentialItem").Count, Is.EqualTo(1));
+                Assert.That(d.Rewards(A, "essentialItem")[0].Places, Is.EqualTo(2));
+                Assert.That(d.Rewards("v")[0].Code, Is.EqualTo("9001"), "the complete reward is its own list");
+                Assert.Throws<ModKitException>(delegate { d.Rewards("reward", "v"); });
+                d.SetReward(A, "v", 0, new QuestItem(9100, 1, 3));
+                d.SetReward(A, "essentialItem", 0, new QuestItem(9100, 1, 3));
+                d.AddReward(A, "v", new QuestItem(9101, 2, 1));
+                d.AddReward(A, "essentialItem", new QuestItem(9101, 2, 1));
+                Assert.Throws<ModKitException>(delegate { d.AddReward(A, "v", new QuestItem(9101, 2, 1)); });
+                f.Reload();
+                d = f.Editor().Open(701);
+                Assert.That(d.Rewards(A, "v").Count, Is.EqualTo(2));
+                Assert.That(d.Rewards(A, "essentialItem")[1].Differs, Is.False);
+                Plan p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, T), Does.Contain("<acceptReward>\n\t\t\t<v code=\"9100\" rank=\"1\" count=\"3\" />\n\t\t\t<v code=\"9101\" rank=\"2\" count=\"1\" />\n\t\t</acceptReward>"));
+                string s = FakeQuests.Out(p, S, F1);
+                Assert.That(s, Does.Contain("<acceptReward>\n\t\t\t\t<essentialItem code=\"9100\" rank=\"1\" count=\"3\" />\n\t\t\t\t<essentialItem code=\"9101\" rank=\"2\" count=\"1\" />\n\t\t\t</acceptReward>"));
+                Assert.That(s, Does.Contain("<essentialItem code=\"9001\" rank=\"1\" count=\"1\" />"), "the complete reward is untouched");
+                Assert.That(FakeQuests.Out(p, G, F1), Is.EqualTo(s));
+
+                // removing every row leaves the element empty: no code 0 row here
+                d.RemoveReward(A, "v", 1); d.RemoveReward(A, "v", 0);
+                d.RemoveReward(A, "essentialItem", 1); d.RemoveReward(A, "essentialItem", 0);
+                p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, T), Does.Not.Contain("9100"));
+                Assert.That(FakeQuests.Out(p, S, F1), Does.Not.Contain("9100").And.Not.Contain("code=\"0\" rank=\"0\" count=\"0\" />\n\t\t\t</acceptReward>"));
+            }
+            // a quest whose element is empty or left out gets the rows
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestDraft d = f.Editor().Open(702);
+                const string A = QuestDraft.AcceptReward;
+                Assert.That(d.Rewards(A, "essentialItem"), Is.Empty);
+                Assert.That(d.AddReward(A, "v", new QuestItem(9102, 1, 1)), Is.EqualTo(2));
+                Assert.That(d.AddReward(A, "essentialItem", new QuestItem(9102, 1, 1)), Is.EqualTo(3));
+                f.Reload();
+                Assert.That(f.Editor().Open(702).Rewards(A, "essentialItem")[0].Places, Is.EqualTo(3));
+                Plan p = f.Plan();
+                Assert.That(Count(FakeQuests.Out(p, K, T), "<acceptReward>\n\t\t\t<v code=\"9102\" rank=\"1\" count=\"1\" />\n\t\t</acceptReward>"), Is.EqualTo(2));
+                Assert.That(Count(FakeQuests.Out(p, S, F2), "<essentialItem code=\"9102\" rank=\"1\" count=\"1\" />"), Is.EqualTo(2));
+                Assert.That(FakeQuests.Out(p, S, F2), Does.Not.Contain("<acceptReward />"));
+            }
+        }
+
+        [Test]
+        public void ConditionTypeAndCode()
+        {
+            Assert.That(QuestDraft.CodeTable("npc", "41"), Is.EqualTo("npc"));
+            Assert.That(QuestDraft.CodeTable("item_exist", "9001"), Is.EqualTo("item"));
+            Assert.That(QuestDraft.CodeTable("interact_object_rep", "5"), Is.EqualTo("interact object"));
+            Assert.That(QuestDraft.CodeTable("trigger", "door_open"), Is.Null);
+            Assert.That(QuestDraft.CodeTable("trigger", "a1234567"), Is.EqualTo("id"));
+            Assert.That(QuestDraft.CodeTable("talk", "32"), Is.Null);
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor e = f.Editor();
+                Assert.That(e.ConditionTypes(), Is.EqualTo(new[] { "npc", "talk" }));
+                QuestDraft d = e.Open(701);
+                // condition 1 is npc 41: its code is an npc id
+                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(0, "43"); });
+                Assert.Throws<ModKitException>(delegate { d.SetConditionType(0, "talk"); }, "an npc id is not free text");
+                Assert.Throws<ModKitException>(delegate { d.SetConditionType(0, "walk"); }, "not a shipped type");
+                Assert.Throws<ModKitException>(delegate { d.SetConditionType(0, ""); });
+                Assert.Throws<ModKitException>(delegate { d.SetConditionType(5, "npc"); });
+                Assert.That(d.SetConditionType(0, "npc"), Is.EqualTo(3));
+                Assert.That(f.Mod.Ops, Is.Empty, "the same type writes nothing");
+                // condition 2 is talk 32: free
+                Assert.That(d.SetConditionCode(1, "hello"), Is.EqualTo(3));
+                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(1, "12345678"); });
+                Assert.Throws<ModKitException>(delegate { d.SetConditionType(1, "npc"); }, "free text is not an npc id");
+                f.Reload();
+                d = f.Editor().Open(701);
+                Assert.That(d.Conditions()[1].Code, Is.EqualTo("hello"));
+                Assert.That(d.Conditions()[1].Differs, Is.False);
+                Plan p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, T), Does.Contain("<condition type=\"talk\" code=\"hello\" />"));
+                foreach (string a in new[] { K, G, S }) Assert.That(FakeQuests.Out(p, a, F1), Does.Contain("<condition type=\"talk\" code=\"hello\""), a);
+                d.SetConditionCode(1, "32");
+                Assert.That(f.Mod.Ops, Is.Empty);
+            }
+            // without the table any type word is taken, within the same code table
+            using (var f = new FakeQuests(false, true, true))
+            {
+                QuestDraft d = f.Editor().Open(701);
+                Assert.That(d.SetConditionType(0, "talk_in"), Is.EqualTo(1));
+                Assert.That(d.SetConditionType(1, "emotion"), Is.EqualTo(1));
+                Plan p = f.Plan();
+                Assert.That(FakeQuests.Out(p, S, F1), Does.Contain("<condition type=\"talk_in\" code=\"41\" value=\"3\" />").And.Contain("<condition type=\"emotion\" code=\"32\""));
+                Assert.That(FakeQuests.Out(p, G, F1), Is.EqualTo(FakeQuests.Out(p, S, F1)));
             }
         }
 
