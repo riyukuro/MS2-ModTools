@@ -483,7 +483,7 @@ namespace MS2.ModKit.Tests
         [Test]
         public void AFileErrorIsNotCachedAsABrokenXBlock()
         {
-            if (Path.DirectorySeparatorChar == '\\' || Environment.UserName == "root") Assert.Ignore("needs file modes and a user they hold for");
+            if (OperatingSystem.IsWindows() || Environment.UserName == "root") { Assert.Ignore("needs file modes and a user they hold for"); return; }
             string root = MakeRoot();
             string xb = Path.Combine(root, "ext", "xblock", Map + ".xblock");
             try

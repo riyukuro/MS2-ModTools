@@ -7,8 +7,14 @@
 //   Unset    the stored value: <unset old>, so the entity takes its model's default.
 //   Remove   the entity: a <remove> in place of its change.
 //   Restore  the entity: every op of it is dropped.
+//
+// New entities (AddSpawn, AddPortal): a <spawn> or <portal> op with the next free number of the mod range; SetNew
+// edits its properties, its numbers (SpawnPointID; PortalID, TargetFieldSN, TargetPortalID) and the server rows of a
+// spawn point (the item "(server row)", index 0, 1, ..., value "key=value key=value"); RemoveNew drops it.
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.Text;
 using MS2.ModKit.M2d;
 using MS2.ModKit.MapEdit;
 
@@ -318,6 +324,244 @@ namespace MS2.ModKit
             MapOp m = MapOf(mod, xblock);
             if (m == null) return;
             m.Ops.RemoveAll(delegate (MapEntityOp op) { return (op.Kind == MapOpKind.Remove || op.Kind == MapOpKind.Change) && string.Equals(op.Id, id, StringComparison.OrdinalIgnoreCase); });
+            Tidy(mod, m, null);
+        }
+
+        // ---- new entities: spawn points and portals ----
+
+        /// <summary>The pseudo property of a new spawn point that holds its server rows (index 0, 1, ...).</summary>
+        public const string ServerRow = "(server row)";
+
+        static bool IsNew(MapEntityOp op) { return op.Kind == MapOpKind.Add || op.Kind == MapOpKind.Spawn || op.Kind == MapOpKind.Portal; }
+
+        /// <summary>The ops of the mod that add an entity to the map file (add, spawn, portal), in mod order.</summary>
+        public static List<MapEntityOp> NewOps(Mod mod, string xblock)
+        {
+            var l = new List<MapEntityOp>();
+            MapOp m = mod == null ? null : MapOf(mod, xblock);
+            if (m != null) foreach (MapEntityOp op in m.Ops) if (IsNew(op)) l.Add(op);
+            return l;
+        }
+
+        public static MapEntityOp FindNew(Mod mod, string xblock, string name)
+        {
+            foreach (MapEntityOp op in NewOps(mod, xblock)) if (op.Name == name) return op;
+            return null;
+        }
+
+        /// <summary>The position of a new entity ("" for none).</summary>
+        public static string Position(MapEntityOp op)
+        {
+            XProp p = op.Props.Find(delegate (XProp x) { return x.Name == "Position"; });
+            return p != null && p.Scalar ? p.Items[0].Value : "";
+        }
+
+        /// <summary>The models of the map file's shipped entities whose model has the property (most used first).</summary>
+        public List<string> ModelsWith(string xblock, string prop)
+        {
+            var count = new Dictionary<string, int>(StringComparer.Ordinal);
+            List<XEntity> l = Shipped(xblock);
+            if (l != null)
+                foreach (XEntity e in l)
+                {
+                    if (e.Model == null) continue;
+                    int c;
+                    if (count.TryGetValue(e.Model, out c)) { count[e.Model] = c + 1; continue; }
+                    FlatModel fm = Model(e.Model);
+                    if (fm != null && fm.Prop(prop) != null) count[e.Model] = 1;
+                }
+            var res = new List<string>(count.Keys);
+            res.Sort(delegate (string a, string b) { int d = count[b].CompareTo(count[a]); return d != 0 ? d : string.CompareOrdinal(a, b); });
+            return res;
+        }
+
+        static long Scalar(XEntity e, string name)
+        {
+            XProp p = e.Find(name);
+            long v;
+            return p != null && p.Scalar && long.TryParse(p.Items[0].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out v) ? v : -1;
+        }
+
+        /// <summary>The first number of the mod range (IdSpaces) that no shipped entity and no new one of the map file uses.</summary>
+        public long NextNumber(Mod mod, string xblock, bool portal)
+        {
+            var used = new HashSet<long>();
+            List<XEntity> l = Shipped(xblock);
+            if (l != null) foreach (XEntity e in l) used.Add(Scalar(e, portal ? "PortalID" : "SpawnPointID"));
+            foreach (MapEntityOp op in NewOps(mod, xblock))
+                if (op.Kind == (portal ? MapOpKind.Portal : MapOpKind.Spawn)) used.Add(op.Number);
+            long from = portal ? IdSpaces.PortalFrom : IdSpaces.SpawnPointFrom, to = portal ? IdSpaces.PortalTo : IdSpaces.SpawnPointTo;
+            for (long n = from; n <= to; n++) if (!used.Contains(n)) return n;
+            throw new ModKitException("every " + (portal ? "PortalID" : "SpawnPointID") + " of the mod range (" + from + "-" + to + ") is used in " + xblock);
+        }
+
+        /// <summary>A new spawn point: a &lt;spawn&gt; op with the next free SpawnPointID; it has no server row yet.</summary>
+        public MapEntityOp AddSpawn(Mod mod, long mapId, string xblock, string name, string model, string position)
+        {
+            long n = NextNumber(mod, xblock, false);
+            MapEntityOp op = NewOp(mod, mapId, xblock, MapOpKind.Spawn, name, model, "SpawnPointID", position);
+            op.Number = n;
+            MapOf(mod, xblock).Ops.Add(op);
+            return op;
+        }
+
+        /// <summary>A new portal: a &lt;portal&gt; op with the next free PortalID that leads to a portal of a map.</summary>
+        public MapEntityOp AddPortal(Mod mod, long mapId, string xblock, string name, string model, string position, long toMap, long toPortal)
+        {
+            long n = NextNumber(mod, xblock, true), tm = Number("TargetFieldSN", toMap), tp = Number("TargetPortalID", toPortal);
+            MapEntityOp op = NewOp(mod, mapId, xblock, MapOpKind.Portal, name, model, "PortalID", position);
+            op.Number = n;
+            op.ToMap = tm;
+            op.ToPortal = tp;
+            MapOf(mod, xblock).Ops.Add(op);
+            return op;
+        }
+
+        MapEntityOp NewOp(Mod mod, long mapId, string xblock, MapOpKind kind, string name, string model, string needs, string position)
+        {
+            if (mod == null) throw new ModKitException("no mod is being edited");
+            if (!Has(xblock)) throw new ModKitException(Exported + " has no map file " + xblock);
+            if (string.IsNullOrEmpty(name) || name.Trim() != name) throw new ModKitException("give the new entity a name without spaces at an end");
+            if (FindNew(mod, xblock, name) != null) throw new ModKitException("the mod already adds an entity named \"" + name + "\" to " + xblock + "; the id of the new entity comes from its name");
+            if (string.IsNullOrEmpty(model)) throw new ModKitException("give the model of the new entity");
+            FlatModel fm = Model(model);
+            if (fm == null) throw new ModKitException("the model listing (flat/) has no model " + model);
+            if (fm.Prop(needs) == null) throw new ModKitException("the model " + model + " has no property " + needs + "; pick a " + (kind == MapOpKind.Spawn ? "spawn point" : "portal") + " model");
+            var op = new MapEntityOp { Kind = kind, Name = name, Model = model, EntityName = name };
+            if (!string.IsNullOrEmpty(position)) op.Props.Add(new XProp("Position", position.Trim()));
+            MapOp m = MapOf(mod, xblock);
+            if (m == null) mod.Maps.Add(m = new MapOp { XBlock = Key(xblock) });
+            if (mapId > 0 && m.EffectiveMapId != mapId) m.MapId = mapId;   // the server rows of a spawn need the map id
+            return op;
+        }
+
+        static long Number(string what, long v)
+        {
+            if (v < 0 || v > int.MaxValue) throw new ModKitException(what + " " + v + " is not a number the game reads (0 to " + int.MaxValue + ")");
+            return v;
+        }
+
+        static long Number(string what, string s)
+        {
+            long v;
+            if (s == null || !long.TryParse(s.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out v)) throw new ModKitException(what + " takes a whole number, not \"" + s + "\"");
+            return Number(what, v);
+        }
+
+        /// <summary>The numbers a spawn or portal op writes itself, by property name.</summary>
+        static string[] Own(MapEntityOp op)
+        {
+            return op.Kind == MapOpKind.Spawn ? new[] { "SpawnPointID" } : op.Kind == MapOpKind.Portal ? new[] { "PortalID", "TargetFieldSN", "TargetPortalID" } : new string[0];
+        }
+
+        static long OwnValue(MapEntityOp op, string name)
+        {
+            return name == "TargetFieldSN" ? op.ToMap : name == "TargetPortalID" ? op.ToPortal : op.Number;
+        }
+
+        static string RowText(List<KeyValuePair<string, string>> row)
+        {
+            var sb = new StringBuilder();
+            foreach (KeyValuePair<string, string> kv in row) sb.Append(sb.Length > 0 ? " " : "").Append(kv.Key).Append('=').Append(kv.Value);
+            return sb.ToString();
+        }
+
+        static List<KeyValuePair<string, string>> ParseRow(string s)
+        {
+            var row = new List<KeyValuePair<string, string>>();
+            foreach (string part in s.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            {
+                int eq = part.IndexOf('=');
+                if (eq <= 0) throw new ModKitException("a server row is key=value pairs split by spaces (as tag=... population=... coolTime=...); \"" + part + "\" is not one");
+                string k = part.Substring(0, eq);
+                if (k == "mapCode" || k == "spawnPointID") throw new ModKitException("a server row does not take " + k + "; the tool writes it from the map and the SpawnPointID");
+                if (row.Exists(delegate (KeyValuePair<string, string> x) { return x.Key == k; })) throw new ModKitException("the server row gives " + k + " twice");
+                row.Add(new KeyValuePair<string, string>(k, part.Substring(eq + 1)));
+            }
+            if (row.Count == 0) throw new ModKitException("give the server row as key=value pairs, or Unset it to drop it");
+            return row;
+        }
+
+        /// <summary>The property items of a new entity: its numbers, its properties, its server rows, then the model's others.</summary>
+        public List<MapPropRow> RowsOfNew(MapEntityOp op)
+        {
+            var rows = new List<MapPropRow>();
+            FlatModel model = Model(op.Model);
+            var named = new Dictionary<string, bool>(StringComparer.Ordinal);
+            foreach (string n in Own(op))
+            {
+                MapPropRow r = Row(model, n, null, null);
+                r.Current = OwnValue(op, n).ToString(CultureInfo.InvariantCulture);
+                r.Edited = true;
+                rows.Add(r);
+                named[n] = true;
+            }
+            foreach (XProp p in op.Props)
+            {
+                named[p.Name] = true;
+                foreach (XSet s in p.Items) { MapPropRow r = Row(model, p.Name, s.Index, null); r.Current = s.Value; r.Edited = true; rows.Add(r); }
+            }
+            if (op.Kind == MapOpKind.Spawn)
+                for (int k = 0; k < op.Rows.Count; k++)
+                    rows.Add(new MapPropRow { Name = ServerRow, Index = k.ToString(CultureInfo.InvariantCulture), Current = RowText(op.Rows[k]), Edited = true, Type = "server" });
+            if (model != null)
+                foreach (FlatProp p in model.Props)
+                    if (p.Name != null && !named.ContainsKey(p.Name)) rows.Add(Row(model, p.Name, null, null));
+            return rows;
+        }
+
+        /// <summary>
+        /// Sets one property item of a new entity (value null: takes it out). The numbers of a spawn or portal are set,
+        /// never unset; "(server row)" index k sets or drops a server row of a spawn point (k = the count adds one).
+        /// </summary>
+        public static void SetNew(Mod mod, string xblock, MapEntityOp op, string name, string index, string value)
+        {
+            if (op == null || !IsNew(op) || !NewOps(mod, xblock).Contains(op)) throw new ModKitException("the mod does not add that entity to " + xblock);
+            if (string.IsNullOrEmpty(name)) throw new ModKitException("give the name of the property");
+            if (name.Trim() != name) throw new ModKitException("the property name \"" + name + "\" has spaces at an end");
+            if (Array.IndexOf(Own(op), name) >= 0)
+            {
+                if (index != null) throw new ModKitException("the property " + name + " is a plain value; leave the index out");
+                if (value == null) throw new ModKitException("the " + (op.Kind == MapOpKind.Spawn ? "spawn point" : "portal") + " writes " + name + " itself; set another number, it cannot be unset");
+                long n = Number(name, value);
+                if (name == "TargetFieldSN") op.ToMap = n; else if (name == "TargetPortalID") op.ToPortal = n; else op.Number = n;
+                return;
+            }
+            if (name == ServerRow)
+            {
+                if (op.Kind != MapOpKind.Spawn) throw new ModKitException("only a spawn point has server rows");
+                int k;
+                if (index == null || !int.TryParse(index, NumberStyles.None, CultureInfo.InvariantCulture, out k) || k > op.Rows.Count)
+                    throw new ModKitException("a server row takes the index of a row (0 to " + op.Rows.Count + "; " + op.Rows.Count + " adds one)");
+                if (value == null) { if (k < op.Rows.Count) op.Rows.RemoveAt(k); return; }
+                List<KeyValuePair<string, string>> row = ParseRow(value);
+                if (k == op.Rows.Count) op.Rows.Add(row); else op.Rows[k] = row;
+                return;
+            }
+            XProp p = op.Props.Find(delegate (XProp x) { return x.Name == name; });
+            if (p != null && p.Items.Count > 0 && (index == null) != (p.Items[0].Index == null))
+                throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
+            if (value == null)
+            {
+                if (p == null) return;
+                p.Items.RemoveAll(delegate (XSet s) { return s.Index == index; });
+                if (p.Items.Count == 0) { op.Props.Remove(p); if (op.Order != null) op.Order.Remove(name); }
+                return;
+            }
+            if (p == null)
+            {
+                op.Props.Add(p = new XProp(name));
+                if (op.Order != null) op.Order.Add(name);
+            }
+            int at = p.Items.FindIndex(delegate (XSet s) { return s.Index == index; });
+            if (at >= 0) p.Items[at] = new XSet(index, value); else p.Items.Add(new XSet(index, value));
+        }
+
+        /// <summary>Drops a new entity the mod adds to the map file.</summary>
+        public static void RemoveNew(Mod mod, string xblock, MapEntityOp op)
+        {
+            MapOp m = MapOf(mod, xblock);
+            if (m == null || !m.Ops.Remove(op)) return;
             Tidy(mod, m, null);
         }
 
