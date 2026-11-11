@@ -412,7 +412,7 @@ namespace MS2.ModKit.Xml
     {
         sealed class Edit
         {
-            internal int Start, End, Seq;
+            internal int Start, End, Seq, Rank;
             internal string Text, What;
             internal bool Dropped;
         }
@@ -420,11 +420,17 @@ namespace MS2.ModKit.Xml
         public readonly XmlDoc Doc;
         readonly List<Edit> edits = new List<Edit>();
         readonly Dictionary<string, Edit> attrEdits = new Dictionary<string, Edit>();
-        sealed class Appended { internal string Text; }
+        sealed class Appended { internal string Text; internal int Rank; }
         readonly Dictionary<XmlElem, List<Appended>> appends = new Dictionary<XmlElem, List<Appended>>();
         readonly Dictionary<XmlElem, Edit> deletes = new Dictionary<XmlElem, Edit>();
         readonly List<XmlElem> appendOrder = new List<XmlElem>();
         int seq;
+
+        /// <summary>
+        /// The rank of the one who makes the next edits. Inserts at one place are written in the order of their
+        /// ranks, the lowest first, whatever the order of the calls; inserts of one rank keep the call order.
+        /// </summary>
+        public int Rank;
 
         public XmlEditor(XmlDoc doc) { Doc = doc; }
 
@@ -432,7 +438,7 @@ namespace MS2.ModKit.Xml
 
         Edit Add(int start, int end, string text, string what)
         {
-            var e = new Edit { Start = start, End = end, Text = text, What = what, Seq = seq++ };
+            var e = new Edit { Start = start, End = end, Text = text, What = what, Seq = seq++, Rank = Rank };
             edits.Add(e);
             return e;
         }
@@ -623,14 +629,18 @@ namespace MS2.ModKit.Xml
             string ind = Doc.IndentOf(parent.Start) + Doc.IndentUnit;
             List<Appended> list;
             if (!appends.TryGetValue(parent, out list)) { appends[parent] = list = new List<Appended>(); appendOrder.Add(parent); }
-            var a = new Appended { Text = Reindent(fragment, fromIndent, ind) };
-            list.Add(a);
+            var a = new Appended { Text = Reindent(fragment, fromIndent, ind), Rank = Rank };
+            int at = list.Count;
+            while (at > 0 && list[at - 1].Rank > a.Rank) at--;
+            list.Insert(at, a);
             return a;
         }
 
         void FlushAppends()
         {
             string t = Doc.Text;
+            int rank = Rank;
+            Rank = int.MaxValue;    // after every other insert at the same place
             foreach (XmlElem p in appendOrder)
             {
                 string pind = Doc.IndentOf(p.Start), ind = pind + Doc.IndentUnit;
@@ -660,6 +670,7 @@ namespace MS2.ModKit.Xml
                 }
             }
             appends.Clear(); appendOrder.Clear();
+            Rank = rank;
         }
 
         /// <summary>The edited text. Throws when two edits touch the same span.</summary>
@@ -673,6 +684,7 @@ namespace MS2.ModKit.Xml
                 if (a.Start != b.Start) return a.Start.CompareTo(b.Start);
                 bool ai = a.Start == a.End, bi = b.Start == b.End;
                 if (ai != bi) return ai ? -1 : 1;
+                if (ai && a.Rank != b.Rank) return a.Rank.CompareTo(b.Rank);
                 return a.Seq.CompareTo(b.Seq);
             });
             for (int i = 1; i < live.Count; i++)

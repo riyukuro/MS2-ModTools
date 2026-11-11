@@ -181,27 +181,23 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// What the priority costs each mod: one line per mod that has a part left out, the highest mod first,
-        /// with the number of parts and the mods they are left out for.
+        /// What the priority costs each mod: one line per pair of mods, "c wins 2 parts of b" (two things mod b asks
+        /// for are left out, mod c has them), the losing mods from the highest down. The winner's name comes first,
+        /// so a narrow box shows it.
         /// </summary>
         public List<string> LeftOut()
         {
             var lines = new List<string>();
             for (int i = Mods.Count - 1; i >= 0; i--)
             {
-                int total = 0;
                 var to = new List<string>(); var count = new List<int>();
                 foreach (PlanMessage m in Conflicts)
                 {
                     if (m.LoserId != Mods[i].Id || m.WinnerId == null) continue;
-                    total++;
                     int k = to.IndexOf(m.WinnerId);
                     if (k < 0) { to.Add(m.WinnerId); count.Add(1); } else count[k]++;
                 }
-                if (total == 0) continue;
-                var sb = new StringBuilder("left out of " + Mods[i].Id + ": " + total + (total == 1 ? " part, for " : " parts, for "));
-                for (int k = 0; k < to.Count; k++) sb.Append(k > 0 ? ", " : "").Append(to[k]).Append(to.Count > 1 ? " (" + count[k] + ")" : "");
-                lines.Add(sb.ToString());
+                for (int k = 0; k < to.Count; k++) lines.Add(to[k] + " wins " + count[k] + (count[k] == 1 ? " part of " : " parts of ") + Mods[i].Id);
             }
             return lines;
         }
@@ -340,12 +336,16 @@ namespace MS2.ModKit
                     DoGroup(run, m, g);
                 }
             }
-            foreach (Mod m in mods)
+            // and the skill lines, so that three mods on one skill follow the priority as the edit lines do
+            for (int i = mods.Count - 1; i >= 0; i--)
+            {
+                Mod m = mods[i];
                 if (m.Skills.Count + m.JobSkills.Count > 0)
                 {
                     ProgressUtil.Report(options.Progress, "plan", m.Id, done += m.Skills.Count + m.JobSkills.Count, total);
                     DoSkills(run, m);
                 }
+            }
             // the mirrored lines in the same order as the direct ones, so a conflict reads the same on both sides
             for (int i = mods.Count - 1; i >= 0; i--)
                 foreach (MirrorOp mo in mirrored)
@@ -592,6 +592,8 @@ namespace MS2.ModKit
                     plan.Msg(plan.Notes, mod, st.Archive, st.Name, "the text is not valid in its declared encoding; edited as " + st.Doc.EncodingName);
                 st.Ed = new XmlEditor(st.Doc);
             }
+            // new rows of a lower mod are written in front of those of a higher one, whatever the planning order
+            st.Ed.Rank = plan.Mods.IndexOf(mod);
             return true;
         }
 
@@ -621,6 +623,7 @@ namespace MS2.ModKit
         static void DoChange(Run run, Mod mod, EntryState st, RowOp r)
         {
             Plan plan = run.Plan;
+            st.Ed.Rank = plan.Mods.IndexOf(mod);
             XmlElem target = Sub(st.Doc.Root, r.At);
             foreach (AttrOp a in r.Attrs)
             {
@@ -741,6 +744,7 @@ namespace MS2.ModKit
         static void DoAdd(Run run, Mod mod, EntryState st, RowOp r)
         {
             Plan plan = run.Plan;
+            st.Ed.Rank = plan.Mods.IndexOf(mod);
             XmlDoc doc = st.Doc;
             string frag, fromIndent;
             XmlElem src = null;

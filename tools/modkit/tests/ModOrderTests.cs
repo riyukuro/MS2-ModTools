@@ -63,7 +63,7 @@ namespace MS2.ModKit.Tests
                     // the default: the later mod is the higher one; a conflict stops the apply
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", a, b), Is.EqualTo(1), text);
                     Assert.That(text, Does.Contain("conflict, b.two wins: [a.one] " + C + " " + Pet + ": pet[id=100] @hp: \"11\" here, \"22\" in mod b.two\n"));
-                    Assert.That(text, Does.Contain("priority, the highest first: b.two > a.one\nleft out of a.one: 1 part, for b.two\n"));
+                    Assert.That(text, Does.Contain("priority, the highest first: b.two > a.one\nb.two wins 1 part of a.one\n"));
                     Assert.That(Run(out text, "apply", "--client", f.ClientDir, "-q", "-w", ws, a, b), Is.EqualTo(1), text);
                     Assert.That(Directory.Exists(ws), Is.False, "nothing written");
 
@@ -108,7 +108,7 @@ namespace MS2.ModKit.Tests
                     Assert.That(r.Applied, EditorSession.Report(r));
                     Assert.That(Written(ws), Does.Contain("hp=\"11\""));
                     // a view shows the order and the conflicts first, each conflict with its winner in front
-                    Assert.That(s.Describe(r.Plan), Does.StartWith("priority, the highest first: a.one > b.two\r\nleft out of b.two: 1 part, for a.one\r\nconflict, a.one wins: [b.two] "));
+                    Assert.That(s.Describe(r.Plan), Does.StartWith("priority, the highest first: a.one > b.two\r\na.one wins 1 part of b.two\r\nconflict, a.one wins: [b.two] "));
                     Assert.That(s.Describe(r), Does.Contain("priority, the highest first: a.one > b.two"));
 
                     // b.two moved to the top

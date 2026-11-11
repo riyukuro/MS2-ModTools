@@ -42,7 +42,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Conflicts.All(x => x.WinnerId == "c"), dump);
                 Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind + " " + x.Name), Is.EquivalentTo(new[] { "a SetAttr hp", "c SetAttr speed" }), dump);
                 // b is the one mod that has a part left out
-                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "left out of b: 1 part, for c" }), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "c wins 1 part of b" }), dump);
                 Assert.That(p.Conflicts.All(x => x.LoserId == "b"), dump);
                 // the same result as without b
                 Assert.That(Fake.Text(p, C, Pet), Is.EqualTo(Fake.Text(f.Plan(a, c), C, Pet)));
@@ -60,6 +60,52 @@ namespace MS2.ModKit.Tests
                 Assert.That(Line(Fake.Text(p, C, Pet), "<pet id=\"101\""), Does.Contain("hp=\"5\""), dump);
                 Assert.That(p.Conflicts.All(x => x.WinnerId == "a"), dump);
                 Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind), Is.EqualTo(new[] { "a SetAttr" }), dump);
+            }
+        }
+
+        [Test]
+        public void ADeleteBetweenTwoSkillLines()
+        {
+            using (var f = new FakeSkills())
+            {
+                // a < b < c: a and c set different fields of level 1 of a skill, b deletes that level
+                const string K = "client:Xml.m2d", File = "skilldata/700.xml";
+                Mod a = FakeSkills.ModOf("<skill id=\"70000001\"><level value=\"1\" cooldown=\"3\"/></skill>", "a");
+                Mod b = FakeSkills.ModOf("<edit archive=\"" + K + "\" entry=\"" + File + "\" sync=\"false\"><delete at=\"skill[id=70000001]/level[value=1]\"/></edit>", "b");
+                Mod c = FakeSkills.ModOf("<skill id=\"70000001\"><attack level=\"1\" motion=\"1\" index=\"1\" distance=\"900\"/></skill>", "c");
+                Plan p = Planner.Build(f.Data, new[] { a, b, c }, null);
+                string dump = Fake.Dump(p), text = Fake.Text(p, K, File);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(text, Does.Contain("<level value=\"1\" cooldown=\"3000\""), dump);
+                Assert.That(text, Does.Contain("<range distance=\"900\""), dump);
+                var here = p.Conflicts.Where(x => x.Archive == K).ToList();
+                Assert.That(here, Is.Not.Empty, dump);
+                Assert.That(here.All(x => x.WinnerId == "c" && x.LoserId == "b"), dump);
+                Assert.That(p.Changes.Any(x => x.Archive == K && x.Kind == ChangeKind.DeleteRow), Is.False, dump);
+                // the same file as without b
+                Assert.That(text, Is.EqualTo(Fake.Text(Planner.Build(f.Data, new[] { a, c }, null), K, File)));
+            }
+        }
+
+        [Test]
+        public void NewRowsOfTwoModsAreWrittenLowestModFirst()
+        {
+            using (var f = new Fake())
+            {
+                Func<string, string, string> add = (arch, id) => "<edit archive=\"" + arch + "\" entry=\"" + Pet + "\"><add><xml><pet id=\"" + id + "\" name=\"N" + id + "\"/></xml></add></edit>";
+                string where = "<where archive=\"" + C + "\" entry=\"" + Pet + "\" rows=\"pet\"/></ids>";
+                Mod lo = f.Mod("lo", "<ids space=\"pet\" from=\"900\" to=\"909\">" + where + add(C, "901") + add(C, "902"));
+                Mod hi = f.Mod("hi", "<ids space=\"pet\" from=\"910\" to=\"919\">" + where + add(C, "911"));
+                Plan p = f.Plan(lo, hi);
+                string dump = Fake.Dump(p), text = Fake.Text(p, C, Pet);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Conflicts, Is.Empty, dump);
+                int a = text.IndexOf("id=\"901\""), b = text.IndexOf("id=\"902\""), c = text.IndexOf("id=\"911\"");
+                Assert.That(a > 0 && a < b && b < c, "the higher mod's row comes last\n" + text);
+                // and the other way round
+                text = Fake.Text(f.Plan(hi, lo), C, Pet);
+                a = text.IndexOf("id=\"901\""); b = text.IndexOf("id=\"902\""); c = text.IndexOf("id=\"911\"");
+                Assert.That(c > 0 && c < a && a < b, text);
             }
         }
 
@@ -85,7 +131,7 @@ namespace MS2.ModKit.Tests
                 dump = Fake.Dump(p);
                 Assert.That(p.Find(S).Delete, Is.EqualTo(new[] { "pet/100.xml" }), dump);
                 Assert.That(p.Conflicts.Count(x => x.WinnerId == "mid"), Is.EqualTo(2), dump);
-                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "left out of hi: 1 part, for mid", "left out of lo: 1 part, for mid" }), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "mid wins 1 part of hi", "mid wins 1 part of lo" }), dump);
                 Assert.That(p.Changes.Count(x => x.Archive == S), Is.EqualTo(1), dump);
             }
         }
@@ -124,7 +170,7 @@ namespace MS2.ModKit.Tests
                 c = p.Conflicts.First(x => x.Archive == S);
                 Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("edit edit"), dump);
                 // the line is the edit's, the part left out is the other mod's
-                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "left out of file: 1 part, for edit" }), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "edit wins 1 part of file" }), dump);
                 Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("name=\"Mossy\" kind=\"4\""), dump);
                 Assert.That(p.Changes.Any(x => x.ModId == "file" && x.Archive == S), Is.False, dump);
 
