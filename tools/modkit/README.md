@@ -891,10 +891,23 @@ with the texture files each model file names; `--no-asset-files` leaves them out
 found: project entries whose file does not exist, asset ids without a path, files that are in no archive. The folder holds
 copied game files: keep it local and out of any repository.
 
+With `--resource` the game's `asset-web-config` (a folder or an archive in the Resource folder: three small settings
+files) is copied beside the solution file as well. The map editor reports an error for a project that has none;
+`MISSING.txt` says so when the Resource folder does not hold it. The last line of the copy reads
+`copied N model files, N texture files and N other files`: other files are assets a map names that are not model
+files. Asset paths that differ only in letter case (`/Model/x` and `/model/y`) go into one folder, as they do on
+Windows; the letter case of a folder is that of the first path written there.
+
+The library and the settings folder are copied under another name (`Library.copying`) and get their name only when
+every file is there, so a copy that was stopped is not taken for a whole one: the next run starts it again. An
+archive entry with an unsafe name, or one that names a folder instead of a file, stops that copy with an error and
+nothing of it is kept.
+
 Every name that comes out of a game file (a path in a project file, a model, map or layer name, an archive entry,
 an asset path) is checked before anything is written under it. A name that is rooted, has a drive letter or a `:`,
 has a `..` part, or would end outside the project folder is refused: it is listed on the error output as
 `refused, not written: ...`, that one file is not written, the rest is, and the command ends with exit code 1.
+A refused asset path is not read either, and the textures of a refused model file are not copied.
 `map-models`, `map-solution` and `map-from-block` check the names they write the same way.
 
 The two steps also exist alone: `modkit map-models <project folder> --flats SRC [--known-ids FILE]` writes the

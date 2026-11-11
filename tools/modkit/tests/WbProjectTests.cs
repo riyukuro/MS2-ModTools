@@ -264,7 +264,7 @@ namespace MS2.ModKit.Tests
             StringAssert.Contains("texture gone.dds (named by /Model/Made/Up.nif): not in the asset list\n", missing);
             StringAssert.Contains("texture /Model/Made/Textures/lost.dds (named by /Model/Made/Up.nif): in no archive\n", missing);
             StringAssert.Contains("asset 0000bbbb-0000-0000-0000-000000000000: not in the asset list\n", missing);
-            StringAssert.Contains("copied 1 model files and 3 texture files (", string.Join("\n", log.ToArray()));
+            StringAssert.Contains("copied 1 model files, 3 texture files and 0 other files (", string.Join("\n", log.ToArray()));
 
             // the switch off: no ResourceDir, nothing is copied
             string root2 = Path.Combine(dir, "proj2");
@@ -438,13 +438,153 @@ namespace MS2.ModKit.Tests
             using (var src = new WbAssetSource(res))
             {
                 WbAssetCopy c = WbAssets.Copy(root, src, paths, new List<string>());
-                Assert.AreEqual(1, c.Refused.Count, string.Join("\n", c.Refused.ToArray()));
+                Assert.AreEqual(2, c.Refused.Count, string.Join("\n", c.Refused.ToArray()));
                 StringAssert.Contains("rooted name", c.Refused[0]);
+                StringAssert.Contains("'..' part", c.Refused[1]);
                 Assert.AreEqual(1, c.Models);
-                Assert.AreEqual(1, c.Missing.Count, "a path with '..' is not even read");
+                Assert.AreEqual(0, c.Missing.Count, "a refused path is not read");
             }
             Assert.IsTrue(File.Exists(Path.Combine(root, "Model/Made/b.nif")));
             Assert.IsFalse(File.Exists(Path.Combine(root, "Model/Made/a.nif")));
+        }
+
+        [Test]
+        public void AssetPathWithAColonIsNotRead()
+        {
+            string res = Path.Combine(dir, "Resource"), root = Path.Combine(dir, "proj");
+            Directory.CreateDirectory(Path.Combine(res, "Model"));
+            Directory.CreateDirectory(root);
+            using (var src = new WbAssetSource(res))
+            {
+                Assert.IsNull(src.Read("/Model/C:made.nif"));
+                Assert.IsNull(src.Read("/C:/made.nif"));
+                Assert.IsNull(src.Read("/Model/./made.nif"));
+                Assert.IsNull(src.Read("/Model/../made.nif"));
+                WbAssetCopy c = WbAssets.Copy(root, src, new List<KeyValuePair<string, string>> {
+                    new KeyValuePair<string, string>("0000aaaa-0000-0000-0000-000000000000", "/Model/C:made.nif") }, new List<string>());
+                Assert.AreEqual(1, c.Refused.Count);
+                Assert.AreEqual(0, c.Missing.Count);
+            }
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(root).Length);
+        }
+
+        [Test]
+        public void AssetFoldersThatDifferInLetterCaseBecomeOne()
+        {
+            string res = Path.Combine(dir, "Resource"), root = Path.Combine(dir, "proj");
+            Directory.CreateDirectory(Path.Combine(res, "Model/Made"));
+            byte[] model = FakeModelFile("Tex_A.dds");
+            File.WriteAllBytes(Path.Combine(res, "Model/Made/a.nif"), model);
+            File.WriteAllBytes(Path.Combine(res, "Model/Made/b.kfm"), new byte[] { 1 });
+            File.WriteAllBytes(Path.Combine(res, "Model/Made/tex_a.dds"), new byte[] { 2 });
+            Directory.CreateDirectory(Path.Combine(root, "model"));
+            var paths = new List<KeyValuePair<string, string>>
+            {
+                new KeyValuePair<string, string>("0000aaaa-0000-0000-0000-000000000000", "/Model/Made/a.nif"),
+                new KeyValuePair<string, string>("0000bbbb-0000-0000-0000-000000000000", "/model/made/b.kfm"),
+            };
+            using (var src = new WbAssetSource(res))
+            {
+                WbAssetCopy c = WbAssets.Copy(root, src, paths, new List<string> { "/MODEL/MADE/Tex_A.dds" });
+                Assert.AreEqual(0, c.Refused.Count + c.Missing.Count, string.Join("\n", c.Missing.ToArray()));
+                Assert.AreEqual(1, c.Models);
+                Assert.AreEqual(1, c.Others, "a file that is not a model file is counted too");
+                Assert.AreEqual(1, c.Textures);
+            }
+            var got = new List<string>();
+            Files(root, root, got);
+            got.Sort(StringComparer.Ordinal);
+            // the folder that was there gives its letter case; a new folder takes the first name written
+            Assert.AreEqual(new[] { "model/Made/Tex_A.dds", "model/Made/a.nif", "model/Made/b.kfm" }, got.ToArray());
+        }
+
+        [Test]
+        public void TextureNameThatGoesOnIsNotATextureName()
+        {
+            var b = new List<byte>(new byte[] { 0, 0, 0, 0 });
+            b.AddRange(Encoding.ASCII.GetBytes("plain_a.dds.bak"));
+            b.Add(0);
+            b.AddRange(Encoding.ASCII.GetBytes("plain_b.dds"));
+            b.Add(0);
+            Assert.AreEqual(new[] { "plain_b.dds" }, WbAssets.TextureNames(b.ToArray()).ToArray());
+        }
+
+        static void MakeArchive(string path, params string[] names)
+        {
+            var e = new List<KeyValuePair<string, byte[]>>();
+            foreach (string n in names) e.Add(new KeyValuePair<string, byte[]>(n, Encoding.ASCII.GetBytes("made up " + n)));
+            Directory.CreateDirectory(Path.GetDirectoryName(path));
+            M2dWriter.Create(path, PackVersion.NS2F, M2dFlag.AesZlib, e);
+        }
+
+        [Test]
+        public void LibraryArchiveWithAFolderEntryCopiesNothing()
+        {
+            string game = Path.Combine(dir, "game"), root = Path.Combine(dir, "proj");
+            WriteInput(game, game);
+            string arch = Path.Combine(dir, "Library.m2d");
+            MakeArchive(arch, "tool/a.model", "tool/", "Tool/b.model");
+            var e = new XEntity { Id = "000000000000000000000000000000a1", Model = "Extra", Name = "one" };
+            var o = new WbProjectOptions { Root = root, LibrarySource = arch };
+            o.Maps.Add(new KeyValuePair<string, byte[]>("90000001_made_up", XBlock.Bytes(new[] { e }, XDialect.Tab)));
+            var ex = Assert.Throws<ModKitException>(delegate { WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported"))); });
+            StringAssert.Contains("names a folder", ex.Message);
+            Assert.IsFalse(Directory.Exists(Path.Combine(root, "Library")), "no half copied library that a second run would take for a whole one");
+            Assert.AreEqual(0, Directory.GetFileSystemEntries(root).Length);
+
+            // a copy that stopped half way is thrown away, and folders that differ in letter case become one
+            Directory.CreateDirectory(Path.Combine(root, "Library.copying/old"));
+            MakeArchive(arch, "tool/a.model", "Tool/b.model");
+            WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+            var got = new List<string>();
+            Files(Path.Combine(root, "Library"), Path.Combine(root, "Library"), got);
+            got.Sort(StringComparer.Ordinal);
+            Assert.AreEqual(new[] { "tool/a.model", "tool/b.model" }, got.ToArray());
+            Assert.IsFalse(Directory.Exists(Path.Combine(root, "Library.copying")));
+        }
+
+        [Test]
+        public void FlatNameIsEscapedInTheProjectFile()
+        {
+            string root = Path.Combine(dir, "proj");
+            WriteInput(dir, root);
+            Put("Exported/flat/library/tool/odd.flat", "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<model name=\"Odd&amp;&lt;&quot;Name\" id=\"1\">\n\t<property type=\"Float32\" name=\"Weight\" id=\"452724692\" source=\"x\">\n\t\t<set value=\"4\"/>\n\t</property>\n</model>\n");
+            WbFlats flats = WbFlats.FromFiles(WbProject.ReadFlatFiles(Path.Combine(dir, "Exported")));
+            WbBuildResult r = WbProject.BuildModels(root, flats, null, null);
+            string proj = File.ReadAllText(Path.Combine(root, "Library/tool/tool.emtproj"));
+            Assert.AreEqual(0, r.Refused.Count);
+            StringAssert.Contains("Odd&amp;&lt;&quot;Name.model\"", proj);
+            // the file is found again under its unescaped name: only the made-up input's own missing file is listed
+            Assert.AreEqual("Library/tool/tool.emtproj: Gone.model", string.Join("|", WbProject.Missing(root, new List<string>()).ToArray()));
+            var x = new System.Xml.XmlDocument();
+            x.LoadXml(proj.TrimStart('\uFEFF'));
+        }
+
+        [Test]
+        public void AssetSettingsFolderIsCopied()
+        {
+            string game = Path.Combine(dir, "game"), res = Path.Combine(game, "Resource");
+            WriteInput(game, game);
+            var e = new XEntity { Id = "000000000000000000000000000000a1", Model = "Extra", Name = "one" };
+            var o = new WbProjectOptions { Root = Path.Combine(dir, "proj"), LibrarySource = Path.Combine(game, "Library"), ResourceDir = res };
+            o.Maps.Add(new KeyValuePair<string, byte[]>("90000001_made_up", XBlock.Bytes(new[] { e }, XDialect.Tab)));
+            Directory.CreateDirectory(res);
+            // not there: a line in MISSING.txt
+            WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+            StringAssert.Contains("asset-web-config: not in the Resource folder", File.ReadAllText(Path.Combine(o.Root, "MISSING.txt")));
+            // as an archive
+            MakeArchive(Path.Combine(res, "asset-web-config.m2d"), "made.ini", "other.ini");
+            o.Root = Path.Combine(dir, "proj2");
+            List<string> log = WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+            Assert.AreEqual("made up made.ini", File.ReadAllText(Path.Combine(o.Root, "asset-web-config/made.ini")));
+            Assert.IsTrue(File.Exists(Path.Combine(o.Root, "asset-web-config/other.ini")));
+            StringAssert.Contains("asset settings in asset-web-config", string.Join("\n", log.ToArray()));
+            // as a folder
+            Directory.CreateDirectory(Path.Combine(res, "Asset-Web-Config"));
+            File.WriteAllText(Path.Combine(res, "Asset-Web-Config/made.ini"), "from a folder");
+            o.Root = Path.Combine(dir, "proj3");
+            WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+            Assert.AreEqual("from a folder", File.ReadAllText(Path.Combine(o.Root, "asset-web-config/made.ini")));
         }
 
         [Test]

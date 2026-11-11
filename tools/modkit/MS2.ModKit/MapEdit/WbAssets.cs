@@ -35,7 +35,9 @@ namespace MS2.ModKit.MapEdit
         {
             string[] parts = assetPath.Replace('\\', '/').Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
             if (parts.Length == 0) return null;
-            foreach (string p in parts) if (p == "." || p == "..") return null;
+            // the same rule as for a name that is written: no ':' (a drive letter), no ".." part, no control character
+            if (OutPath.Why(string.Join("/", parts)) != null) return null;
+            foreach (string p in parts) if (p == ".") return null;
             string plain = cp.Resolve(dir, string.Join("/", parts), false);
             if (File.Exists(plain)) return File.ReadAllBytes(plain);
             for (int k = parts.Length - 1; k >= 1; k--)
@@ -58,7 +60,9 @@ namespace MS2.ModKit.MapEdit
 
     public sealed class WbAssetCopy
     {
-        public int Models, Textures;
+        /// <summary>Files written: model files (.nif), the texture files those name, and files of any other kind
+        /// that an asset id names.</summary>
+        public int Models, Textures, Others;
         public long Bytes;
         /// <summary>Lines for the list of missing things.</summary>
         public readonly List<string> Missing = new List<string>();
@@ -100,7 +104,12 @@ namespace MS2.ModKit.MapEdit
                 while (run > 0 && end - run < 260 && Printable(nif[run - 1])) run--;
                 for (int p = end - 5; p >= run && p >= 4; p--)
                     if (BitConverter.ToUInt32(nif, p - 4) == (uint)(end - p)) { start = p; break; }
-                if (start < 0) start = run;
+                if (start < 0)
+                {
+                    // no length in front: a name that goes on ("a.dds.bak") is not a texture name
+                    if (end < nif.Length && (nif[end] == '.' || nif[end] == '_' || char.IsLetterOrDigit((char)nif[end]))) continue;
+                    start = run;
+                }
                 if (end - start < 5) continue;
                 var sb = new System.Text.StringBuilder();
                 for (int i = start; i < end; i++) sb.Append((char)nif[i]);
@@ -113,11 +122,25 @@ namespace MS2.ModKit.MapEdit
             return res;
         }
 
-        static bool Write(string root, string assetPath, byte[] data, WbAssetCopy r)
+        /// <summary>The path an asset path is written at, with the letter case of the folders and files that are
+        /// already there (so /Model/a and /model/b go into one folder on a system that tells the two apart); null,
+        /// and a line in r.Refused, when the name could leave root.</summary>
+        static string Dest(CasePaths cp, string root, string assetPath, WbAssetCopy r)
         {
             // an asset path is written "/A/B/file": that one leading '/' is the list's form, anything more is refused
-            string p, why, rel = assetPath.StartsWith("/", StringComparison.Ordinal) ? assetPath.Substring(1) : assetPath;
-            if (!OutPath.TryUnder(root, root, rel, out p, out why)) { r.Refused.Add(OutPath.Line("asset path", assetPath, why)); return false; }
+            string rel = assetPath.StartsWith("/", StringComparison.Ordinal) ? assetPath.Substring(1) : assetPath;
+            string why = OutPath.Why(rel);
+            if (why == null)
+            {
+                why = OutPath.WhyNotUnder(root, cp.Resolve(root, rel, false));
+                if (why == null) return Path.GetFullPath(cp.Resolve(root, rel, true));
+            }
+            r.Refused.Add(OutPath.Line("asset path", assetPath, why));
+            return null;
+        }
+
+        static bool Write(string p, byte[] data, WbAssetCopy r)
+        {
             if (File.Exists(p)) return false;
             Directory.CreateDirectory(Path.GetDirectoryName(p));
             File.WriteAllBytes(p, data);
@@ -131,6 +154,8 @@ namespace MS2.ModKit.MapEdit
         public static WbAssetCopy Copy(string root, WbAssetSource src, IList<KeyValuePair<string, string>> paths, IEnumerable<string> allPaths)
         {
             var r = new WbAssetCopy();
+            var cp = new CasePaths();
+            root = Path.GetFullPath(root);
             var byName = new Dictionary<string, List<string>>(StringComparer.Ordinal);
             foreach (string p in allPaths)
             {
@@ -146,10 +171,13 @@ namespace MS2.ModKit.MapEdit
                 if (a.Value == null) { r.Missing.Add("asset " + a.Key + ": not in the asset list"); continue; }
                 if (done.ContainsKey(a.Value)) continue;
                 done[a.Value] = true;
+                // a refused name is not read, and the textures of a refused model file are not copied
+                string dest = Dest(cp, root, a.Value, r);
+                if (dest == null) continue;
                 byte[] data = src.Read(a.Value);
                 if (data == null) { r.Missing.Add("asset " + a.Key + ": " + a.Value + " is in no archive"); continue; }
                 bool nif = a.Value.EndsWith(".nif", StringComparison.OrdinalIgnoreCase);
-                if (Write(root, a.Value, data, r) && nif) r.Models++;
+                if (Write(dest, data, r)) { if (nif) r.Models++; else r.Others++; }
                 if (!nif) continue;
                 foreach (string t in TextureNames(data))
                 {
@@ -163,9 +191,11 @@ namespace MS2.ModKit.MapEdit
                     {
                         if (done.ContainsKey(c)) continue;
                         done[c] = true;
+                        string tdest = Dest(cp, root, c, r);
+                        if (tdest == null) continue;
                         byte[] td = src.Read(c);
                         if (td == null) { r.Missing.Add("texture " + c + " (named by " + a.Value + "): in no archive"); continue; }
-                        if (Write(root, c, td, r)) r.Textures++;
+                        if (Write(tdest, td, r)) r.Textures++;
                     }
                 }
             }

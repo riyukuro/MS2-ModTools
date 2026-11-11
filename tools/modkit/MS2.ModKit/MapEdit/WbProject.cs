@@ -152,6 +152,7 @@ namespace MS2.ModKit.MapEdit
             Match m = Regex.Match(text, "^([ \\t]*)</Files>", RegexOptions.Multiline);
             if (!m.Success) throw new ModKitException("the project file has no closing Files tag");
             string ind = m.Groups[1].Value, entry;
+            rel = NetXmlWriter.EscapeAttr(rel);
             if (text.IndexOf("<File path=\"", StringComparison.Ordinal) >= 0)
             {
                 Match mi = Regex.Match(text, "^([ \\t]*)<File path=\"", RegexOptions.Multiline);
@@ -270,7 +271,7 @@ namespace MS2.ModKit.MapEdit
                     string relF = l.Value[1];
                     if (relF.ToLowerInvariant().EndsWith(".preset", StringComparison.Ordinal))
                     {
-                        if (cp.Exists(epDir, relF)) { res.Count("library-preset-kept(shipped)"); continue; }
+                        if (OutPath.Why(relF) == null && cp.Exists(epDir, relF)) { res.Count("library-preset-kept(shipped)"); continue; }
                         string path = SafePath(cp, root, epDir, relF, rel + " lists", res.Refused);
                         if (path == null) continue;
                         WriteModel(path, rec.BuildPreset(fname));
@@ -420,6 +421,11 @@ namespace MS2.ModKit.MapEdit
             return OutPath.Under(root, name);
         }
 
+        static string Unescape(string s)
+        {
+            return s.IndexOf('&') < 0 ? s : s.Replace("&lt;", "<").Replace("&gt;", ">").Replace("&quot;", "\"").Replace("&amp;", "&");
+        }
+
         static void ProjectFiles(string dir, List<string> res)
         {
             foreach (string f in Directory.GetFiles(dir, "*.emtproj")) res.Add(f);
@@ -451,8 +457,11 @@ namespace MS2.ModKit.MapEdit
             {
                 string txt = ReadText(e.Value);
                 foreach (Match m in Regex.Matches(txt, "<File\\s+path=\"([^\"]+)\""))
-                    if (!cp.Exists(Path.GetDirectoryName(e.Value), m.Groups[1].Value))
-                        missing.Add(e.Key + ": " + m.Groups[1].Value);
+                {
+                    string f = Unescape(m.Groups[1].Value);
+                    // a name that could leave the folder is not looked for on disk
+                    if (OutPath.Why(f) != null || !cp.Exists(Path.GetDirectoryName(e.Value), f)) missing.Add(e.Key + ": " + f);
+                }
             }
             return missing;
         }
@@ -485,18 +494,65 @@ namespace MS2.ModKit.MapEdit
             foreach (string d in Directory.GetDirectories(src)) CopyTree(d, Path.Combine(dst, Path.GetFileName(d)));
         }
 
-        static void CopyLibrary(string source, string lib, List<string> refused)
+        /// <summary>Copies a folder, or the entries of an archive, into dst (a folder inside root that is not there
+        /// yet). The copy is made beside dst under another name and gets its name only when every file is there, so
+        /// a copy that stopped half way is never taken for a whole one. An archive entry whose name is unsafe or
+        /// names a folder stops the copy: nothing is left at dst. Entries whose folders differ only in letter case
+        /// go into one folder.</summary>
+        static void CopyWhole(string root, string source, string dst, string what)
         {
-            if (Directory.Exists(source)) { CopyTree(source, lib); return; }
-            if (!File.Exists(source)) throw new ModKitException("no model library at " + source + " (a folder, or the Library archive)");
-            using (M2dArchive a = M2dArchive.Open(source))
-                foreach (M2dEntry e in a.Entries)
+            string tmp = dst + ".copying";
+            if (OutPath.WhyNotUnder(root, dst) != null) throw new ModKitException("refused to write " + dst + ": outside the output folder");
+            // what a run that stopped left behind
+            if (Directory.Exists(tmp)) Directory.Delete(tmp, true);
+            if (Directory.Exists(source)) CopyTree(source, tmp);
+            else
+            {
+                var bad = new List<string>();
+                var cp = new CasePaths();
+                using (M2dArchive a = M2dArchive.Open(source))
                 {
-                    string p, why;
-                    if (!OutPath.TryUnder(lib, lib, e.Name, out p, out why)) { refused.Add(OutPath.Line("library archive entry", e.Name, why)); continue; }
-                    Directory.CreateDirectory(Path.GetDirectoryName(p));
-                    File.WriteAllBytes(p, a.Read(e));
+                    Directory.CreateDirectory(tmp);
+                    foreach (M2dEntry e in a.Entries)
+                    {
+                        string why = e.Name.EndsWith("/", StringComparison.Ordinal) || e.Name.EndsWith("\\", StringComparison.Ordinal) ? "names a folder, not a file" : OutPath.Why(e.Name);
+                        if (why == null) why = OutPath.WhyNotUnder(tmp, cp.Resolve(tmp, e.Name, false));
+                        if (why != null) { bad.Add(OutPath.Line(what + " entry", e.Name, why)); continue; }
+                        if (bad.Count > 0) continue;
+                        string p = cp.Resolve(tmp, e.Name, true);
+                        Directory.CreateDirectory(Path.GetDirectoryName(p));
+                        File.WriteAllBytes(p, a.Read(e));
+                    }
                 }
+                if (bad.Count > 0)
+                {
+                    Directory.Delete(tmp, true);
+                    throw new ModKitException("refused, nothing copied from " + source + ":\n  " + string.Join("\n  ", bad.ToArray()));
+                }
+            }
+            Directory.Move(tmp, dst);
+        }
+
+        static void CopyLibrary(string root, string source, string lib)
+        {
+            if (!Directory.Exists(source) && !File.Exists(source)) throw new ModKitException("no model library at " + source + " (a folder, or the Library archive)");
+            CopyWhole(root, source, lib, "library archive");
+        }
+
+        /// <summary>The folder of the game's asset settings (three small text files), which the map editor needs
+        /// beside the solution file before it opens the project: Resource/asset-web-config as a folder or as an
+        /// archive. False when the Resource folder has neither.</summary>
+        static bool CopyAssetConfig(string root, string resourceDir)
+        {
+            const string name = "asset-web-config";
+            string dst = Path.Combine(root, name);
+            if (Directory.Exists(dst)) return true;
+            var cp = new CasePaths();
+            string dir = cp.Resolve(resourceDir, name, false), arch = cp.Resolve(resourceDir, name + ".m2d", false);
+            if (Directory.Exists(dir)) CopyWhole(root, dir, dst, name);
+            else if (File.Exists(arch) && File.Exists(M2dArchive.HeaderPathOf(arch))) CopyWhole(root, arch, dst, name + " archive");
+            else return false;
+            return true;
         }
 
         /// <summary>The asset ids ("urn:llid:" + id) in the values of the maps' entities and of the models they use,
@@ -601,7 +657,7 @@ namespace MS2.ModKit.MapEdit
             if (!Directory.Exists(lib))
             {
                 if (o.LibrarySource == null) throw new ModKitException(root + " has no Library folder and no model library was given");
-                CopyLibrary(o.LibrarySource, lib, o.Refused);
+                CopyLibrary(root, o.LibrarySource, lib);
                 log.Add("copied the model library into " + lib);
             }
             WbFlats flats = WbFlats.FromFiles(flatFiles);
@@ -657,13 +713,18 @@ namespace MS2.ModKit.MapEdit
                 resolved.Add(new KeyValuePair<string, string>(a, p));
                 sb.Append(a).Append('\t').Append(p ?? "").Append('\n');
             }
+            if (o.ResourceDir != null)
+            {
+                if (CopyAssetConfig(root, o.ResourceDir)) log.Add("asset settings in asset-web-config");
+                else missing.Add("asset-web-config: not in the Resource folder (the map editor reports an error for a project without it)");
+            }
             if (o.ResourceDir != null && o.AssetPaths != null)
                 using (var src = new WbAssetSource(o.ResourceDir))
                 {
                     WbAssetCopy c = WbAssets.Copy(root, src, resolved, o.AssetFiles ?? new List<string>(o.AssetPaths.Values));
                     missing.AddRange(c.Missing);
                     o.Refused.AddRange(c.Refused);
-                    log.Add("copied " + c.Models + " model files and " + c.Textures + " texture files (" + c.Bytes + " bytes), " + c.Missing.Count + " not found, listed in MISSING.txt");
+                    log.Add("copied " + c.Models + " model files, " + c.Textures + " texture files and " + c.Others + " other files (" + c.Bytes + " bytes), " + c.Missing.Count + " not found, listed in MISSING.txt");
                 }
             File.WriteAllBytes(OutPath.Under(root, "MISSING.txt"), Utf8.GetBytes(string.Join("\n", missing.ToArray()) + "\n"));
             File.WriteAllBytes(OutPath.Under(root, "ASSETS.txt"), Utf8.GetBytes(sb.ToString()));
