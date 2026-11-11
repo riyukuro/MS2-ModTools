@@ -225,17 +225,24 @@ namespace MS2.ModKit
             EntryState st = run.State(arch, ar, entry);
             if (st.DeletedBy != null && DeletedEntryStays(run, mod, st, "changes a map that " + Who(st.DeletedBy, mod) + " deletes")) return null;
             if (st.Base == null) { plan.Msg(plan.Warnings, mod, ar, entry, target.Name + " has no such map; its map lines are skipped there (mod.xml line " + mop.Line + ")"); return null; }
+            Mod instead;
+            if (st.BaseMod != mod && st.FileLeftOut.TryGetValue(mod, out instead))
+            {
+                plan.Conflict(mod, ar, st.Name, "changes its own map file, which is left out", instead);
+                return null;
+            }
             if (st.BaseMod != null && st.BaseMod != mod)
             {
                 // the whole file of the higher mod stays as it is. The map lines of the higher mod are made in the
                 // shipped file where it can come back, and else (a map the other mod adds) in the other mod's file
                 bool wins = run.Outranks(mod, st.BaseMod), back = st.Original != null && st.Doc == null;
                 string text = "changes a map that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds") + " as a whole file";
-                plan.Conflict(mod, ar, st.Name, wins && !back ? text + ": the change is made in that file" : text, wins ? mod : st.BaseMod, st.BaseMod);
+                plan.Conflict(mod, ar, st.Name, wins && !back ? text + ": the change is made in that file" : text, wins ? mod : st.BaseMod, wins && !back ? null : st.BaseMod);
                 if (!wins) return null;
                 if (back)
                 {
                     DropEntryChange(plan, st);
+                    st.FileLeftOut[st.BaseMod] = mod;
                     st.Base = st.Original; st.BaseMod = null;
                 }
             }

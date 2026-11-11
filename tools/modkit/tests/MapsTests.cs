@@ -746,6 +746,9 @@ namespace MS2.ModKit.Tests
                 Assert.That(c.Count, Is.EqualTo(1), Fake.Dump(p));
                 Assert.That(c[0].ModId + " " + c[0].WinnerId, Is.EqualTo("on on"), Fake.Dump(p));
                 Assert.That(c[0].Text, Does.Contain("changes a map that mod added adds as a whole file: the change is made in that file; mod on wins"));
+                // the added file is written with the change in it: nothing of either mod is left out
+                Assert.That(c[0].LoserId, Is.Null, Fake.Dump(p));
+                Assert.That(p.LeftOut(), Is.Empty, Fake.Dump(p));
                 text = Encoding.UTF8.GetString(Bytes(p, K, NewEntry));
                 Assert.That(text, Does.Contain(MapValues.NewEntityId("on", NewMap, "crate-1")).And.Contain("0, 0, 45"));
                 // the other way round the added file is written as it is

@@ -170,10 +170,11 @@ namespace MS2.ModKit
 
         /// <summary>A conflict between two mods; the text says which one is in the plan (the one with the higher priority).</summary>
         /// <param name="other">the other mod of the pair; needed where <paramref name="mod"/> may be the winner</param>
-        internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other = null)
+        /// <param name="why">the reason where it is not the priority: " wins (...)"</param>
+        internal void Conflict(Mod mod, string archive, string entry, string text, Mod winner, Mod other = null, string why = null)
         {
             int n = Conflicts.Count;
-            Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + PlanMessage.WinsTail);
+            Msg(Conflicts, mod, archive, entry, text + "; mod " + winner.Id + (why ?? PlanMessage.WinsTail));
             if (Conflicts.Count == n) return;
             Conflicts[n].WinnerId = winner.Id;
             Mod loser = winner != mod ? mod : other;
@@ -222,7 +223,7 @@ namespace MS2.ModKit
     {
         sealed class Claim { internal Mod Mod; internal XmlElem Elem; internal string What, Value; internal bool Synced, Mirrored; }
 
-        sealed class AddClaim { internal Mod Mod; internal object Edit; internal PlanChange Change; internal NewId NewId; }
+        sealed class AddClaim { internal Mod Mod; internal object Edit; internal PlanChange Change; internal NewId NewId; internal XmlElem Parent; internal string Key; }
 
         sealed class EntryState
         {
@@ -238,6 +239,10 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, Claim> Claims = new Dictionary<string, Claim>();
             internal readonly List<KeyValuePair<XmlElem, Mod>> Deleted = new List<KeyValuePair<XmlElem, Mod>>();
             internal readonly Dictionary<string, AddClaim> AddKeys = new Dictionary<string, AddClaim>();
+            /// <summary>Every row a mod adds, for a delete of the row it is added in.</summary>
+            internal readonly List<AddClaim> Adds = new List<AddClaim>();
+            /// <summary>Mods whose whole file for this entry is left out, with the mod that has the entry instead.</summary>
+            internal readonly Dictionary<Mod, Mod> FileLeftOut = new Dictionary<Mod, Mod>();
         }
 
         sealed class Run
@@ -488,6 +493,13 @@ namespace MS2.ModKit
                 plan.Msg(plan.Errors, mod, op.Archive, op.Entry, "the archive has no such entry (mod.xml line " + op.Line + ")" + Suggest(arch, op.Entry));
                 return;
             }
+            Mod instead;
+            if (st.BaseMod != mod && st.FileLeftOut.TryGetValue(mod, out instead))
+            {
+                // the mod's own file is left out, and so are its edits of that file
+                plan.Conflict(mod, op.Archive, st.Name, "edits its own entry, which is left out", instead);
+                return;
+            }
             if (st.BaseMod != null && st.BaseMod != mod)
             {
                 string text = "edits an entry that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds");
@@ -498,9 +510,11 @@ namespace MS2.ModKit
                     // the edit is of the higher mod: it is made in the shipped entry, the other mod's file is left out
                     plan.Conflict(mod, op.Archive, st.Name, text, mod, st.BaseMod);
                     DropEntryChange(plan, st);
+                    st.FileLeftOut[st.BaseMod] = mod;
                     st.Base = st.Original; st.BaseMod = null;
                 }
-                else plan.Conflict(mod, op.Archive, st.Name, text + ": the edit is made in that entry", mod, st.BaseMod);
+                // nothing of the other mod is left out here: its entry is written, with this edit in it
+                else plan.Conflict(mod, op.Archive, st.Name, text + ": the edit is made in that entry", mod);
             }
             if (!EnsureDoc(plan, mod, st)) return;
             foreach (RowOp r in op.Rows)
@@ -541,9 +555,15 @@ namespace MS2.ModKit
             Plan plan = run.Plan;
             Mod del = st.DeletedBy;
             if (del == mod) { plan.Msg(plan.Errors, mod, st.Archive, st.Name, text); return true; }
-            if (!run.Outranks(mod, del) || st.Original == null)
+            if (!run.Outranks(mod, del))
             {
                 plan.Conflict(mod, st.Archive, st.Name, text, del);
+                return true;
+            }
+            if (st.Original == null)
+            {
+                // the entry was another mod's; the data ships none that could come back for this mod
+                plan.Conflict(mod, st.Archive, st.Name, text, del, null, " wins (the data ships no such entry)");
                 return true;
             }
             plan.Conflict(mod, st.Archive, st.Name, text, mod, del);
@@ -566,6 +586,8 @@ namespace MS2.ModKit
                 if (!inside) continue;
                 XmlElem row = st.Deleted[i].Key;
                 Mod del = st.Deleted[i].Value;
+                // a mod that contradicts itself: no priority decides that
+                if (del == mod) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); return true; }
                 if (!run.Outranks(mod, del)) { plan.Conflict(mod, st.Archive, st.Name, text, del); return true; }
                 plan.Conflict(mod, st.Archive, st.Name, text, mod, del);
                 st.Ed.Undelete(row);
@@ -644,7 +666,9 @@ namespace MS2.ModKit
                 {
                     if (prev.Value == value) { plan.Msg(plan.Notes, mod, st.Archive, st.Name, row + " " + what + ": same value as " + Who(prev.Mod, mod)); continue; }
                     bool loses = run.Outranks(prev.Mod, mod);
-                    plan.Conflict(mod, st.Archive, st.Name, row + " " + what + ": " + Show(value) + " here, " + Show(prev.Value) + " in " + Who(prev.Mod, mod), loses ? prev.Mod : mod, prev.Mod);
+                    string two = row + " " + what + ": " + Show(value) + " here, " + Show(prev.Value) + " in " + Who(prev.Mod, mod);
+                    if (prev.Mod == mod) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, two); continue; }
+                    plan.Conflict(mod, st.Archive, st.Name, two, loses ? prev.Mod : mod, prev.Mod);
                     if (loses) continue;
                     RemoveChange(plan, st, row, a, prev);
                 }
@@ -698,19 +722,40 @@ namespace MS2.ModKit
                 drop.Add(c.Key);
                 if (c.Value.Mod != mod && run.Outranks(c.Value.Mod, mod)) kept = true;
             }
-            // a mod of higher priority changes the row: it stays, and only that mod is named (the row is not
-            // deleted, so the delete wins against no one)
+            var inside2 = new List<AddClaim>();
+            foreach (AddClaim a in st.Adds)
+                for (XmlElem e = a.Parent; e != null; e = e.Parent)
+                    if (e == target) { inside2.Add(a); if (a.Mod != mod && run.Outranks(a.Mod, mod)) kept = true; break; }
+            // a mod of higher priority changes the row or adds a row in it: it stays, and only that mod is named
+            // (the row is not deleted, so the delete wins against no one)
             var said = new Dictionary<Mod, bool>();
             foreach (string k in drop)
             {
                 Mod other = st.Claims[k].Mod;
                 string text = "deletes the row " + row + " that " + Who(other, mod) + " changes";
-                if (other == mod) { if (!kept && !said.ContainsKey(other)) plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); }
+                if (other == mod) { if (!said.ContainsKey(other)) plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); }
                 else if (kept ? run.Outranks(other, mod) && !said.ContainsKey(other) : !said.ContainsKey(other))
                     plan.Conflict(mod, st.Archive, st.Name, text, kept ? other : mod, other);
                 said[other] = true;
             }
+            said.Clear();
+            foreach (AddClaim a in inside2)
+            {
+                string text = "deletes the row " + row + " that " + Who(a.Mod, mod) + " adds a row in";
+                if (a.Mod == mod) { if (!said.ContainsKey(mod)) plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); }
+                else if (kept ? run.Outranks(a.Mod, mod) && !said.ContainsKey(a.Mod) : !said.ContainsKey(a.Mod))
+                    plan.Conflict(mod, st.Archive, st.Name, text, kept ? a.Mod : mod, a.Mod);
+                said[a.Mod] = true;
+            }
             if (kept) return;
+            foreach (AddClaim a in inside2)
+            {
+                st.Ed.Remove(a.Edit);
+                plan.Changes.Remove(a.Change);
+                if (a.NewId != null) plan.NewIds.Remove(a.NewId);
+                if (a.Key != null) st.AddKeys.Remove(a.Key);
+                st.Adds.Remove(a);
+            }
             // the delete wins: the changes inside the row are in no part of the plan
             foreach (string k in drop) st.Claims.Remove(k);
             for (int i = plan.Changes.Count - 1; i >= 0; i--)
@@ -810,6 +855,7 @@ namespace MS2.ModKit
                 if (other.Mod != mod)
                 {
                     st.Ed.Remove(other.Edit);
+                    st.Adds.Remove(other);
                     plan.Changes.Remove(other.Change);
                     if (other.NewId != null) plan.NewIds.Remove(other.NewId);
                 }
@@ -839,7 +885,8 @@ namespace MS2.ModKit
             else if (before) edit = st.Ed.InsertBefore(anchor, frag, fromIndent);
             else edit = st.Ed.InsertAfter(anchor, frag, fromIndent);
 
-            var claim = new AddClaim { Mod = mod, Edit = edit };
+            var claim = new AddClaim { Mod = mod, Edit = edit, Parent = parent, Key = r.Grouped ? null : key };
+            st.Adds.Add(claim);
             if (!r.Grouped) st.AddKeys[key] = claim;
             plan.Changes.Add(claim.Change = Mark(run, new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = st.Archive, Entry = st.Name, Row = row, NewValue = frag, Elem = made, Source = src, State = st, Op = r, Mod = mod }));
             var attrs = new Dictionary<string, string>();

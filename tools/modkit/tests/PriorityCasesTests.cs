@@ -136,6 +136,120 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        static string Edit(string archive, string entry, string rows)
+        {
+            return "<edit archive=\"" + archive + "\" entry=\"" + entry + "\">" + rows + "</edit>";
+        }
+
+        [Test]
+        public void ADeleteOfARowThatAHigherModAddsARowIn()
+        {
+            using (var f = new Fake())
+            {
+                Mod del = f.Mod("del", Edit(S, "pet/100.xml", "<delete at=\"environment\"/>"));
+                Mod add = f.Mod("add", Edit(S, "pet/100.xml", "<add in=\"environment\"><xml><extra id=\"1\"/></xml></add>"));
+
+                // the add is the higher one: the row stays and has the new row
+                Plan p = f.Plan(del, add);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("<basic ").And.Contain("<extra id=\"1\"/>"), dump);
+                Assert.That(p.Conflicts.Select(x => x.ModId + " " + x.WinnerId + " " + x.LoserId), Is.EqualTo(new[] { "del add del" }), dump);
+                Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind), Is.EqualTo(new[] { "add AddRow" }), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "add wins 1 part of del" }), dump);
+
+                // the delete is the higher one: the row goes, the new row is in no line of the diff
+                p = f.Plan(add, del);
+                dump = Fake.Dump(p);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Not.Contain("<basic ").And.Not.Contain("<extra"), dump);
+                Assert.That(p.Conflicts.Select(x => x.ModId + " " + x.WinnerId + " " + x.LoserId), Is.EqualTo(new[] { "add del add" }), dump);
+                Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind), Is.EqualTo(new[] { "del DeleteRow" }), dump);
+            }
+        }
+
+        [Test]
+        public void AModThatContradictsItselfInOneRow()
+        {
+            using (var f = new Fake())
+            {
+                string hp5 = "<change at=\"pet[id=101]\"><set name=\"hp\" value=\"5\"/></change>", hp6 = hp5.Replace("\"5\"", "\"6\"");
+                string del = "<delete at=\"pet[id=101]\"/>", row = "<add in=\"pet[id=101]\"><xml><extra id=\"1\"/></xml></add>";
+                foreach (string rows in new[] { hp5 + hp6, del + hp5, del + row, row + del, hp5 + del })
+                {
+                    Mod m = f.Mod("m", Edit(C, Pet, rows));
+                    Plan p = f.Plan(m);
+                    string dump = rows + "\n" + Fake.Dump(p);
+                    Assert.That(p.Errors, Is.Empty, dump);
+                    Assert.That(p.Conflicts.Count, Is.EqualTo(1), dump);
+                    Assert.That(p.Conflicts[0].WinnerId, Is.Null, dump);
+                    Assert.That(p.Conflicts[0].ConflictLine(), Does.StartWith("conflict, no winner: "), dump);
+                    Assert.That(p.Undecided, Is.EqualTo(1), dump);
+
+                    // and nothing is written, allowed or not
+                    var ws = new Workspace(Path.Combine(f.Dir, "ws"));
+                    ApplyResult r = ws.Apply(f.Data, new[] { m }, new ApplyOptions { AllowConflicts = true });
+                    Assert.That(r.Applied, Is.False, dump);
+                    Assert.That(r.Reason, Is.EqualTo("1" + Plan.UndecidedReason), dump);
+                }
+
+                // a higher mod that keeps the row does not hide what the mod does to itself
+                Mod b = f.Mod("b", Edit(C, Pet, hp5 + del));
+                Mod c = f.Mod("c", Set(C, Pet, "pet[id=101]", "speed", "9"));
+                Plan q = f.Plan(b, c);
+                string d2 = Fake.Dump(q);
+                Assert.That(q.Conflicts.Count(x => x.WinnerId == null && x.ModId == "b"), Is.EqualTo(1), d2);
+                Assert.That(q.Conflicts.Count(x => x.WinnerId == "c"), Is.EqualTo(1), d2);
+                Assert.That(q.Undecided, Is.EqualTo(1), d2);
+            }
+        }
+
+        [Test]
+        public void AnEditOfAModsOwnFileThatIsLeftOut()
+        {
+            using (var f = new Fake())
+            {
+                // lo puts its own file in place of an entry and edits a row that only its file has; hi edits the entry
+                string filed = Fake.PetFile(100, "Filed").Replace("<basic ", "<own id=\"1\" v=\"1\"/><basic ");
+                string d = Path.Combine(f.ModDir("lo", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" file=\"data/p.xml\"/>" + Set(S, "pet/100.xml", "environment/own[id=1]", "v", "2")), "data");
+                Directory.CreateDirectory(d);
+                File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(filed));
+                Mod lo = Mod.Load(Path.GetDirectoryName(d));
+                Mod hi = f.Mod("hi", Set(S, "pet/100.xml", "environment/basic", "kind", "4"));
+
+                Plan p = f.Plan(lo, hi);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("name=\"Mossy\" kind=\"4\"").And.Not.Contain("<own"), dump);
+                Assert.That(p.Conflicts.All(x => x.WinnerId == "hi"), dump);
+                Assert.That(p.LeftOut(), Is.EqualTo(new[] { "hi wins 2 parts of lo" }), dump);
+                Assert.That(p.Changes.Any(x => x.ModId == "lo"), Is.False, dump);
+
+                // the other way round lo's file is written, with lo's edit
+                p = f.Plan(hi, lo);
+                dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("<own id=\"1\" v=\"2\"/>").And.Contain("name=\"Filed\""), dump);
+            }
+        }
+
+        [Test]
+        public void AnEditOfAnAddedEntryThatAThirdModDeletes()
+        {
+            using (var f = new Fake())
+            {
+                Mod lo = FileMod(f, "lo", "pet/777.xml", Fake.PetFile(777, "New"));
+                Mod mid = f.Mod("mid", "<entry archive=\"" + S + "\" name=\"pet/777.xml\" delete=\"true\"/>");
+                Mod hi = f.Mod("hi", Set(S, "pet/777.xml", "environment/basic", "kind", "4"));
+                Plan p = f.Plan(lo, mid, hi);
+                string dump = Fake.Dump(p);
+                PlanMessage c = p.Conflicts.Single(x => x.ModId == "hi");
+                // mid has the entry gone, and the line does not say that mid is the higher one
+                Assert.That(c.WinnerId, Is.EqualTo("mid"), dump);
+                Assert.That(c.Text, Does.EndWith("; mod mid wins (the data ships no such entry)").And.Not.Contain("higher priority"), dump);
+                Assert.That(c.ConflictLine(), Does.StartWith("conflict, mid wins: "), dump);
+            }
+        }
+
         static Mod FileMod(Fake f, string id, string entry, string content)
         {
             string d = Path.Combine(f.ModDir(id, "<entry archive=\"" + S + "\" name=\"" + entry + "\" file=\"data/p.xml\"/>"), "data");
@@ -183,6 +297,9 @@ namespace MS2.ModKit.Tests
                 c = p.Conflicts.First(x => x.Entry == "pet/777.xml");
                 Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("on on"), dump);
                 Assert.That(Fake.Text(p, S, "pet/777.xml"), Does.Contain("name=\"New\" kind=\"4\""), dump);
+                // both mods have all they ask for: no part of either is left out
+                Assert.That(c.LoserId, Is.Null, dump);
+                Assert.That(p.LeftOut(), Is.Empty, dump);
                 // the other way round the added entry stays as it is
                 p = f.Plan(on, add);
                 dump = Fake.Dump(p);
