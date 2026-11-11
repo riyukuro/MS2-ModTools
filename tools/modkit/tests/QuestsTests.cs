@@ -697,6 +697,53 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // The planner keeps the text ids each shipped talk text file has with the data set. What it keeps is the
+        // shipped data only: the rows a mod adds are read from that plan, and a new data set starts with nothing.
+        [Test]
+        public void Plan_TheKeptTalkTextIds_FollowTheMod_AndAreNotKeptForChangedData()
+        {
+            string dir = Path.Combine(Path.GetTempPath(), "modkit-quests-kept-" + Guid.NewGuid().ToString("N"));
+            try
+            {
+                Mod byHand;
+                using (var f = new FakeQuests(true, true, true, dir))
+                {
+                    QuestEditor ed = f.Editor();
+                    ed.Clone(701, 705);
+                    ed.OwnTalkTexts(705);
+                    f.Plan();       // the quest's own text rows are in the mod: no warning
+                    // the same mod without its text rows, on the same data set: the names have no row now
+                    Mod bare = Mod.Parse(f.Mod.ToXml(), "round trip");
+                    Assert.That(bare.Ops.RemoveAll(op => op is EditOp && ((EditOp)op).Entry.StartsWith("string/", StringComparison.Ordinal) && ((EditOp)op).Entry.Contains("/scriptquest")), Is.GreaterThan(0));
+                    Plan p = Planner.Build(f.Data, new[] { bare }, new PlanOptions());
+                    Assert.That(p.Warnings, Is.Not.Empty);
+                    Assert.That(p.Warnings.ConvertAll(m => m.Text), Has.All.Contain(" has no row for it in any language"));
+                    Assert.That(p.Warnings.ConvertAll(m => m.Archive), Is.SupersetOf(new[] { K, G, S }));
+                    // and with the rows again: none (the plan before has left nothing behind either)
+                    f.Plan();
+                    // a text every target ships, named by hand
+                    SayByHand(f, "705", "$script:702100$");
+                    f.Plan();
+                    byHand = Mod.Parse(f.Mod.ToXml(), "round trip");
+                }
+                // the data changes: the gms-client now ships without that text file
+                using (var f = new FakeQuests(true, true, true, dir, gmsMute: 1))
+                {
+                    Plan p = Planner.Build(f.Data, new[] { Mod.Parse(byHand.ToXml(), "round trip") }, new PlanOptions());
+                    Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                    Assert.That(p.Warnings.FindAll(m => m.Text.Contains("names talk text 702100")).ConvertAll(m => m.Archive), Is.EqualTo(new[] { G }), Fake.Dump(p));
+                }
+                // and back
+                using (var f = new FakeQuests(true, true, true, dir))
+                {
+                    Plan p = Planner.Build(f.Data, new[] { Mod.Parse(byHand.ToXml(), "round trip") }, new PlanOptions());
+                    Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                    Assert.That(p.Warnings, Is.Empty, Fake.Dump(p));
+                }
+            }
+            finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }
+        }
+
         [Test]
         public void Plan_TalkNamesWithoutARowAsShipped_NoWarning()
         {

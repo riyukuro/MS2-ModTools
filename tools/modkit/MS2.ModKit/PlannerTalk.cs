@@ -34,28 +34,58 @@ namespace MS2.ModKit
             foreach (XmlElem c in e.Children) TalkNames(c, quest, script, into, ids, seen);
         }
 
-        // the text ids a target has a row for after the plan, over every language
+        // the text ids of one talk text file; null when it does not parse
+        static HashSet<long> TalkIdsOf(byte[] bytes, string label, XmlDoc doc)
+        {
+            if (bytes == null) return null;
+            if (doc == null)
+            {
+                try { doc = XmlDoc.Parse(bytes, label); }
+                catch (ModKitException) { return null; }
+            }
+            var set = new HashSet<long>();
+            if (doc.Root == null) return set;
+            foreach (XmlElem k in doc.Root.Children)
+            {
+                long id;
+                if (k.Name == "key" && QuestEditor.TryId(k.Attr("id") ?? "", out id)) set.Add(id);
+            }
+            return set;
+        }
+
+        // the text ids each talk text file of the archive ships a row for (entry name -> ids), kept with the data
+        // set: the files are long, and a plan changes few of them. A data set reads only, and the data folders are
+        // opened anew (a new data set, with nothing kept) when they change
+        static Dictionary<string, HashSet<long>> ShippedTalkIdsByEntry(Run run, M2dArchive arch, string archive)
+        {
+            string key = "talk text ids by entry\n" + archive;
+            object o;
+            if (run.Data.Cache.TryGetValue(key, out o)) return (Dictionary<string, HashSet<long>>)o;
+            var d = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
+            foreach (M2dEntry e in arch.Entries)
+                if (QuestEditor.TalkRx.IsMatch(e.Name.Replace('\\', '/'))) d[e.Name] = TalkIdsOf(arch.Read(e), archive + " talk texts", null) ?? new HashSet<long>();
+            run.Data.Cache[key] = d;
+            return d;
+        }
+
+        // the text ids a target has a row for after the plan, over every language: what the archive ships (kept,
+        // see above) for the files the plan leaves alone, and the planned text of the ones it changes, adds or deletes
         static HashSet<long> TalkTextIds(Run run, string archive)
         {
             var set = new HashSet<long>();
             M2dArchive arch = run.Data.Open(archive);
-            var docs = new List<byte[]>();
-            foreach (M2dEntry e in arch.Entries)
-                if (QuestEditor.TalkRx.IsMatch(e.Name.Replace('\\', '/'))) docs.Add(PlannedBytes(run, archive, arch, e));
-            foreach (EntryState st in run.Order)
-                if (st.Archive == archive && !st.Existed && QuestEditor.TalkRx.IsMatch(st.Name.Replace('\\', '/'))) docs.Add(PlannedBytes(st));
-            foreach (byte[] b in docs)
+            foreach (KeyValuePair<string, HashSet<long>> kv in ShippedTalkIdsByEntry(run, arch, archive))
             {
-                if (b == null) continue;
-                XmlDoc doc;
-                try { doc = XmlDoc.Parse(b, archive + " talk texts"); }
-                catch (ModKitException) { continue; }
-                if (doc.Root == null) continue;
-                foreach (XmlElem k in doc.Root.Children)
-                {
-                    long id;
-                    if (k.Name == "key" && QuestEditor.TryId(k.Attr("id") ?? "", out id)) set.Add(id);
-                }
+                EntryState st;
+                if (run.States.TryGetValue(archive + "\n" + kv.Key.ToLowerInvariant(), out st) && (st.DeletedBy != null || (st.Final != null && !M2dWriter.BytesEqual(st.Final, st.Original)))) continue;
+                set.UnionWith(kv.Value);
+            }
+            foreach (EntryState st in run.Order)
+            {
+                if (st.Archive != archive || st.DeletedBy != null || st.Final == null || !QuestEditor.TalkRx.IsMatch(st.Name.Replace('\\', '/'))) continue;
+                if (st.Existed && M2dWriter.BytesEqual(st.Final, st.Original)) continue;
+                HashSet<long> ids = TalkIdsOf(st.Final, archive + " talk texts", st.FinalDoc);
+                if (ids != null) set.UnionWith(ids);
             }
             return set;
         }
@@ -140,19 +170,7 @@ namespace MS2.ModKit
             object o;
             if (run.Data.Cache.TryGetValue(key, out o)) return (HashSet<long>)o;
             var set = new HashSet<long>();
-            foreach (M2dEntry e in arch.Entries)
-            {
-                if (!QuestEditor.TalkRx.IsMatch(e.Name.Replace('\\', '/'))) continue;
-                XmlDoc doc;
-                try { doc = XmlDoc.Parse(arch.Read(e), archive + " " + e.Name); }
-                catch (ModKitException) { continue; }
-                if (doc.Root == null) continue;
-                foreach (XmlElem k in doc.Root.Children)
-                {
-                    long id;
-                    if (k.Name == "key" && QuestEditor.TryId(k.Attr("id") ?? "", out id)) set.Add(id);
-                }
-            }
+            foreach (HashSet<long> ids in ShippedTalkIdsByEntry(run, arch, archive).Values) set.UnionWith(ids);
             run.Data.Cache[key] = set;
             return set;
         }
@@ -260,7 +278,7 @@ namespace MS2.ModKit
                 XmlDoc now, was = null;
                 try
                 {
-                    now = XmlDoc.Parse(st.Final, st.Archive + " " + st.Name);
+                    now = st.FinalDoc ?? XmlDoc.Parse(st.Final, st.Archive + " " + st.Name);
                     if (st.Existed) was = XmlDoc.Parse(st.Original, st.Archive + " " + st.Name);
                 }
                 catch (ModKitException) { continue; }
