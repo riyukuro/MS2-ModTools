@@ -93,6 +93,13 @@ namespace MS2.ModKit
         public readonly List<ModOp> Ops = new List<ModOp>();
         /// <summary>Shops and drop boxes: row operations on "one id, many rows" groups (Groups.cs).</summary>
         public readonly List<GroupOp> Groups = new List<GroupOp>();
+        /// <summary>
+        /// Files of the mod that an editor wrote and that are not saved yet: the path under the mod folder (as file=
+        /// writes it) and the bytes. The planner reads them before the folder; Save writes them and empties the list.
+        /// </summary>
+        public readonly Dictionary<string, byte[]> Files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        /// <summary>trigger-lint="warn": a lint error of a trigger entry is a plan warning, not an error.</summary>
+        public bool TriggerLintWarn;
 
         /// <summary>The mod changes nothing: no entry, edit, shop or drop box op.</summary>
         public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0 && Skills.Count == 0 && JobSkills.Count == 0 && Maps.Count == 0; } }
@@ -165,8 +172,11 @@ namespace MS2.ModKit
             internal Mod ReadMod(XmlElem root)
             {
                 if (root.Name != "mod") throw Bad(root, "the root element is <" + root.Name + ">, expected <mod>");
-                Only(root, "id", "name", "version", "modkit");
+                Only(root, "id", "name", "version", "modkit", "trigger-lint");
                 var m = new Mod { Id = Need(root, "id"), Name = root.Attr("name") ?? "", Version = root.Attr("version") ?? "" };
+                string tl = root.Attr("trigger-lint");
+                if (tl != null && tl != "warn" && tl != "error") throw Bad(root, "trigger-lint=\"" + tl + "\" must be warn or error");
+                m.TriggerLintWarn = tl == "warn";
                 foreach (char c in m.Id)
                     if (!(char.IsLetterOrDigit(c) || c == '.' || c == '-' || c == '_'))
                         throw Bad(root, "mod id \"" + m.Id + "\" may hold letters, digits, '.', '-' and '_' only");
@@ -300,7 +310,9 @@ namespace MS2.ModKit
         public string ToXml()
         {
             var sb = new StringBuilder();
-            sb.Append("<mod"); A(sb, "id", Id); A(sb, "name", Name); A(sb, "version", Version); A(sb, "modkit", "1"); sb.Append(">\n");
+            sb.Append("<mod"); A(sb, "id", Id); A(sb, "name", Name); A(sb, "version", Version); A(sb, "modkit", "1");
+            if (TriggerLintWarn) A(sb, "trigger-lint", "warn");
+            sb.Append(">\n");
             if (!string.IsNullOrEmpty(Description)) sb.Append("  <description>").Append(XmlDoc.EscapeText(Description)).Append("</description>\n");
             foreach (IdRange r in Ids)
             {
@@ -364,8 +376,26 @@ namespace MS2.ModKit
         public void Save(string dir)
         {
             if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+            string full = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            // saved to another folder (a new id): the files of the old folder go along
+            if (Dir != null && !string.Equals(Path.GetFullPath(Dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, full, StringComparison.OrdinalIgnoreCase))
+                foreach (ModOp o in Ops)
+                {
+                    var en = o as EntryOp;
+                    if (en == null || en.File == null || Files.ContainsKey(en.File.Replace('\\', '/'))) continue;
+                    string old = Path.Combine(Dir, en.File.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar));
+                    if (File.Exists(old)) Files[en.File.Replace('\\', '/')] = File.ReadAllBytes(old);
+                }
+            foreach (KeyValuePair<string, byte[]> f in Files)
+            {
+                string p = Path.GetFullPath(Path.Combine(dir, f.Key.Replace('/', Path.DirectorySeparatorChar)));
+                if (!p.StartsWith(full, StringComparison.Ordinal)) throw new ModKitException("mod " + Id + ": file \"" + f.Key + "\" is outside of the mod folder");
+                Directory.CreateDirectory(Path.GetDirectoryName(p));
+                File.WriteAllBytes(p, f.Value);
+            }
             File.WriteAllBytes(Path.Combine(dir, "mod.xml"), new UTF8Encoding(false).GetBytes(ToXml()));
             Dir = Path.GetFullPath(dir);
+            Files.Clear();      // on disk now; the planner and the editors read them from the folder
         }
     }
 }

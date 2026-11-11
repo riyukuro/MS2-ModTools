@@ -7,6 +7,12 @@
 // known issues): a node with a problem is coloured and names it, and the list under the tree has every problem of the
 // script, with Go to.
 //
+// Edits (MS2.ModKit.TriggerEditor): set or remove an attribute of the chosen node, add an action, condition,
+// transition, state or on enter / on exit block, remove a node, add a new script to the map's folder, revert a
+// script. Each edit makes the script a whole-file entry of the mod being edited; Plan and Apply are the MS2 Tables
+// view's, and the plan lints every trigger entry of a mod (an error blocks Apply unless the mod's "lint errors
+// only warn" is on).
+//
 // The view holds no data logic: MS2.ModKit.Triggers reads the scripts. The session, the worker thread and the
 // output stay in the MS2 Tables view, as for the other entity views.
 using System;
@@ -51,6 +57,17 @@ namespace MS2.Tables
         List<TriggerFinding> findings = new List<TriggerFinding>();
         TriggerPacks packs;
         string packsArchive;
+        List<TriggerFolder> folders = new List<TriggerFolder>();
+
+        readonly ComboBox attrBox = new ComboBox { Width = 120 };
+        readonly TextBox valueBox = new TextBox { Width = 170 };
+        readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 100 };
+        readonly TextBox nameBox = new TextBox { Width = 150 };
+        readonly TextBox goToBox = new TextBox { Width = 110 };
+        readonly TextBox newScriptBox = new TextBox { Width = 120 };
+        readonly CheckBox lintWarnBox = new CheckBox { Text = "lint errors only warn", AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
+        static readonly TriggerKind[] Kinds = { TriggerKind.Action, TriggerKind.Condition, TriggerKind.Transition, TriggerKind.State, TriggerKind.OnEnter, TriggerKind.OnExit };
+        static readonly string[] KindNames = { "action", "condition", "transition", "state", "on enter", "on exit" };
 
         public TriggersView()
         {
@@ -69,6 +86,35 @@ namespace MS2.Tables
             scriptBar.Controls.Add(scriptLabel);
             scriptBar.Controls.Add(Btn("Expand all", "Opens every state of the script", delegate { tree.ExpandAll(); if (tree.Nodes.Count > 0) tree.Nodes[0].EnsureVisible(); }));
             scriptBar.Controls.Add(Btn("Collapse", "Shows the states only", delegate { CollapseToStates(); }));
+            scriptBar.Controls.Add(Btn("Revert script", "Takes the script out of the mod: every edit of it is gone (a script the mod added is gone too)", delegate { Revert(); }));
+            scriptBar.Controls.Add(Lbl("New script"));
+            scriptBar.Controls.Add(newScriptBox);
+            tips.SetToolTip(newScriptBox, "The file name of a new script in the folder of the chosen script (trigger/<xblock>/<name>.xml); it starts with one state, Start");
+            scriptBar.Controls.Add(Btn("Add script", "Adds a new script to the map's trigger folder, in the mod", delegate { NewScript(); }));
+            scriptBar.Controls.Add(lintWarnBox);
+            tips.SetToolTip(lintWarnBox, "For the mod being edited: a lint error of one of its trigger scripts is a plan warning instead of an error, and Apply goes on (trigger-lint=\"warn\" in mod.xml)");
+            scriptBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change, with the lint of the mod's trigger scripts; writes nothing", delegate { return host.DoPlan(); }));
+            scriptBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change (the MS2 Tables view's Apply); a lint error of a trigger script stops it", delegate { return host.DoApply(); }));
+            scriptBar.Controls.Add(Btn("Save mod", "Saves the mod being edited, the trigger files beside mod.xml (the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
+
+            FlowLayoutPanel editBar = Bar();
+            editBar.Controls.Add(Lbl("Attribute"));
+            editBar.Controls.Add(attrBox);
+            tips.SetToolTip(attrBox, "An attribute of the chosen node (pick one or type a new name)");
+            editBar.Controls.Add(valueBox);
+            tips.SetToolTip(valueBox, "The value; empty removes the attribute");
+            editBar.Controls.Add(Btn("Set", "Sets the attribute of the chosen node (an empty value removes it)", delegate { SetAttr(); }));
+            editBar.Controls.Add(Lbl("Add"));
+            for (int i = 0; i < KindNames.Length; i++) kindBox.Items.Add(KindNames[i]);
+            kindBox.SelectedIndex = 0;
+            editBar.Controls.Add(kindBox);
+            editBar.Controls.Add(nameBox);
+            tips.SetToolTip(nameBox, "The name of the new action or condition, the state of a new transition, the name of a new state");
+            editBar.Controls.Add(Lbl("goes to"));
+            editBar.Controls.Add(goToBox);
+            tips.SetToolTip(goToBox, "A new condition: the state it goes to (empty: none)");
+            editBar.Controls.Add(Btn("Add", "Adds under the chosen node (or the nearest one above it that can hold it); a state goes after the last state", delegate { Add(); }));
+            editBar.Controls.Add(Btn("Remove", "Removes the chosen node and all under it", delegate { Remove(); }));
 
             var left = new Panel { Dock = DockStyle.Left, Width = 300 };
             // docked from the last child to the first: the script list at the bottom, its label above it, the splitter, the maps
@@ -101,6 +147,7 @@ namespace MS2.Tables
             right.Controls.Add(tree);
             right.Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
             right.Controls.Add(findingPanel);
+            right.Controls.Add(editBar);
             right.Controls.Add(scriptBar);
 
             Controls.Add(right);
@@ -123,6 +170,16 @@ namespace MS2.Tables
             };
             mapList.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { OpenMap(); }); };
             scriptList.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { OpenScript(); }); };
+            tree.AfterSelect += delegate { FillAttrs(); };
+            attrBox.SelectedIndexChanged += delegate { ShowValue(); };
+            attrBox.Leave += delegate { ShowValue(); };
+            lintWarnBox.CheckedChanged += delegate { if (!filling) Guard(delegate { SetLintWarn(); }); };
+            valueBox.KeyDown += delegate(object sender, KeyEventArgs e)
+            {
+                if (e.KeyCode != Keys.Enter) return;
+                e.Handled = e.SuppressKeyPress = true;
+                Guard(delegate { SetAttr(); });
+            };
         }
 
         public override void Initialize()
@@ -150,6 +207,14 @@ namespace MS2.Tables
         {
             var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
             b.Click += delegate(object sender, EventArgs e) { Guard(delegate { click(sender, e); }); };
+            tips.SetToolTip(b, tip);
+            return b;
+        }
+
+        Button Job(string text, string tip, Func<bool> start)
+        {
+            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+            b.Click += delegate { if (Guard(delegate { host.NeedHandle(); })) start(); };
             tips.SetToolTip(b, tip);
             return b;
         }
@@ -279,7 +344,9 @@ namespace MS2.Tables
             mapId = id;
             archive = Triggers.ArchiveOf(Session().Data);
             if (archive != packsArchive) packs = null;
-            List<TriggerFolder> folders = archive == null ? new List<TriggerFolder>() : Triggers.FoldersOf(Session().Data, archive, id);
+            folders = archive == null ? new List<TriggerFolder>() : Triggers.FoldersOf(Session().Data, archive, id);
+            TriggerEditor ed = archive == null ? null : Editor();
+            if (ed != null) foreach (TriggerFolder f in folders) f.Scripts.AddRange(ed.Added(archive, f.XBlock));
             filling = true;
             int sel = -1;
             try
@@ -292,7 +359,8 @@ namespace MS2.Tables
                     {
                         if (e == keepEntry) sel = scriptEntries.Count;
                         scriptEntries.Add(e);
-                        scriptList.Items.Add(folders.Count == 1 ? e.Substring(e.LastIndexOf('/') + 1) : e.Substring(Triggers.Folder.Length));
+                        string shown = folders.Count == 1 ? e.Substring(e.LastIndexOf('/') + 1) : e.Substring(Triggers.Folder.Length);
+                        scriptList.Items.Add((ed != null && ed.IsModded(archive, e) ? "* " : "") + shown);
                     }
                 scriptList.EndUpdate();
             }
@@ -301,7 +369,7 @@ namespace MS2.Tables
             foreach (TriggerFolder f in folders) n += f.Scripts.Count;
             var names = new List<string>();
             foreach (TriggerFolder f in folders) names.Add(f.XBlock);
-            scriptsLabel.Text = folders.Count == 0 ? "no map file" : n + " script(s) in " + string.Join(", ", names.ToArray());
+            scriptsLabel.Text = folders.Count == 0 ? "no map file" : n + " script(s) in " + string.Join(", ", names.ToArray()) + " (* = in the mod)";
             if (sel < 0 && scriptEntries.Count > 0) sel = 0;
             if (sel >= 0) scriptList.SelectedIndex = sel;   // shows it
             else ShowScript(null);
@@ -319,8 +387,10 @@ namespace MS2.Tables
         {
             int i = scriptList.SelectedIndex;
             if (i < 0 || i >= scriptEntries.Count) { ShowScript(null); return; }
-            ShowScript(Triggers.Read(Session().Data, archive, scriptEntries[i]));
+            ShowScript(Editor().Current(archive, scriptEntries[i]));
         }
+
+        TriggerEditor Editor() { return new TriggerEditor(Session().Data, Session().Mod); }
 
         TriggerPacks Packs()
         {
@@ -345,7 +415,7 @@ namespace MS2.Tables
                     return;
                 }
                 List<TriggerNode> states = s.States;
-                scriptLabel.Text = s.Entry + ": " + states.Count + " state(s)";
+                scriptLabel.Text = s.Entry + ": " + states.Count + " state(s)" + (Editor().IsModded(s.Archive, s.Entry) ? ", in mod " + Session().Mod.Id : "");
                 foreach (TriggerNode n in s.Root.Children) tree.Nodes.Add(Node(n));
                 MarkFindings();
                 foreach (TreeNode t in tree.Nodes) t.Expand();
@@ -355,6 +425,10 @@ namespace MS2.Tables
             {
                 tree.EndUpdate();
                 FillFindings();
+                FillAttrs();
+                filling = true;
+                try { lintWarnBox.Checked = host != null && Session().Mod.TriggerLintWarn; }
+                finally { filling = false; }
             }
         }
 
@@ -455,6 +529,159 @@ namespace MS2.Tables
             tree.SelectedNode = t;
             t.EnsureVisible();
             tree.Focus();
+        }
+
+        // ---- edits ----
+
+        TriggerNode Chosen() { return tree.SelectedNode == null ? null : tree.SelectedNode.Tag as TriggerNode; }
+
+        void NeedScript()
+        {
+            if (script == null) throw new ModKitException("choose a script first");
+            if (script.ParseError != null) throw new ModKitException("the script does not parse; it cannot be edited here");
+        }
+
+        void FillAttrs()
+        {
+            TriggerNode n = Chosen();
+            string keep = attrBox.Text;
+            attrBox.Items.Clear();
+            if (n == null || n.Elem == null) { valueBox.Text = ""; return; }
+            string first = null;
+            foreach (MS2.ModKit.Xml.XmlAttr a in n.Elem.Attrs)
+            {
+                attrBox.Items.Add(a.Name);
+                if (first == null && a.Name != "name") first = a.Name;
+            }
+            attrBox.Text = n.Elem.FindAttr(keep) != null ? keep : first ?? (n.Elem.Attrs.Count > 0 ? n.Elem.Attrs[0].Name : "");
+            ShowValue();
+        }
+
+        void ShowValue()
+        {
+            TriggerNode n = Chosen();
+            string v = n == null || n.Elem == null ? null : n.Elem.Attr(attrBox.Text.Trim());
+            valueBox.Text = v ?? "";
+        }
+
+        // the chosen node as child indexes from the top, to choose it again after the tree is rebuilt
+        static List<int> PathOf(TreeNode t)
+        {
+            var l = new List<int>();
+            for (; t != null; t = t.Parent) l.Insert(0, t.Index);
+            return l;
+        }
+
+        void Choose(List<int> path)
+        {
+            TreeNodeCollection level = tree.Nodes;
+            TreeNode hit = null;
+            foreach (int i in path)
+            {
+                if (level.Count == 0) break;
+                hit = level[Math.Min(i, level.Count - 1)];
+                level = hit.Nodes;
+            }
+            if (hit == null) return;
+            tree.SelectedNode = hit;
+            hit.Expand();
+            hit.EnsureVisible();
+        }
+
+        // after an edit: the mod pane, the script list (its * marks) and the tree follow; the node chosen before
+        // (or the one at its place) is chosen again
+        void Edited(TriggerScript now, List<int> path, string said)
+        {
+            host.EditedOutside();
+            ShowMap(mapId, now.Entry);
+            if (path != null) Choose(path);
+            int errors = 0;
+            foreach (TriggerFinding f in findings) if (f.IsError) errors++;
+            host.SayOutside(said + "\r\n" + now.Entry + " is a whole-file entry of mod " + Session().Mod.Id + " now (Save mod writes it beside mod.xml)."
+                + (errors > 0 ? "\r\nlint: " + errors + " error(s); Apply stops on them" + (Session().Mod.TriggerLintWarn ? " unless the mod's \"lint errors only warn\" is on (it is)" : " (or turn on \"lint errors only warn\" for the mod)") : ""));
+        }
+
+        void SetAttr()
+        {
+            NeedScript();
+            TriggerNode n = Chosen();
+            if (n == null || n.Elem == null) throw new ModKitException("choose a node in the tree first");
+            string name = attrBox.Text.Trim();
+            if (name.Length == 0) throw new ModKitException("name the attribute to set");
+            string value = valueBox.Text;
+            List<int> path = PathOf(tree.SelectedNode);
+            TriggerScript now = Editor().SetAttr(script, n, name, value);
+            Edited(now, path, (value.Length == 0 ? "removed " + name + " of " : "set " + name + "=\"" + value + "\" on ") + n.Label + " (line " + n.Line + ")");
+        }
+
+        // the node a new element of the kind goes under: the chosen node or the nearest one above it that can hold
+        // it; an action or transition chosen on a state goes into its on enter block
+        TriggerNode Target(TriggerNode n, TriggerKind kind)
+        {
+            if (kind == TriggerKind.State || n == null) return script.Root;
+            for (TriggerNode p = n; p != null; p = p.Parent)
+            {
+                if (TriggerEditor.CanHold(p, kind)) return p;
+                if (p.Kind == TriggerKind.State && (kind == TriggerKind.Action || kind == TriggerKind.Transition))
+                    foreach (TriggerNode c in p.Children) if (c.Kind == TriggerKind.OnEnter) return c;
+            }
+            return null;
+        }
+
+        void Add()
+        {
+            NeedScript();
+            TriggerKind kind = Kinds[Math.Max(0, kindBox.SelectedIndex)];
+            TriggerNode n = Chosen();
+            TriggerNode target = Target(n, kind);
+            if (target == null || !TriggerEditor.CanHold(target, kind))
+                throw new ModKitException("a new " + KindNames[kindBox.SelectedIndex] + " cannot go under " + (n == null ? "the script" : n.Label) + "; choose a "
+                    + (kind == TriggerKind.Condition ? "state or a group" : kind == TriggerKind.OnEnter || kind == TriggerKind.OnExit ? "state without one" : "state, on enter, on exit or condition"));
+            TreeNode tt;
+            List<int> path = target.Kind == TriggerKind.Script ? null : treeNodes.TryGetValue(target, out tt) ? PathOf(tt) : null;
+            string name = nameBox.Text.Trim();
+            TriggerScript now = Editor().Add(script, target, kind, name, goToBox.Text.Trim());
+            Edited(now, path, "added " + KindNames[kindBox.SelectedIndex] + (name.Length > 0 ? " " + name : "") + " under " + (target.Kind == TriggerKind.Script ? "the script" : target.Label));
+            if (kind == TriggerKind.State) { TriggerNode st = script == null ? null : script.State(name); TreeNode t; if (st != null && treeNodes.TryGetValue(st, out t)) { tree.SelectedNode = t; t.EnsureVisible(); } }
+        }
+
+        void Remove()
+        {
+            NeedScript();
+            TriggerNode n = Chosen();
+            if (n == null) throw new ModKitException("choose the node to remove in the tree first");
+            List<int> path = PathOf(tree.SelectedNode);
+            TriggerScript now = Editor().Remove(script, n);
+            Edited(now, path, "removed " + n.Label + " (line " + n.Line + ") and all under it");
+        }
+
+        void NewScript()
+        {
+            if (archive == null) throw new ModKitException("no archive of the data set has trigger scripts");
+            string xblock = script != null ? script.XBlock : folders.Count > 0 ? folders[0].XBlock : null;
+            if (xblock == null) throw new ModKitException("the map has no map file (xblock), so no trigger folder to add to");
+            TriggerScript now = Editor().NewScript(archive, xblock, newScriptBox.Text.Trim(), "Start");
+            newScriptBox.Text = "";
+            Edited(now, null, "added the script " + now.Entry + " with one state, Start");
+        }
+
+        void Revert()
+        {
+            NeedScript();
+            string entry = script.Entry;
+            TriggerEditor ed = Editor();
+            if (!ed.IsModded(archive, entry)) { host.SayOutside(entry + " is not in the mod; there is nothing to revert"); return; }
+            ed.Revert(archive, entry);
+            host.EditedOutside();
+            ShowMap(mapId, entry);
+            host.SayOutside(entry + ": the mod's edits are taken out" + (ed.Current(archive, entry) == null ? " (the script was the mod's own, it is gone)" : ""));
+        }
+
+        void SetLintWarn()
+        {
+            Session().Mod.TriggerLintWarn = lintWarnBox.Checked;
+            host.EditedOutside();
+            host.SayOutside("mod " + Session().Mod.Id + ": a lint error of its trigger scripts is " + (lintWarnBox.Checked ? "a plan warning; Apply goes on (trigger-lint=\"warn\")" : "a plan error; Apply stops on it"));
         }
 
         void CollapseToStates()

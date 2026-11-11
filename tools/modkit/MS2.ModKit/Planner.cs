@@ -382,6 +382,8 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, HashSet<long>> MirrorTalk = new Dictionary<string, HashSet<long>>(StringComparer.Ordinal);
             /// <summary>Shop and drop box state (PlannerGroups.cs).</summary>
             internal readonly GroupRun Groups = new GroupRun();
+            /// <summary>The trigger entries of an archive for the lint of trigger scripts, by archive (null: unreadable).</summary>
+            internal readonly Dictionary<string, TriggerPacks> TriggerPacks = new Dictionary<string, TriggerPacks>(StringComparer.Ordinal);
 
             internal M2dArchive Open(Mod mod, string archive)
             {
@@ -646,7 +648,14 @@ namespace MS2.ModKit
             }
 
             byte[] bytes; string from;
-            if (op.File != null)
+            byte[] pending;
+            if (op.File != null && mod.Files.TryGetValue(op.File.Replace('\\', '/'), out pending))
+            {
+                bytes = pending;
+                from = "file " + op.File;
+                if (run.Mirror != null) bytes = MirrorStrip(run, mod, op.Archive, op.Name, bytes);
+            }
+            else if (op.File != null)
             {
                 if (mod.Dir == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": the mod has no folder"); return; }
                 string full = Path.GetFullPath(Path.Combine(mod.Dir, op.File.Replace('\\', Path.DirectorySeparatorChar).Replace('/', Path.DirectorySeparatorChar)));
@@ -664,6 +673,7 @@ namespace MS2.ModKit
                 bytes = arch.Read(src);
                 from = "copy of " + src.Name;
             }
+            if (run.Mirror == null && Triggers.IsScript(st.Name)) LintTrigger(run, mod, op.Archive, st.Name, bytes);
             if (st.DeletedBy == mod || st.DeleteLeftOut.Contains(mod)) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "puts an entry where the same mod deletes one"); return; }
             if (st.BaseMod == mod && !M2dWriter.BytesEqual(bytes, st.Base)) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry twice, with different content"); return; }
             if (st.DeletedBy != null)
@@ -694,6 +704,29 @@ namespace MS2.ModKit
                 NewValue = from + ", " + bytes.Length + " bytes", OldValue = st.Existed ? st.Original.Length + " bytes" : null,
             }));
             if (!st.Existed) plan.NewIds.Add(new NewId { Mod = mod, Archive = op.Archive, Entry = st.Name });
+        }
+
+        // A trigger script the mod brings is linted (TriggerLint.cs, the shipped schema and allowlist; imports resolve
+        // against the archive as shipped). An error blocks Apply unless the mod says trigger-lint="warn".
+        static void LintTrigger(Run run, Mod mod, string archive, string entry, byte[] bytes)
+        {
+            Plan plan = run.Plan;
+            TriggerPacks packs;
+            if (!run.TriggerPacks.TryGetValue(archive, out packs))
+            {
+                try { packs = TriggerPacks.OfArchive(run.Data, archive); } catch (ModKitException) { packs = null; }
+                run.TriggerPacks[archive] = packs;
+            }
+            int warnings = 0;
+            foreach (TriggerFinding f in TriggerLint.Shipped.Lint(entry, bytes, packs))
+            {
+                if (f.Level == "warning") { warnings++; continue; }
+                if (!f.IsError) continue;
+                string at = f.Line > 0 ? "line " + f.Line + (f.ImportedFrom != null ? " of " + f.ImportedFrom : "") + ": " : "";
+                plan.Msg(mod.TriggerLintWarn ? plan.Warnings : plan.Errors, mod, archive, entry,
+                    "trigger lint: " + at + "[" + f.Code + "] " + f.Message + (mod.TriggerLintWarn ? " (trigger-lint=\"warn\")" : ""));
+            }
+            if (warnings > 0) plan.Msg(plan.Notes, mod, archive, entry, "trigger lint: " + warnings + " warning(s)");
         }
 
         // ---- rows ----

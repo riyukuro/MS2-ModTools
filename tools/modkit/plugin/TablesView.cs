@@ -722,6 +722,7 @@ namespace MS2.Tables
         // ---- unsaved changes ----
 
         // the mod's text when it was last saved, loaded or started; the mod has unsaved changes when its text differs
+        // or it holds files not written yet (Mod.Files: trigger scripts)
         string savedXml;
         bool closeAsked;
 
@@ -731,7 +732,7 @@ namespace MS2.Tables
         {
             if (session == null) return false;
             try { FlushEdits(); } catch (Exception) { }
-            return session.Mod.ToXml() != savedXml;
+            return session.Mod.ToXml() != savedXml || session.Mod.Files.Count > 0;
         }
 
         /// <summary>
