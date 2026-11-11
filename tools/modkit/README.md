@@ -727,8 +727,18 @@ Which map file the game loads for a map id is said by the map table in `Xml.m2d`
 `table/fielddata.xml`, or one file `map/<id>.xml` per map. A row can name more than one map file, one per feature
 (`<environment feature="..."><xblock name="..."/>`), and the features that are on decide which one is loaded. The
 archive may also hold map files that no row names; the game never loads those. A plan warns when a mod changes such
-a file, and says in a note when the changed file is one of several of its map (see the warnings below). Before you
-write a map mod, look the map id up in the map table and take the file name from there.
+a file, and when the changed file is one of several of its map but not the one the target loads (see the warnings
+below). Before you write a map mod, look the map id up in the map table and take the file name from there.
+
+Which features are on is worked out per target from its own `Xml.m2d`, the way the game does it:
+`table/feature_setting.xml` gives a level for a server type and a locale (`<setting type="Live" KR="10" NA="5"/>`),
+`table/feature.xml` gives the level each feature switches on at (`<feature name="MadeUp" KR="8" NA="7"/>`). A feature
+is on when its level is not 0 and not above the level of the server type. Of a map's rows whose feature is on (and
+whose `locale`, when set, is the target's), the game takes the one with the highest feature level. The tool takes
+locale `KR` for `kms-client`, `NA` for `gms-client` and `server`, and server type `Live`. If your game runs with
+another one (a client started with `-env` or `-locale`, a server built for another locale), say so with the setting
+`MS2_CLIENT_FEATURES`, `MS2_GMS_CLIENT_FEATURES` or `MS2_SERVER_FEATURES` (environment or `modtools.toml`; the
+Toolbench view reads the environment): `LOCALE/TYPE`, for example `NA/Dev`, `KR`, or `/Dev`.
 
 Each client has its own copy of the archive and the server reads one too. The Korean and the global client do not
 always hold the same bytes for a map, so a map mod is never a whole replacement file. It is a list of small
@@ -859,13 +869,15 @@ The `.tok` files (the client's own walkable-ground data) are not touched.
 | `was put into no map file, so its spawn rows are not written either` | No copy took the spawn place (for example no copy has that map), so no row is written for it | Fix the map name, or what the other warning of that spawn names |
 | `this target has no such table, the spawn rows are not written there` | That copy does not ship `table/mapspawntag.xml`. A warning on the server, a note on a client | On the server: set the data folder up first. On a client: nothing to do |
 | `no map of this target's map table uses this map file, so the game does not load it` | No row of this copy's map table names the changed file. The file is still changed, and nothing shows in the game. When the table has a row for the map id (the leading digits of the file name, or `<map id="...">`), the warning lists the files that row names | Change the file the map table names |
+| `with this target's features (locale ..., server type ..., level ...) the game loads ... for map ..., not this map file` | The map's row names several files, one per feature, and under this target's features the game loads another one than the mod changes. The file is still changed, and nothing shows in the game | Change the file the warning names, or set the target's `..._FEATURES` setting when the locale or server type in the warning is not the one your game runs with |
 | `this target's map table has no map ...` | The portal leads to a map id this copy does not know | Fix `to-map` |
 | `that map has no such portal after this plan` | With all mods applied, the target map has no portal with the number of `to-portal` | Add the portal on the other map, or fix the number |
 | `no portal of that map leads back to map ...` | There is no way back | Fine for a one-way door; else add one |
 
-A note, not a warning: `map ... has more than one map file in the map table` lists the files the map's row names,
-each with its feature. The mod changes only the one it names; if the features that are on pick another file, the
-game shows nothing of the mod. Put the same `<map>` block in for the other file too when both should change.
+When the map's row names several files and the target's features are known, there is no message for the file the
+target loads. When they are not known (no feature tables in the target's `Xml.m2d`, or no level for the locale and
+server type), a note says so instead: `map ... has more than one map file in the map table` lists the files, each
+with its feature. Put the same `<map>` block in for the other file too when both should change.
 
 Errors stop the apply: an entity id or a number that is already in the map, a spawn row that already exists for
 that map and number. Two mods that touch the same entity, or bring the same number, are a conflict.
