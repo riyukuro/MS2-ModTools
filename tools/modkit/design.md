@@ -58,8 +58,10 @@ Library (`MS2.ModKit/Models`, no drawing library, so it also builds for net8 on 
 
 Plugin: `ModelBox`, a control like `IconBox`. A `ModelCache` per data set renders on a worker thread and
 keeps the last pictures; the box shows the picture when it is ready, and a newer request replaces an older
-one that has not started. The Items view shows the box under the icon and asks again when the selected item
-or one of its slot asset fields changes; the NPCs view does the same for `model@kfm`.
+one that has not started. The box stands at the right of the form over its whole height, takes about 28% of
+the form's width (200 to 460 pixels), and is hidden when the form is under 560 pixels wide. The Items view
+asks again when the selected item or one of its slot asset fields changes; the NPCs view does the same for
+`model@kfm`.
 
 ### When something cannot be shown
 

@@ -13,6 +13,7 @@ using System.Windows.Forms;
 using Emergent.Toolbench;
 using Emergent.Toolbench.UI.Workbench;
 using MS2.ModKit;
+using MS2.ModKit.Models;
 
 namespace MS2.Tables
 {
@@ -38,6 +39,7 @@ namespace MS2.Tables
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
         readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 260, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 36 };
         readonly IconBox iconBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };
+        ModelBox modelBox;     // the item's model beside the form
         // the icon entry of each listed item as the mod has it (null: none); filled when the row is drawn
         readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();
         readonly Label itemLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
@@ -154,6 +156,10 @@ namespace MS2.Tables
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
             right.Controls.Add(head);
+            // the item's model at the right of the form, over its whole height
+            modelBox = ModelBox.AttachRight(right);
+            tips.SetToolTip(modelBox, "The item's model (the first asset of each slot), drawn from Resource/Model of your client data");
+            modelBox.Shown += delegate(ModelShot shot) { tips.SetToolTip(modelBox, ModelTip(shot)); };
             // in a low window the icon is drawn at its own size (64) instead of 96, and the bars never take more than
             // the height that leaves the grid a header and four rows
             bool fitting = false;
@@ -175,6 +181,10 @@ namespace MS2.Tables
             };
             right.Resize += fitHead;
             bars.Layout += delegate { fitHead(bars, EventArgs.Empty); };
+            // a bar that wraps to one more row after the head was fitted (the model box takes width) asks again
+            itemBar.SizeChanged += fitHead;
+            textBar.SizeChanged += fitHead;
+            descriptionBar.SizeChanged += fitHead;
 
             Controls.Add(right);
             Controls.Add(new Splitter { Dock = DockStyle.Left, Width = 4 });
@@ -360,7 +370,7 @@ namespace MS2.Tables
         void Edited()
         {
             grid.Invalidate();
-            if (draft != null) { iconOf.Remove(draft.Id); ShowIcon(draft); hitList.Invalidate(); }
+            if (draft != null) { iconOf.Remove(draft.Id); ShowIcon(draft); ShowModel(draft); hitList.Invalidate(); }
             host.EditedOutside();
         }
 
@@ -420,6 +430,7 @@ namespace MS2.Tables
             {
                 itemLabel.Text = "(no item)";
                 iconBox.Show(null, null);
+                modelBox.Show(null, null);
                 nameBox.Text = tooltipBox.Text = guideBox.Text = cloneIdBox.Text = optionBox.Text = "";
                 return;
             }
@@ -430,6 +441,7 @@ namespace MS2.Tables
             }
             grid.RowCount = rows.Count;
             ShowIcon(d);
+            ShowModel(d);
             itemLabel.Text = "Item " + d.Id.ToString(CultureInfo.InvariantCulture) + (d.IsNew ? " (new)" : "");
             nameBox.Text = d.Name ?? "";
             tooltipBox.Text = Lines(d.Tooltip);
@@ -458,6 +470,29 @@ namespace MS2.Tables
             iconOf[d.Id] = entry;
             iconBox.Show(Cache(), entry);
             tips.SetToolTip(iconBox, entry == null ? "This item names no icon" : "Icon: " + entry + " in Resource/Image.m2d");
+        }
+
+        // ---- model ----
+
+        /// <summary>Shows the model the draft's slot assets name now; the box draws it again only when they changed.</summary>
+        void ShowModel(ItemDraft d)
+        {
+            ModelCache cache = null;
+            List<string> assets = null;
+            try
+            {
+                if (host != null) cache = ModelCache.For(host.SharedSession().Data);
+                assets = ModelNames.ItemAssets(d);
+            }
+            catch (ModKitException) { }
+            catch (System.IO.IOException) { }
+            modelBox.Show(cache, ModelRequest.Item(assets));
+        }
+
+        static string ModelTip(ModelShot shot)
+        {
+            string t = shot.Picture != null ? "The item's model: " + shot.Triangles.ToString(CultureInfo.InvariantCulture) + " triangles, drawn as the file stores it" : (shot.Message ?? "no model");
+            return shot.Notes == null ? t : t + "\n" + shot.Notes;
         }
 
         string IconEntryOf(long id)
