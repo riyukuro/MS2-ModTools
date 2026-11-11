@@ -48,6 +48,7 @@ namespace MS2.Tables
         /// </summary>
         internal static void SayLeftBehind(TablesView host, string said, string kind, long id)
         {
+            // the job says "Checking ..." when it starts: the done block says it all again in one text
             host.SayOutside(said);
             EditorSession session = host.SharedSession();
             string w = null;
@@ -59,9 +60,17 @@ namespace MS2.Tables
                 skipped = Skipped(session, first);
             }, delegate
             {
-                if (skipped != null) host.SayOutside(SkippedText(skipped));
-                host.SayOutside(w == null ? "no place still names " + kind + " " + id.ToString(CultureInfo.InvariantCulture) : w.Replace("\n", "\r\n"));
+                host.SayOutside(LeftBehindText(said, skipped, w, kind, id));
             });
+        }
+
+        /// <summary>The whole text of a Remove clone or Discard: what was done, the skipped files, what still names the id.</summary>
+        internal static string LeftBehindText(string said, List<string> skipped, string w, string kind, long id)
+        {
+            var l = new List<string> { said };
+            if (skipped != null) l.Add(SkippedText(skipped));
+            l.Add(w == null ? "no place still names " + kind + " " + id.ToString(CultureInfo.InvariantCulture) : w.Replace("\n", "\r\n"));
+            return string.Join("\r\n", l.ToArray());
         }
 
         static int WhereUsedSkipped(EditorSession session)
