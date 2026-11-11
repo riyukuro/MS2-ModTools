@@ -137,21 +137,32 @@ namespace MS2.ModKit.Cli
         // one folder the map editor can open, for the chosen maps
         static int MapProject(Args a)
         {
-            const string usage = "map-project <map.xblock>... -o DIR --flats <Exported.m2d or folder with flat/> --library <Library.m2d or folder> [--known-ids FILE] [--assets <asset-web-metadata.m2d or folder>] [--all-presets] [--layers none|category] [--folders none|category]";
+            const string usage = "map-project <map.xblock>... -o DIR --flats <Exported.m2d or folder with flat/> --library <Library.m2d or folder> [--known-ids FILE] [--assets <asset-web-metadata.m2d or folder>] [--all-presets] [--layers none|category] [--folders none|category]\n" +
+                "   or: map-project <map.xblock>... -o DIR --resource <the game's Resource folder> [--no-asset-files] [the options above]";
             if (a.Pos.Count == 0) throw new UsageException(usage);
-            string src = a.Get("--flats");
+            // the Resource folder gives the three sources their usual places
+            string res = a.Get("--resource");
+            if (res != null && !Directory.Exists(res)) throw new UsageException("--resource: no folder " + res);
+            string src = a.Get("--flats") ?? (res == null ? null : Path.Combine(res, "Exported.m2d"));
+            string assets = a.Get("--assets") ?? (res == null ? null : Path.Combine(res, "asset-web-metadata.m2d"));
             if (src == null) throw new UsageException("missing --flats\n" + usage);
             var o = new WbProjectOptions
             {
                 Root = OutDir(a),
-                LibrarySource = a.Get("--library"),
+                LibrarySource = a.Get("--library") ?? (res == null ? null : Path.Combine(res, "Library.m2d")),
+                ResourceDir = a.Has("--no-asset-files") ? null : res,
                 KnownIds = KnownIds(a),
                 AllPresets = a.Has("--all-presets"),
                 LayersByCategory = Choice(a, "--layers", "none", "none", "category") == "category",
                 FoldersByCategory = Choice(a, "--folders", "none", "none", "category") == "category"
             };
             foreach (string f in a.Pos) o.Maps.Add(new KeyValuePair<string, byte[]>(Path.GetFileNameWithoutExtension(f), File.ReadAllBytes(f)));
-            if (a.Has("--assets")) o.AssetPaths = WbProject.ReadAssetPaths(a.Get("--assets"));
+            if (assets != null)
+            {
+                var allPaths = new List<string>();
+                o.AssetPaths = WbProject.ReadAssetPaths(assets, allPaths);
+                o.AssetFiles = allPaths;
+            }
             foreach (string l in WbProject.Build(o, WbProject.ReadFlatFiles(src))) Console.WriteLine(l);
             return 0;
         }

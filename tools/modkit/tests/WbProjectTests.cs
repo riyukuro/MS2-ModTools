@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 using System.Text;
+using MS2.ModKit.M2d;
 using MS2.ModKit.MapEdit;
 using NUnit.Framework;
 
@@ -200,6 +201,76 @@ namespace MS2.ModKit.Tests
             StringAssert.Contains("do not put it in a repository", log[log.Count - 1]);
             // the game's own folder was only read
             Assert.IsFalse(File.Exists(Path.Combine(game, "Library/tool/Extra.model")));
+        }
+
+        static byte[] Str(string s)
+        {
+            var b = new List<byte>(BitConverter.GetBytes((uint)s.Length));
+            b.AddRange(Encoding.ASCII.GetBytes(s));
+            return b.ToArray();
+        }
+
+        // a made-up model file: some bytes, then strings stored as a 4-byte length and the text
+        static byte[] FakeModelFile(params string[] strings)
+        {
+            var b = new List<byte>(Encoding.ASCII.GetBytes("Made-up model file\n"));
+            b.AddRange(new byte[] { 1, 0, 0, 0, 0xff, 0x41, 0x42 });
+            foreach (string s in strings) b.AddRange(Str(s));
+            b.AddRange(new byte[] { 0, 0, 0, 0 });
+            return b.ToArray();
+        }
+
+        const string LongTexture = "a_texture_name_of_forty_characters_xx.dds";   // its length byte is a printable character
+
+        [Test]
+        public void TextureNamesOfAModelFile()
+        {
+            Assert.AreEqual(41, LongTexture.Length);
+            List<string> t = WbAssets.TextureNames(FakeModelFile("NodeName", "Tex_A.dds", LongTexture, "some\\folder\\In_Folder.DDS", "tex_a.dds", "not a texture"));
+            Assert.AreEqual(new[] { "Tex_A.dds", LongTexture, "In_Folder.DDS" }, t.ToArray());
+        }
+
+        [Test]
+        public void ModelAndTextureFilesAreCopiedFromTheResourceFolder()
+        {
+            string game = Path.Combine(dir, "game"), root = Path.Combine(dir, "proj"), res = Path.Combine(game, "Resource");
+            WriteInput(game, game);
+            byte[] model = FakeModelFile("Tex_A.dds", LongTexture, "gone.dds", "lost.dds");
+            byte[] texA = { 1, 2, 3 }, texLong = { 4, 5, 6, 7 }, texTwin = { 8 };
+            Directory.CreateDirectory(Path.Combine(res, "Model"));
+            // one archive Model/Made.m2d (entry names in lower case, as the game stores them) and one plain file
+            M2dWriter.Create(Path.Combine(res, "Model/Made.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
+            {
+                new KeyValuePair<string, byte[]>("up.nif", model),
+                new KeyValuePair<string, byte[]>("textures/tex_a.dds", texA),
+                new KeyValuePair<string, byte[]>("textures/" + LongTexture, texLong),
+            });
+            Directory.CreateDirectory(Path.Combine(res, "Model/Other"));
+            File.WriteAllBytes(Path.Combine(res, "Model/Other/tex_a.dds"), texTwin);
+
+            var a = new XEntity { Id = "000000000000000000000000000000a1", Model = "Extra", Name = "one" };
+            var o = new WbProjectOptions { Root = root, LibrarySource = Path.Combine(game, "Library"), ResourceDir = res };
+            o.Maps.Add(new KeyValuePair<string, byte[]>("90000001_made_up", XBlock.Bytes(new[] { a }, XDialect.Tab)));
+            o.AssetPaths = new Dictionary<string, string> { { "0000aaaa-0000-0000-0000-000000000000", "/Model/Made/Up.nif" } };
+            o.AssetFiles = new List<string> { "/Model/Made/Up.nif", "/Model/Made/Textures/Tex_A.dds", "/Model/Made/Textures/" + LongTexture,
+                "/Model/Other/Tex_A.dds", "/Model/Made/Textures/lost.dds" };
+            List<string> log = WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+
+            Assert.AreEqual(model, File.ReadAllBytes(Path.Combine(root, "Model/Made/Up.nif")));
+            Assert.AreEqual(texA, File.ReadAllBytes(Path.Combine(root, "Model/Made/Textures/Tex_A.dds")));
+            Assert.AreEqual(texLong, File.ReadAllBytes(Path.Combine(root, "Model/Made/Textures/" + LongTexture)));
+            Assert.AreEqual(texTwin, File.ReadAllBytes(Path.Combine(root, "Model/Other/Tex_A.dds")), "every file of the name is copied");
+            string missing = File.ReadAllText(Path.Combine(root, "MISSING.txt"));
+            StringAssert.Contains("texture gone.dds (named by /Model/Made/Up.nif): not in the asset list\n", missing);
+            StringAssert.Contains("texture /Model/Made/Textures/lost.dds (named by /Model/Made/Up.nif): in no archive\n", missing);
+            StringAssert.Contains("asset 0000bbbb-0000-0000-0000-000000000000: not in the asset list\n", missing);
+            StringAssert.Contains("copied 1 model files and 3 texture files (", string.Join("\n", log.ToArray()));
+
+            // the switch off: no ResourceDir, nothing is copied
+            string root2 = Path.Combine(dir, "proj2");
+            o.Root = root2; o.ResourceDir = null;
+            WbProject.Build(o, WbProject.ReadFlatFiles(Path.Combine(game, "Exported")));
+            Assert.IsFalse(Directory.Exists(Path.Combine(root2, "Model")));
         }
 
         [Test]

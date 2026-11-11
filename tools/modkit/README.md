@@ -871,21 +871,27 @@ The map editor opens a project folder: the game's library of models, one preset 
 as editor files, and a solution file. One command builds that folder from the game's archives for the maps you name:
 
 ```sh
-modkit map-project <map.xblock>... -o project --flats <Exported.m2d or folder> --library <Library.m2d or folder> \
-    [--known-ids known_guids.json] [--assets <asset-web-metadata.m2d or folder>] [--all-presets]
+modkit map-project <map.xblock>... -o project --resource <the game's Data/Resource folder> \
+    [--known-ids known_guids.json] [--all-presets] [--no-asset-files]
 ```
 
+`--resource` names the folder that holds `Exported.m2d`, `Library.m2d`, `asset-web-metadata.m2d` and the `Model`
+archives. Each of the first three can also be given alone, as an archive or an unpacked folder: `--flats`,
+`--library`, `--assets`.
+
 It copies the library, writes the model and preset files the game's flat files describe, and keeps only the presets
-your maps use (and the ones those are made from) unless you pass `--all-presets`. `MISSING.txt` lists project
-entries whose file does not exist, `ASSETS.txt` lists the asset ids found in the values of the maps' entities with
-the file each one names (with `--assets`), so you know which model files the editor will ask for. The folder holds
+your maps use (and the ones those are made from) unless you pass `--all-presets`. `ASSETS.txt` lists the asset ids
+found in the values of the maps' entities and of their models, with the file each one names. With `--resource`
+those files (the model files of the props) are copied into the project at the path the game gives them, together
+with the texture files each model file names; `--no-asset-files` leaves them out. `MISSING.txt` lists what was not
+found: project entries whose file does not exist, asset ids without a path, files that are in no archive. The folder holds
 copied game files: keep it local and out of any repository.
 
 The two steps also exist alone: `modkit map-models <project folder> --flats SRC [--known-ids FILE]` writes the
 model, preset and project files into a folder that already holds the library, and
 `modkit map-solution <project folder> [NAME.gsl]` writes the solution file for what the folder holds. They give
-the same bytes as `flat2model.py` and `tools/toolbench/mkgsl.py`. The file of known model ids is made by
-`tools/mapedit/knownguids.py`, which needs the SDK and has no C# counterpart; without it a model the library does
+the same bytes as `flat2model.py` and `tools/toolbench/mkgsl.py`. The file of known model ids (`known_guids.json`) comes from
+`tools/mapedit/knownguids.py`, which reads your own copy of the SDK and has no C# counterpart; without it a model the library does
 not ship gets an id derived from its name.
 
 ### From an edited map to a mod

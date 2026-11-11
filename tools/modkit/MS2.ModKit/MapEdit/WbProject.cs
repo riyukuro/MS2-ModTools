@@ -96,6 +96,12 @@ namespace MS2.ModKit.MapEdit
         public string SolutionName;
         /// <summary>Asset id (without "urn:llid:") to the file path in the game's asset list; may be null.</summary>
         public IDictionary<string, string> AssetPaths;
+        /// <summary>Every path of the asset list, also those without an id (textures are found by file name here).
+        /// Null: the paths of AssetPaths.</summary>
+        public IList<string> AssetFiles;
+        /// <summary>The game's Resource folder. When set (and AssetPaths too), the model files the maps use and the
+        /// textures those name are copied into the project.</summary>
+        public string ResourceDir;
     }
 
     public static class WbProject
@@ -452,8 +458,14 @@ namespace MS2.ModKit.MapEdit
                 foreach (XProp p in e.Props) foreach (XSet s in p.Items) Scan(s.Value, seen, res);
                 if (e.Model == null || doneModels.ContainsKey(e.Model)) continue;
                 doneModels[e.Model] = true;
-                WbFlat f = flats.Get(e.Model);
-                if (f != null) foreach (WbFlatProp p in f.Props) foreach (XSet s in p.Sets) Scan(s.Value, seen, res);
+                var todo = new List<string> { e.Model };
+                for (int i = 0; i < todo.Count; i++)
+                {
+                    WbFlat f = flats.Get(todo[i]);
+                    if (f == null) continue;
+                    foreach (WbFlatProp p in f.Props) foreach (XSet s in p.Sets) Scan(s.Value, seen, res);
+                    foreach (string m in f.Mixins) if (!doneModels.ContainsKey(m)) { doneModels[m] = true; todo.Add(m); }
+                }
             }
             return res;
         }
@@ -474,7 +486,10 @@ namespace MS2.ModKit.MapEdit
 
         /// <summary>Asset id to file path from the game's asset list: a folder with llid.nt and relpath.nt, or the
         /// asset-web-metadata archive.</summary>
-        public static Dictionary<string, string> ReadAssetPaths(string path)
+        public static Dictionary<string, string> ReadAssetPaths(string path) { return ReadAssetPaths(path, null); }
+
+        /// <summary>The same; every path of the list, with or without an id, is added to allPaths.</summary>
+        public static Dictionary<string, string> ReadAssetPaths(string path, List<string> allPaths)
         {
             byte[] llid = null, rel = null;
             if (Directory.Exists(path))
@@ -494,7 +509,9 @@ namespace MS2.ModKit.MapEdit
                     }
                 if (llid == null || rel == null) throw new ModKitException(path + " has no llid.nt and relpath.nt");
             }
-            return AssetPaths(Utf8.GetString(llid), Utf8.GetString(rel));
+            string relText = Utf8.GetString(rel);
+            if (allPaths != null) foreach (KeyValuePair<string, string> t in Triples(relText)) allPaths.Add(t.Value);
+            return AssetPaths(Utf8.GetString(llid), relText);
         }
 
         static IEnumerable<KeyValuePair<string, string>> Triples(string text)
@@ -571,18 +588,27 @@ namespace MS2.ModKit.MapEdit
             log.Add(rep.Line());
 
             List<string> missing = Missing(root, refs);
-            File.WriteAllBytes(Path.Combine(root, "MISSING.txt"), Utf8.GetBytes(string.Join("\n", missing.ToArray()) + "\n"));
             log.Add(missing.Count + " missing project items, listed in MISSING.txt");
 
             List<string> assets = AssetIds(flats, all);
             var sb = new StringBuilder();
             int unresolved = 0;
+            var resolved = new List<KeyValuePair<string, string>>();
             foreach (string a in assets)
             {
                 string p = null;
                 if (o.AssetPaths != null && !o.AssetPaths.TryGetValue(a, out p)) unresolved++;
+                resolved.Add(new KeyValuePair<string, string>(a, p));
                 sb.Append(a).Append('\t').Append(p ?? "").Append('\n');
             }
+            if (o.ResourceDir != null && o.AssetPaths != null)
+                using (var src = new WbAssetSource(o.ResourceDir))
+                {
+                    WbAssetCopy c = WbAssets.Copy(root, src, resolved, o.AssetFiles ?? new List<string>(o.AssetPaths.Values));
+                    missing.AddRange(c.Missing);
+                    log.Add("copied " + c.Models + " model files and " + c.Textures + " texture files (" + c.Bytes + " bytes), " + c.Missing.Count + " not found, listed in MISSING.txt");
+                }
+            File.WriteAllBytes(Path.Combine(root, "MISSING.txt"), Utf8.GetBytes(string.Join("\n", missing.ToArray()) + "\n"));
             File.WriteAllBytes(Path.Combine(root, "ASSETS.txt"), Utf8.GetBytes(sb.ToString()));
             log.Add(assets.Count + " asset files used by the maps, listed in ASSETS.txt" +
                 (o.AssetPaths == null ? " (ids only: no asset list was given)" : " (" + unresolved + " not in the asset list)"));
