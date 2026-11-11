@@ -13,7 +13,7 @@ using MS2.ModKit.Xml;
 
 namespace MS2.ModKit.Cli
 {
-    static class Program
+    static partial class Program
     {
         const string Usage = @"modkit: row-level mods for MapleStory2 game tables. Originals are only read.
 
@@ -41,6 +41,12 @@ namespace MS2.ModKit.Cli
                                                drop and shop rows), as shipped or as the mods leave them
   modkit next-id <mod> <space> [count]         free ids of a range the mod reserves
   modkit pack <folder> <out.m2d> [version]     a new archive from the files of a folder (MS2F, NS2F, OS2F or PS2F)
+
+  modkit map-index <Exported.m2d or folder> <out.json>   the model listing of a game (its .flat files) as one file
+  modkit map-to-block <map.xblock or folder>... -o DIR --index FILE     game maps as editor maps (.block)
+  modkit map-from-block <map.block>... -o DIR --index FILE              editor maps as game maps (.xblock)
+  modkit map-normalize <map.xblock>... -o DIR [--original FILE or DIR]  an exported game map in the shipped form
+                                               (see Maps in the README for the options of these three)
 
   <archive> is <root>:<path>, for example client:Xml.m2d, gms-client:Xml.m2d, server:Xml.m2d, server:Server.m2d.
   The roots are the targets: client (the Korean client, also written kms-client), gms-client (the global
@@ -79,7 +85,8 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             public string Get(string k) { string v; return Opt.TryGetValue(k, out v) ? v : null; }
         }
 
-        static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply" };
+        static readonly string[] ValueOpts = { "--client", "--kms", "--gms", "--server", "--schema", "--notes", "-w", "--game", "--also-copy", "--map", "--server-target", "--after-apply",
+            "-o", "--index", "--layers", "--folders", "--lib-root", "--model-ids", "--report", "--dialect", "--order", "--original" };
         static readonly string[] FlagOpts = { "--allow-conflicts", "--verify-all", "--json", "-q", "-h", "--help", "--no-sync", "--all" };
 
         static int Main(string[] argv)
@@ -119,6 +126,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             string cmd = a.Pos[0];
             a.Pos.RemoveAt(0);
             if (cmd == "pack") return Pack(a);
+            if (cmd.StartsWith("map-")) return MapCmd(cmd, a);
             Settings set = Settings.Load();
             using (var data = new DataSet())
             {
