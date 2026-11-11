@@ -203,6 +203,15 @@ namespace MS2.ModKit.Tests
                 string text = File.ReadAllText(file);
                 BlockDoc.Read(file).Write(file);
                 Assert.That(File.ReadAllText(file), Is.EqualTo(text));
+
+                // a layer file that lists itself is refused instead of being read without end
+                var loop = new BLayer { Name = "loop", Path = "loop.layer" };
+                loop.Layers.Add(new BLayer { Name = "loop", Path = "loop.layer" });
+                File.WriteAllText(Path.Combine(dir, "loop.layer"), BlockDoc.LayerText(loop));
+                BlockDoc withLoop = BlockDoc.Read(file);
+                withLoop.Layers.Add(new BLayer { Name = "loop", Path = "loop.layer" });
+                File.WriteAllText(file, withLoop.Text());
+                Assert.Throws<ModKitException>(() => BlockDoc.Read(file));
             }
             finally { Directory.Delete(dir, true); }
         }

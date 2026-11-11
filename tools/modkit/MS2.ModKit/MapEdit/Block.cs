@@ -216,9 +216,12 @@ namespace MS2.ModKit.MapEdit
             return res;
         }
 
-        static BLayer ReadLayer(string path, string dir)
+        // seen: the layer files on the way down to this one; a layer that lists itself would never end
+        static BLayer ReadLayer(string path, string dir, List<string> seen)
         {
-            string file = System.IO.Path.Combine(dir, path);
+            string file = System.IO.Path.GetFullPath(System.IO.Path.Combine(dir, path));
+            if (seen.Contains(file) || seen.Count > 32) throw new ModKitException(file + ": the layer lists itself (or layers are nested more than 32 deep)");
+            seen = new List<string>(seen) { file };
             XmlElem root = XmlDoc.Parse(File.ReadAllBytes(file), file).Root;
             var l = new BLayer { Name = root.Attr("name"), Path = path };
             foreach (BSetting s in ReadSettings(root))
@@ -226,7 +229,7 @@ namespace MS2.ModKit.MapEdit
             l.Entities = ReadEntities(Child(root, "entities"), file);
             XmlElem xl = Child(root, "layers");
             if (xl != null)
-                foreach (XmlElem x in xl.Children) if (x.Name == "layer") l.Layers.Add(ReadLayer(TextOf(x), dir));
+                foreach (XmlElem x in xl.Children) if (x.Name == "layer") l.Layers.Add(ReadLayer(TextOf(x), dir, seen));
             return l;
         }
 
@@ -241,7 +244,7 @@ namespace MS2.ModKit.MapEdit
             b.Settings = ReadSettings(root);
             XmlElem xl = Child(root, "layers");
             if (xl != null)
-                foreach (XmlElem x in xl.Children) if (x.Name == "layer") b.Layers.Add(ReadLayer(TextOf(x), dir));
+                foreach (XmlElem x in xl.Children) if (x.Name == "layer") b.Layers.Add(ReadLayer(TextOf(x), dir, new List<string>()));
             b.Entities = ReadEntities(Child(root, "entities"), path);
             XmlElem xf = Child(root, "entity-folders");
             if (xf != null)
