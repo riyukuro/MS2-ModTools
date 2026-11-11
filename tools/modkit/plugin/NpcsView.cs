@@ -14,6 +14,7 @@ using System.Windows.Forms;
 using Emergent.Toolbench;
 using Emergent.Toolbench.UI.Workbench;
 using MS2.ModKit;
+using MS2.ModKit.Models;
 
 namespace MS2.Tables
 {
@@ -52,6 +53,7 @@ namespace MS2.Tables
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
+        ModelBox modelBox;     // the npc's model beside the form
         readonly IconBox portraitBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };
         readonly List<Control> lockable = new List<Control>();
 
@@ -158,6 +160,14 @@ namespace MS2.Tables
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
             right.Controls.Add(head);
+            // the npc's model at the right of the form, over its whole height
+            modelBox = ModelBox.AttachRight(right);
+            tips.SetToolTip(modelBox, "The npc's model (model@kfm) in its bind pose, drawn from Resource/Model of your client data");
+            modelBox.Shown += delegate(ModelShot shot)
+            {
+                string t = shot.Picture != null ? "The npc's model in its bind pose: " + shot.Triangles.ToString(CultureInfo.InvariantCulture) + " triangles" : (shot.Message ?? "no model");
+                tips.SetToolTip(modelBox, shot.Notes == null ? t : t + "\n" + shot.Notes);
+            };
             bool fitting = false;
             EventHandler fitHead = delegate
             {
@@ -349,6 +359,7 @@ namespace MS2.Tables
         void Edited()
         {
             grid.Invalidate();
+            if (draft != null) ShowModel(draft);
             host.EditedOutside();
         }
 
@@ -423,6 +434,7 @@ namespace MS2.Tables
             {
                 npcLabel.Text = "(no npc)";
                 portraitBox.Show(null, null);
+                modelBox.Show(null, null);
                 nameBox.Text = titleBox.Text = cloneIdBox.Text = cloneNameBox.Text = cloneLevelBox.Text = cloneHpBox.Text = "";
                 return;
             }
@@ -438,9 +450,25 @@ namespace MS2.Tables
             grid.RowCount = rows.Count;
             npcLabel.Text = "NPC " + d.Id.ToString(CultureInfo.InvariantCulture) + (d.IsNew ? " (new)" : "");
             ShowPortrait(d);
+            ShowModel(d);
             nameBox.Text = d.Name ?? "";
             titleBox.Text = d.Title ?? "";
             cloneIdBox.Text = cloneNameBox.Text = cloneLevelBox.Text = cloneHpBox.Text = "";
+        }
+
+        /// <summary>Shows the model the draft's model@kfm names now; the box draws it again only when it changed.</summary>
+        void ShowModel(NpcDraft d)
+        {
+            ModelCache cache = null;
+            string kfm = null;
+            try
+            {
+                if (host != null) cache = ModelCache.For(host.SharedSession().Data);
+                kfm = ModelNames.NpcKfmFile(d);
+            }
+            catch (ModKitException) { }
+            catch (System.IO.IOException) { }
+            modelBox.Show(cache, ModelRequest.Npc(kfm));
         }
 
         void ShowPortrait(NpcDraft d)
