@@ -423,6 +423,7 @@ namespace MS2.Tables
             importersJob = p;
             bool started = host.RunOutside("finding the trigger scripts' imports", delegate { p.BuildImporters(); }, delegate
             {
+                if (IsDisposed || host == null) return;
                 if (script != null && Packs() == p) Relint();
                 host.SayOutside("the imports of " + p.Names.Count + " trigger scripts are read; the lint names a library script's importers");
             });
@@ -484,7 +485,11 @@ namespace MS2.Tables
             if (objects != null && objectsData == Session().Data)
             {
                 o.XBlock = s.XBlock;
-                o.Objects = objects.Get(s.XBlock);
+                TriggerObjects got;
+                string why;
+                objects.TryGet(s.XBlock, out got, out why);
+                o.Objects = got;
+                o.XBlockError = why;
             }
             return o;
         }
@@ -493,24 +498,37 @@ namespace MS2.Tables
         void ReadObjectsLater()
         {
             DataSet data = Session().Data;
-            if (objectsData == data || archive == null || host == null || host.Busy) return;
+            if (objectsData == data || archive == null || host == null) return;
+            if (host.Busy)
+            {
+                // tried again on the next script shown
+                objectsNote = "the map files' objects are read when the running job is done: the object ids are not checked yet";
+                FillFindings();
+                return;
+            }
             string ex = Triggers.ExportedOf(data, archive);
             objectsData = data;
             objects = null;
             if (ex == null) { objectsNote = "no data root has " + Planner.MapArchivePath + ": the object ids are not checked"; FillFindings(); return; }
             string ws = Session().WorkspaceDir;
             string cacheDir = ws == null ? null : System.IO.Path.Combine(ws, "cache");
+            // the cache stays out of every data root and the game folder
+            var keep = new List<string>();
+            foreach (string r in data.Roots) keep.Add(data.RootFolder(r));
+            if (Session().GameDir != null) keep.Add(Session().GameDir);
             TriggerXBlocks got = null;
             string note = null;
             objectsNote = "reading the objects of the map files";
             FillFindings();
             bool started = host.RunOutside("reading the objects of the map files (" + ex + ")", delegate
             {
-                ReadObjects(data, ex, cacheDir, out got, out note);
+                ReadObjects(data, ex, cacheDir, keep, out got, out note);
             }, delegate
             {
-                if (objectsData != data) return;
+                if (IsDisposed || host == null || objectsData != data) return;
                 objects = got;
+                // a read that failed is tried again on the next script shown
+                if (got == null) objectsData = null;
                 objectsNote = note;
                 if (script != null) Relint();
                 host.SayOutside(note);
@@ -518,15 +536,18 @@ namespace MS2.Tables
             if (!started) { objectsData = null; objectsNote = null; }
         }
 
-        static void ReadObjects(DataSet data, string ex, string cacheDir, out TriggerXBlocks got, out string note)
+        static void ReadObjects(DataSet data, string ex, string cacheDir, List<string> keep, out TriggerXBlocks got, out string note)
         {
             got = null;
             try
             {
                 MS2.ModKit.M2d.M2dArchive a = data.Open(ex);
                 string why = null;
-                try { got = TriggerXBlocks.Cached(a, cacheDir); }
+                try { got = TriggerXBlocks.Cached(a, cacheDir, keep); }
                 catch (ModKitException ex2) { got = TriggerXBlocks.OfArchive(a); why = ex2.Message + "; read without the cache. "; }
+                if (got.WriteError != null) why += got.WriteError + ". ";
+                int bad = got.Broken.Count;
+                if (bad > 0) why += bad.ToString(CultureInfo.InvariantCulture) + " xblock(s) do not read (the lint says which). ";
                 note = why + (got.FromCache ? "the map files' objects are read from the index cache " + got.CacheFile
                     : got.CacheFile != null ? "the map files' objects are read from " + ex + " and kept in the index cache " + got.CacheFile
                     : "the map files' objects are read from " + ex + (cacheDir == null ? " (no workspace folder, so no index cache)" : ""))
@@ -534,7 +555,8 @@ namespace MS2.Tables
             }
             catch (Exception e)
             {
-                if (!(e is ModKitException) && !(e is System.IO.IOException) && !(e is System.IO.InvalidDataException) && !(e is FormatException)) throw;
+                if (!(e is ModKitException) && !(e is System.IO.IOException) && !(e is System.IO.InvalidDataException) && !(e is FormatException)
+                    && !(e is UnauthorizedAccessException)) throw;
                 got = null;
                 note = "the map files' objects could not be read (" + e.Message + "): the object ids are not checked";
             }

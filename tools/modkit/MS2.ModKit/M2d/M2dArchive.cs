@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace MS2.ModKit.M2d
@@ -173,7 +174,11 @@ namespace MS2.ModKit.M2d
             byte[] names, table;
             try
             {
-                using (var fs = new FileStream(HeaderPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                byte[] hb;
+                using (var hf = new FileStream(HeaderPath, FileMode.Open, FileAccess.Read, FileShare.Read))
+                    hb = ReadExact(hf, hf.Length);
+                using (SHA1 sha = SHA1.Create()) headerHash = sha.ComputeHash(hb);
+                using (var fs = new MemoryStream(hb, false))
                 using (var r = new BinaryReader(fs))
                 {
                     h = M2hHeader.Read(r, HeaderPath);
@@ -219,6 +224,31 @@ namespace MS2.ModKit.M2d
                 if (!byNameNoCase.ContainsKey(e.Name)) byNameNoCase[e.Name] = e;
             }
             data = new FileStream(m2dPath, FileMode.Open, FileAccess.Read, FileShare.Read);
+            dataLength = data.Length;
+#if NET35
+            dataWritten = File.GetLastWriteTimeUtc(m2dPath);
+#else
+            dataWritten = File.GetLastWriteTimeUtc(data.SafeFileHandle);
+#endif
+        }
+
+        readonly byte[] headerHash;
+        readonly long dataLength;
+        readonly DateTime dataWritten;
+
+        /// <summary>
+        /// What the archive was at open: the hash of the .m2h bytes read and the size and write time of the .m2d handle
+        /// held. A key of what was read (a file swapped after the open does not change it).
+        /// </summary>
+        public string OpenStamp
+        {
+            get
+            {
+                var sb = new StringBuilder();
+                foreach (byte b in headerHash) sb.Append(b.ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                return sb.Append(':').Append(dataLength.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                    .Append(':').Append(dataWritten.Ticks.ToString(System.Globalization.CultureInfo.InvariantCulture)).ToString();
+            }
         }
 
         // "index,name" or "index,hash,name" per line; lines with another comma count are skipped, as upstream does

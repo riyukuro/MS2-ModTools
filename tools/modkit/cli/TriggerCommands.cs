@@ -55,7 +55,15 @@ namespace MS2.ModKit.Cli
                     int sl = nn.LastIndexOf('/');
                     string dir = sl < 0 ? "" : nn.Substring(0, sl);
                     opt.XBlock = xspec == "auto" ? dir.Substring(dir.LastIndexOf('/') + 1) : xspec;
-                    opt.Objects = loose ?? xblocks.Get(opt.XBlock);
+                    if (loose != null) { opt.Objects = loose; opt.XBlockError = null; }
+                    else
+                    {
+                        TriggerObjects got;
+                        string why;
+                        xblocks.TryGet(opt.XBlock, out got, out why);
+                        opt.Objects = got;
+                        opt.XBlockError = why;
+                    }
                 }
                 string format;
                 foreach (TriggerFinding f in lint.Lint(n, b, packs, opt, out format))
@@ -87,30 +95,42 @@ namespace MS2.ModKit.Cli
         {
             string ex = a.Get("--exported");
             string cache = XBlockCacheDir(a);
+            // the cache stays out of every data root and the game folder
+            var keep = new List<string>();
+            if (data != null) foreach (string r in data.Roots) keep.Add(data.RootFolder(r));
+            if (a.Get("--game") != null) keep.Add(a.Get("--game"));
             if (ex == null)
             {
                 if (data == null) throw new UsageException("--xblock on a folder needs --exported ARCHIVE|DIR (the map files: flat/ and xblock/)");
                 ex = Triggers.ExportedOf(data, archive);
                 if (ex == null) throw new ModKitException("--xblock: no data root has " + Planner.MapArchivePath + "; give --exported ARCHIVE|DIR");
-                return Said(TriggerXBlocks.Cached(data.Open(ex), cache));
+                Console.Error.WriteLine("map files: " + ex);
+                return Said(TriggerXBlocks.Cached(data.Open(ex), cache, keep));
             }
-            if (Directory.Exists(ex) || File.Exists(ex)) return Said(TriggerXBlocks.Cached(ex, cache));
-            if (data != null && data.Exists(ex)) return Said(TriggerXBlocks.Cached(data.Open(ex), cache));
+            if (Directory.Exists(ex) || File.Exists(ex)) return Said(TriggerXBlocks.Cached(ex, cache, keep));
+            if (data != null && data.Exists(ex)) return Said(TriggerXBlocks.Cached(data.Open(ex), cache, keep));
             throw new ModKitException("--exported: no archive or folder " + ex);
         }
 
-        /// <summary>The index cache folder: --cache, else the cache/ folder of the workspace (-w), else none.</summary>
+        /// <summary>
+        /// The index cache folder: --cache, else the cache/ folder of the workspace (-w, which must exist: it is not
+        /// made here), else none.
+        /// </summary>
         static string XBlockCacheDir(Args a)
         {
             string c = a.Get("--cache");
             if (c != null) return c;
             string w = a.Get("-w");
-            return w == null ? null : Path.Combine(w, "cache");
+            if (w == null) return null;
+            if (!Directory.Exists(w)) throw new UsageException("-w " + w + ": no such workspace folder");
+            return Path.Combine(w, "cache");
         }
 
         static TriggerXBlocks Said(TriggerXBlocks x)
         {
             if (x.CacheFile != null) Console.Error.WriteLine("xblock index: " + (x.FromCache ? "read from " : "built into ") + x.CacheFile);
+            if (x.WriteError != null) Console.Error.WriteLine("warning: " + x.WriteError);
+            foreach (KeyValuePair<string, string> b in x.Broken) Console.Error.WriteLine("warning: " + b.Value);
             return x;
         }
 

@@ -760,6 +760,8 @@ namespace MS2.ModKit
         public string XBlock;
         /// <summary>The objects of XBlock; null with XBlock set gives xblock-missing.</summary>
         public TriggerObjects Objects;
+        /// <summary>Why XBlock does not read (TriggerXBlocks.TryGet); gives xblock-unreadable in place of xblock-missing.</summary>
+        public string XBlockError;
         /// <summary>maple2-gap warnings are errors (before known-issues).</summary>
         public bool Strict;
     }
@@ -960,7 +962,8 @@ namespace MS2.ModKit
                 if (opt.XBlock != null)
                 {
                     idx = opt.Objects;
-                    if (idx == null) Add("warning", "xblock-missing", 0, null, "xblock " + Py.Repr(opt.XBlock) + " is not in the index; object IDs not checked");
+                    if (idx == null && opt.XBlockError != null) Add("warning", "xblock-unreadable", 0, null, opt.XBlockError + "; object IDs not checked");
+                    else if (idx == null) Add("warning", "xblock-missing", 0, null, "xblock " + Py.Repr(opt.XBlock) + " is not in the index; object IDs not checked");
                 }
 
                 states = new Dictionary<string, LintEl>(StringComparer.Ordinal);

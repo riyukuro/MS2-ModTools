@@ -97,6 +97,8 @@ namespace MS2.ModKit
     /// </summary>
     public sealed partial class TriggerXBlocks
     {
+        // What the index holds comes from TriggerSub, IdProps, Classify and Collect: a change there changes the index,
+        // so bump Magic (TriggerXBlockCache.cs) with it, or old cache files are served.
         static readonly string[] TriggerSub = { "MS2TriggerActor", "MS2TriggerAgent", "MS2TriggerBlock", "MS2TriggerBox", "MS2TriggerCamera",
             "MS2TriggerCube", "MS2TriggerEffect", "MS2TriggerLadder", "MS2TriggerMesh", "MS2TriggerPortal", "MS2TriggerRope", "MS2TriggerSkill", "MS2TriggerSound" };
         static readonly HashSet<string> IdProps = new HashSet<string>(StringComparer.Ordinal)
@@ -109,6 +111,8 @@ namespace MS2.ModKit
         readonly Func<string, byte[]> readXBlock;
         readonly Func<List<string>> listXBlocks;
         readonly Dictionary<string, TriggerObjects> cache = new Dictionary<string, TriggerObjects>(StringComparer.Ordinal);
+        // xblocks that do not read: name -> why
+        readonly Dictionary<string, string> broken = new Dictionary<string, string>(StringComparer.Ordinal);
 
         /// <summary>readXBlock: the bytes of xblock/&lt;name&gt;.xblock for a lower-case name, null when there is none.</summary>
         public TriggerXBlocks(FlatIndex flats, Func<string, byte[]> readXBlock) : this(flats, readXBlock, null) { }
@@ -191,19 +195,55 @@ namespace MS2.ModKit
         }
 
         /// <summary>The objects of an xblock by name ("02000006_ad", "xblock/02000006_ad.xblock"); null when there is no such xblock.</summary>
+        /// <remarks>Throws ModKitException for an xblock that does not read (TryGet says why instead).</remarks>
         public TriggerObjects Get(string spec)
+        {
+            TriggerObjects o;
+            string error;
+            if (!TryGet(spec, out o, out error)) throw new ModKitException(error);
+            return o;
+        }
+
+        /// <summary>
+        /// The objects of an xblock: true with objects (null when there is no such xblock), false with why when it
+        /// does not read. Either answer is kept.
+        /// </summary>
+        public bool TryGet(string spec, out TriggerObjects objects, out string error)
         {
             string name = spec.Replace('\\', '/');
             int slash = name.LastIndexOf('/');
             if (slash >= 0) name = name.Substring(slash + 1);
             if (name.EndsWith(".xblock", StringComparison.OrdinalIgnoreCase)) name = name.Substring(0, name.Length - ".xblock".Length);
             name = name.ToLowerInvariant();
-            TriggerObjects o;
-            if (cache.TryGetValue(name, out o)) return o;
-            byte[] b = readXBlock(name);
-            o = b == null ? null : Read(b, name);
-            cache[name] = o;
-            return o;
+            error = null;
+            if (broken.TryGetValue(name, out error)) { objects = null; return false; }
+            if (cache.TryGetValue(name, out objects)) return true;
+            try
+            {
+                byte[] b = readXBlock(name);
+                objects = b == null ? null : Read(b, name);
+            }
+            catch (Exception e)
+            {
+                if (!(e is ModKitException) && !(e is InvalidDataException) && !(e is IOException) && !(e is FormatException) && !(e is UnauthorizedAccessException)) throw;
+                error = "xblock " + name + " does not read: " + e.Message;
+                broken[name] = error;
+                objects = null;
+                return false;
+            }
+            cache[name] = objects;
+            return true;
+        }
+
+        /// <summary>The xblocks read so far that do not read, with why, sorted by name.</summary>
+        public List<KeyValuePair<string, string>> Broken
+        {
+            get
+            {
+                var l = new List<KeyValuePair<string, string>>(broken);
+                l.Sort(delegate (KeyValuePair<string, string> a, KeyValuePair<string, string> b) { return string.CompareOrdinal(a.Key, b.Key); });
+                return l;
+            }
         }
 
         /// <summary>The objects of the xblock in these bytes (a loose file), named name.</summary>

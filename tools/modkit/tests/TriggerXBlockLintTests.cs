@@ -283,6 +283,191 @@ namespace MS2.ModKit.Tests
             finally { Directory.Delete(root, true); }
         }
 
+        [Test]
+        public void TheIndexCacheRebuildsForADeletedOrRenamedXBlockAndAChangedFlat()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string ext = Path.Combine(root, "ext"), cache = Path.Combine(root, "ws", "cache");
+                Write(root, "ext/xblock/" + NoMap + ".xblock", XBlock);
+                Assert.That(TriggerXBlocks.Cached(ext, cache).Get(NoMap), Is.Not.Null);
+                Assert.That(TriggerXBlocks.Cached(ext, cache).FromCache, Is.True);
+
+                // deleted
+                File.Delete(Path.Combine(ext, "xblock", NoMap + ".xblock"));
+                TriggerXBlocks a = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(a.FromCache, Is.False, "a deleted xblock rebuilds the index");
+                Assert.That(a.Get(NoMap), Is.Null);
+                Assert.That(TriggerXBlocks.Cached(ext, cache).Get(NoMap), Is.Null);
+
+                // renamed (the time stays)
+                const string Renamed = "90000003_moved";
+                File.Move(Path.Combine(ext, "xblock", Map + ".xblock"), Path.Combine(ext, "xblock", Renamed + ".xblock"));
+                TriggerXBlocks b = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(b.FromCache, Is.False, "a renamed xblock rebuilds the index");
+                Assert.That(b.Get(Map), Is.Null);
+                Assert.That(b.Get(Renamed).Has("mesh", 3001), Is.True);
+
+                // a flat changes: Mesh_A is no trigger mesh now, so its objects are no meshes
+                string flat = Path.Combine(ext, "flat", "t", "mesh_a.flat");
+                File.WriteAllText(flat, Flat("Mesh_A", "TriggerObjectID", "0", "MS2TriggerObject", "MS2TriggerBox"), new UTF8Encoding(false));
+                File.SetLastWriteTimeUtc(flat, DateTime.UtcNow.AddMinutes(1));
+                TriggerXBlocks c = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(c.FromCache, Is.False, "a changed flat rebuilds the index");
+                Assert.That(Dump(c, Renamed), Is.EqualTo(Dump(TriggerXBlocks.OfFolder(ext), Renamed)));
+                Assert.That(c.Get(Renamed).Has("mesh", 3001), Is.False);
+                Assert.That(Dump(TriggerXBlocks.Cached(ext, cache), Renamed), Is.EqualTo(Dump(c, Renamed)));
+                Assert.That(Directory.GetFiles(cache).Length, Is.EqualTo(1), "no temp file is left");
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Test]
+        public void ACacheFileCutShortReadsAsNoCache()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string ext = Path.Combine(root, "ext"), cache = Path.Combine(root, "ws", "cache");
+                TriggerXBlocks first = TriggerXBlocks.Cached(ext, cache);
+                string file = first.CacheFile;
+                string whole = File.ReadAllText(file);
+                StringAssert.EndsWith("\n", whole);
+                StringAssert.Contains("\nend ", whole);
+                // cut at every line end before the last: never served
+                string[] lines = whole.TrimEnd('\n').Split('\n');
+                for (int n = 3; n < lines.Length; n++)
+                {
+                    File.WriteAllText(file, string.Join("\n", lines, 0, n) + "\n", new UTF8Encoding(false));
+                    TriggerXBlocks x = TriggerXBlocks.Cached(ext, cache);
+                    Assert.That(x.FromCache, Is.False, "cut after " + n + " lines");
+                    Assert.That(File.ReadAllText(file), Is.EqualTo(whole), "rebuilt whole");
+                }
+                // a count that does not fit, or a line after the end
+                File.WriteAllText(file, whole.Replace("\nend ", "\nend 9"), new UTF8Encoding(false));
+                Assert.That(TriggerXBlocks.Cached(ext, cache).FromCache, Is.False);
+                File.WriteAllText(file, whole + "x 99999999_more\n", new UTF8Encoding(false));
+                Assert.That(TriggerXBlocks.Cached(ext, cache).FromCache, Is.False);
+                Assert.That(TriggerXBlocks.Cached(ext, cache).FromCache, Is.True);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Test]
+        public void AnXBlockThatDoesNotReadIsAFindingAndTheRestIsChecked()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string ext = Path.Combine(root, "ext"), cache = Path.Combine(root, "ws", "cache");
+                Write(root, "ext/xblock/" + NoMap + ".xblock", Head + "<game>\n  <entitySet>\n    <entity id=\"1\"");
+                foreach (bool cached in new[] { false, true })
+                {
+                    TriggerXBlocks x = TriggerXBlocks.Cached(ext, cache);
+                    Assert.That(x.FromCache, Is.EqualTo(cached));
+                    Assert.That(x.Get(Map).Has("mesh", 3001), Is.True, "the other xblocks are indexed");
+                    TriggerObjects o;
+                    string why;
+                    Assert.That(x.TryGet(NoMap, out o, out why), Is.False);
+                    StringAssert.Contains(NoMap, why);
+                    Assert.That(x.Broken.Count, Is.EqualTo(1));
+                    Assert.Throws<ModKitException>(delegate { x.Get(NoMap); });
+
+                    string entry = "trigger/" + NoMap + "/plain.xml", f;
+                    byte[] b = File.ReadAllBytes(Path.Combine(root, "trigger", NoMap, "plain.xml"));
+                    var found = TriggerLint.Shipped.Lint(entry, b, null, new TriggerLintOptions { ScanImporters = false, XBlock = NoMap, Objects = o, XBlockError = why }, out f);
+                    Assert.That(found.Exists(y => y.Code == "xblock-unreadable" && y.Level == "warning"), Is.True,
+                        string.Join("\n", found.ConvertAll(y => y.ToString()).ToArray()));
+                    Assert.That(found.Exists(y => y.Code == "xblock-missing"), Is.False);
+                }
+                // the lazy reader (no cache) the same
+                TriggerXBlocks lazy = TriggerXBlocks.OfFolder(ext);
+                TriggerObjects lo;
+                string lw;
+                Assert.That(lazy.TryGet(NoMap, out lo, out lw), Is.False);
+                Assert.That(lazy.Get(Map), Is.Not.Null);
+
+                // the command line lints every script and names the broken xblock
+                string so, se;
+                int rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", ext, "--cache", cache, "--json");
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("xblock-unreadable", so);
+                StringAssert.Contains("trigger/" + Map + "/main.xml", so);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Test]
+        public void TheCacheStaysOutOfTheGameAndDataFolders()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string game = Path.Combine(root, "game"), m2d = Path.Combine(game, "Data", "Resource", "Exported.m2d");
+                Directory.CreateDirectory(Path.GetDirectoryName(m2d));
+                var entries = new List<KeyValuePair<string, byte[]>>();
+                for (int i = 0; i < Flats.GetLength(0); i++) entries.Add(new KeyValuePair<string, byte[]>(Flats[i, 0], Encoding.UTF8.GetBytes(Flats[i, 1])));
+                entries.Add(new KeyValuePair<string, byte[]>("xblock/" + Map + ".xblock", Encoding.UTF8.GetBytes(XBlock)));
+                M2dWriter.Create(m2d, PackVersion.MS2F, M2dFlag.AesZlib, entries);
+                foreach (string bad in new[] { Path.Combine(game, "Data", "Resource", "cache"), Path.Combine(game, "Data", "cache"), Path.Combine(game, "cache"), game })
+                {
+                    Assert.Throws<ModKitException>(delegate { TriggerXBlocks.Cached(m2d, bad); }, bad);
+                    Assert.That(Directory.Exists(Path.Combine(game, "cache")) || Directory.Exists(Path.Combine(game, "Data", "cache")), Is.False);
+                }
+                // a keep-out folder (a data root, the game folder) and the game folder above a Data root
+                string ext = Path.Combine(root, "ext"), other = Path.Combine(root, "data2");
+                Assert.Throws<ModKitException>(delegate { TriggerXBlocks.Cached(ext, Path.Combine(other, "cache"), new[] { other }); });
+                Assert.Throws<ModKitException>(delegate { TriggerXBlocks.Cached(ext, Path.Combine(game, "cache"), new[] { Path.Combine(game, "Data") }); });
+#if !NET35
+                // through a link to the game folder
+                string link = Path.Combine(root, "ws-link");
+                Directory.CreateSymbolicLink(link, game);
+                Assert.Throws<ModKitException>(delegate { TriggerXBlocks.Cached(m2d, Path.Combine(link, "cache")); });
+#endif
+                // the command line: --cache <game>/Data/cache and -w <game>
+                string so, se;
+                int rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "--cache", Path.Combine(game, "Data", "cache"));
+                Assert.That(rc, Is.Not.EqualTo(0), so + se);
+                StringAssert.Contains("index cache", se);
+                rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", game);
+                Assert.That(rc, Is.Not.EqualTo(0), so + se);
+                StringAssert.Contains("index cache", se);
+                Assert.That(Directory.Exists(Path.Combine(game, "cache")), Is.False);
+                // a workspace beside the game is fine
+                Directory.CreateDirectory(Path.Combine(root, "ws"));
+                rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", Path.Combine(root, "ws"));
+                Assert.That(rc, Is.EqualTo(0), so + se);
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
+        [Test]
+        public void ACacheThatCannotBeWrittenLeavesTheBuiltIndex()
+        {
+            string root = MakeRoot();
+            try
+            {
+                string ext = Path.Combine(root, "ext"), ws = Path.Combine(root, "ws");
+                Directory.CreateDirectory(ws);
+                // a file where the cache folder goes
+                string cache = Path.Combine(ws, "cache");
+                File.WriteAllText(cache, "not a folder");
+                TriggerXBlocks x = TriggerXBlocks.Cached(ext, cache);
+                Assert.That(x.FromCache, Is.False);
+                Assert.That(x.CacheFile, Is.Null);
+                Assert.That(x.WriteError, Is.Not.Null);
+                Assert.That(x.Get(Map).Has("mesh", 3001), Is.True);
+
+                string so, se;
+                int rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", ext, "-w", ws, "--json");
+                Assert.That(rc, Is.EqualTo(0), so + se);
+                StringAssert.Contains("was not written", se);
+                Assert.That(Directory.GetFiles(ws).Length, Is.EqualTo(1), "no temp file is left");
+            }
+            finally { Directory.Delete(root, true); }
+        }
+
         static string Dump2(TriggerObjects o)
         {
             var sb = new StringBuilder();
@@ -322,7 +507,12 @@ namespace MS2.ModKit.Tests
                 // the command line: -w puts it in the workspace's cache/
                 string so, se;
                 string ws = Path.Combine(root, "ws2");
+                // -w names a workspace that is there; it is not made
                 int rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", ws, "--json");
+                Assert.That(rc, Is.Not.EqualTo(0), so + se);
+                Assert.That(Directory.Exists(ws), Is.False);
+                Directory.CreateDirectory(ws);
+                rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", ws, "--json");
                 Assert.That(rc, Is.EqualTo(0), so + se);
                 StringAssert.Contains("xblock index: built into " + Path.Combine(ws, "cache"), se);
                 string so2;
