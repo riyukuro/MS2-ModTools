@@ -388,7 +388,12 @@ namespace MS2.ModKit
             // no entity of the map file uses one: the models of the listing named like one (e.g. "portal") that have the property
             ListFlats();
             var names = new List<string>(flats.Keys);
-            names.Sort(StringComparer.OrdinalIgnoreCase);
+            // names that start with the hint (Portal_...) before the others (Eff_portal_...)
+            names.Sort(delegate (string a, string b)
+            {
+                bool sa = a.StartsWith(hint, StringComparison.OrdinalIgnoreCase), sb = b.StartsWith(hint, StringComparison.OrdinalIgnoreCase);
+                return sa != sb ? (sa ? -1 : 1) : StringComparer.OrdinalIgnoreCase.Compare(a, b);
+            });
             foreach (string n in names)
             {
                 if (n.IndexOf(hint, StringComparison.OrdinalIgnoreCase) < 0) continue;
