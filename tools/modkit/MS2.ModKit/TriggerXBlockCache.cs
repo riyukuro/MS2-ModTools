@@ -68,7 +68,9 @@ namespace MS2.ModKit
             TriggerXBlocks x;
             try { x = Cached(full, d, "m2d:" + m.OpenStamp, delegate { return OfArchive(m); }, null); }
             catch { m.Dispose(); throw; }
-            if (x.FromCache) m.Dispose();
+            // from the cache, or built with every xblock read: the archive is not read again (an xblock that is not
+            // in it is looked up in its entry list only)
+            if (x.FromCache || x.listXBlocks != null) m.Dispose();
             return x;
         }
 
@@ -93,6 +95,11 @@ namespace MS2.ModKit
             TriggerObjects o;
             string why;
             foreach (string n in x.listXBlocks()) x.TryGet(n, out o, out why);
+            if (x.Passing)
+            {
+                x.WriteError = "an xblock did not read for a file or access error, which may pass; the index is not cached";
+                return x;
+            }
             if (keyAfter != null && keyAfter() != key)
             {
                 x.WriteError = "the source changed while it was read; the index is not cached";
@@ -153,19 +160,28 @@ namespace MS2.ModKit
             return dir;
         }
 
-        // the game folder above a data folder: the parent of the nearest Data/ (or of Resource/) on the way up
+        // the game folder above a data folder: the parent of the nearest Data/ (or of Resource/) on the way up, when
+        // that folder is one of the game's data: a Resource/ that holds archives (.m2d), a Data/ that holds archives
+        // or such a Resource/. An extract that only sits under some Data/ folder keeps the folders above it free.
         static void AddGame(List<string> roots, string path)
         {
             for (string p = path.TrimEnd(Path.DirectorySeparatorChar); !string.IsNullOrEmpty(p); p = Path.GetDirectoryName(p))
             {
                 string n = Path.GetFileName(p);
-                if (string.Equals(n, "Data", StringComparison.OrdinalIgnoreCase) || string.Equals(n, "Resource", StringComparison.OrdinalIgnoreCase))
-                {
-                    string up = Path.GetDirectoryName(p);
-                    if (!string.IsNullOrEmpty(up) && Path.GetPathRoot(up) != up) roots.Add(up);
-                    if (string.Equals(n, "Data", StringComparison.OrdinalIgnoreCase)) return;
-                }
+                bool data = string.Equals(n, "Data", StringComparison.OrdinalIgnoreCase);
+                if (!data && !string.Equals(n, "Resource", StringComparison.OrdinalIgnoreCase)) continue;
+                if (!HasArchives(p) && !(data && HasArchives(Path.Combine(p, "Resource")))) continue;
+                string up = Path.GetDirectoryName(p);
+                if (!string.IsNullOrEmpty(up) && Path.GetPathRoot(up) != up) roots.Add(up);
+                if (data) return;
             }
+        }
+
+        static bool HasArchives(string dir)
+        {
+            try { return Directory.Exists(dir) && Directory.GetFiles(dir, "*.m2d").Length > 0; }
+            catch (IOException) { return false; }
+            catch (UnauthorizedAccessException) { return false; }
         }
 
         static bool Under(string dir, string home)

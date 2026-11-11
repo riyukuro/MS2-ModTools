@@ -228,12 +228,19 @@ namespace MS2.ModKit
                 if (!(e is ModKitException) && !(e is InvalidDataException) && !(e is IOException) && !(e is FormatException) && !(e is UnauthorizedAccessException)) throw;
                 error = "xblock " + name + " does not read: " + e.Message;
                 broken[name] = error;
+                if (e is IOException || e is UnauthorizedAccessException) Passing = true;
                 objects = null;
                 return false;
             }
             cache[name] = objects;
             return true;
         }
+
+        /// <summary>
+        /// An xblock failed with a file or access error, which may pass (a locked file): the index is then not written
+        /// to the cache, so that it is not kept as a broken xblock.
+        /// </summary>
+        public bool Passing { get; private set; }
 
         /// <summary>The xblocks read so far that do not read, with why, sorted by name.</summary>
         public List<KeyValuePair<string, string>> Broken

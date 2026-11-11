@@ -527,10 +527,11 @@ namespace MS2.Tables
             {
                 if (IsDisposed || host == null || objectsData != data) return;
                 objects = got;
-                // a read that failed is tried again on the next script shown
-                if (got == null) objectsData = null;
                 objectsNote = note;
+                // objectsData stays set while the script is linted again, so that a read that failed does not start
+                // again from here (a lasting failure would loop); it is tried again on the next script shown
                 if (script != null) Relint();
+                if (got == null) objectsData = null;
                 host.SayOutside(note);
             });
             if (!started) { objectsData = null; objectsNote = null; }

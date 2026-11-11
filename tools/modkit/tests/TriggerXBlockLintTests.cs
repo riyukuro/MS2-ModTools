@@ -438,6 +438,18 @@ namespace MS2.ModKit.Tests
                 Directory.CreateDirectory(Path.Combine(root, "ws"));
                 rc = Cli(out so, out se, "trigger-lint", root, "--xblock", "auto", "--exported", m2d, "-w", Path.Combine(root, "ws"));
                 Assert.That(rc, Is.EqualTo(0), so + se);
+
+                // an extract that only sits under a Data/ folder (no archives in it) keeps the folders above it free
+                string srv = Path.Combine(root, "srv"), m2d2 = Path.Combine(srv, "Data", "extract", "Exported.m2d");
+                Directory.CreateDirectory(Path.GetDirectoryName(m2d2));
+                File.Copy(m2d, m2d2);
+                File.Copy(Path.ChangeExtension(m2d, ".m2h"), Path.ChangeExtension(m2d2, ".m2h"));
+                TriggerXBlocks x2 = TriggerXBlocks.Cached(m2d2, Path.Combine(srv, "ws", "cache"));
+                Assert.That(x2.CacheFile, Is.Not.Null, x2.WriteError);
+                // the archive is closed after the build: every xblock is in the index, one it lacks is none
+                Assert.That(x2.Get(Map).Has("mesh", 3001), Is.True);
+                Assert.That(x2.Get("no_such_map"), Is.Null);
+                Assert.Throws<ModKitException>(delegate { TriggerXBlocks.Cached(m2d2, Path.Combine(srv, "Data", "extract", "cache")); });
             }
             finally { Directory.Delete(root, true); }
         }
@@ -466,6 +478,35 @@ namespace MS2.ModKit.Tests
                 Assert.That(Directory.GetFiles(ws).Length, Is.EqualTo(1), "no temp file is left");
             }
             finally { Directory.Delete(root, true); }
+        }
+
+        [Test]
+        public void AFileErrorIsNotCachedAsABrokenXBlock()
+        {
+            if (Path.DirectorySeparatorChar == '\\' || Environment.UserName == "root") Assert.Ignore("needs file modes and a user they hold for");
+            string root = MakeRoot();
+            string xb = Path.Combine(root, "ext", "xblock", Map + ".xblock");
+            try
+            {
+                string cache = Path.Combine(root, "ws", "cache");
+                File.SetUnixFileMode(xb, UnixFileMode.None);
+                TriggerXBlocks x = TriggerXBlocks.Cached(Path.Combine(root, "ext"), cache);
+                Assert.That(x.Broken.Count, Is.EqualTo(1));
+                Assert.That(x.CacheFile, Is.Null);
+                StringAssert.Contains("not cached", x.WriteError);
+                Assert.That(Directory.Exists(cache) && Directory.GetFiles(cache).Length > 0, Is.False);
+                // once the file reads, the next run builds the index and caches it
+                File.SetUnixFileMode(xb, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                x = TriggerXBlocks.Cached(Path.Combine(root, "ext"), cache);
+                Assert.That(x.Broken.Count, Is.EqualTo(0));
+                Assert.That(x.CacheFile, Is.Not.Null, x.WriteError);
+                Assert.That(x.Get(Map).Has("mesh", 3001), Is.True);
+            }
+            finally
+            {
+                if (File.Exists(xb)) File.SetUnixFileMode(xb, UnixFileMode.UserRead | UnixFileMode.UserWrite);
+                Directory.Delete(root, true);
+            }
         }
 
         static string Dump2(TriggerObjects o)
