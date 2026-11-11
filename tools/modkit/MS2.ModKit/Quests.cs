@@ -567,8 +567,8 @@ namespace MS2.ModKit
 
         /// <summary>
         /// The table whose id the code of a condition of this type is ("npc", "item", "map", "skill", "quest",
-        /// "interact object", "dungeon"), or null when the code is free. Such a code is not edited here: the editor
-        /// has no list of that table to pick from.
+        /// "interact object", "dungeon"), or null when the code is free. Such a code takes only ids (IdLookup lists
+        /// the ones the plugin can pick from).
         /// </summary>
         public static string CodeTable(string type)
         {
@@ -620,14 +620,15 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Sets the code of condition index in every place that has it. A code that is an id of another table
-        /// (CodeTable of the type) is refused.
+        /// (CodeTable of the type) must be an id or ids with commas between them.
         /// </summary>
         public int SetConditionCode(int index, string code)
         {
             code = (code ?? "").Trim();
             QuestCondition c = Condition(index);
             string table = CodeTable(c.Type);
-            if (table != null) throw new ModKitException("the code of a \"" + c.Type + "\" condition is an id of the " + table + " table; it is not edited here");
+            if (table != null && !System.Text.RegularExpressions.Regex.IsMatch(code, "^[0-9]+(,[0-9]+)*$"))
+                throw new ModKitException("the code of a \"" + c.Type + "\" condition is an id of the " + table + " table (or ids with commas between them): \"" + code + "\" is not");
             return EachCondition(index, delegate(QuestNode row) { if ((Editor.Attr(row, "code") ?? "") != code) Editor.SetAttr(row, "code", code); });
         }
 

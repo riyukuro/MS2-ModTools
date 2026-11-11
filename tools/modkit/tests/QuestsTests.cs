@@ -1716,8 +1716,14 @@ namespace MS2.ModKit.Tests
                 QuestEditor e = f.Editor();
                 Assert.That(e.ConditionTypes(), Is.EqualTo(new[] { "npc", "talk" }));
                 QuestDraft d = e.Open(701);
-                // condition 1 is npc 41: its code is an npc id
-                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(0, "43"); });
+                // condition 1 is npc 41: its code is an npc id, or ids
+                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(0, "abc"); });
+                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(0, "43,"); });
+                Assert.Throws<ModKitException>(delegate { d.SetConditionCode(0, ""); });
+                Assert.That(d.SetConditionCode(0, "43"), Is.EqualTo(3));
+                Assert.That(d.SetConditionCode(0, "43,44"), Is.EqualTo(3));
+                Assert.That(d.SetConditionCode(0, "41"), Is.EqualTo(3));
+                Assert.That(f.Mod.Ops, Is.Empty, "back to the shipped code writes nothing");
                 Assert.Throws<ModKitException>(delegate { d.SetConditionType(0, "talk"); }, "an npc id is not free text");
                 Assert.Throws<ModKitException>(delegate { d.SetConditionType(0, "walk"); }, "not a shipped type");
                 Assert.Throws<ModKitException>(delegate { d.SetConditionType(0, ""); });
