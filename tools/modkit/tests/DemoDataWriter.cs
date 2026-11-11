@@ -64,15 +64,24 @@ namespace MS2.ModKit.Tests
             });
 
             // the map files of our client: the objects the trigger lint checks the ids of the scripts against (the
-            // gate script names box 102, which the map does not have), and no file for fake_attic
+            // gate script names box 102, which the map does not have), a few props for the Maps view, and no file for
+            // fake_attic
             var exported = new List<KeyValuePair<string, byte[]>>
             {
                 E("flat/demo/triggerbox_demo.flat", Flat("TriggerBox_Demo", "TriggerObjectID", "MS2TriggerObject", "MS2TriggerBox")),
                 E("flat/demo/triggermesh_demo.flat", Flat("TriggerMesh_Demo", "TriggerObjectID", "MS2TriggerObject", "MS2TriggerMesh")),
                 E("flat/demo/triggermodel_demo.flat", Flat("TriggerModel_Demo", "TriggerModelID", "MS2TriggerModel")),
+                E("flat/demo/crate_demo.flat", Flat("Crate_Demo", null)),
+                E("flat/demo/lantern_demo.flat", Flat("Lantern_Demo", null)),
                 E("xblock/fake_meadow.xblock", XBlock(
-                    Ent("TriggerBox_Demo", "GateBox", "TriggerObjectID", "101") + Ent("TriggerMesh_Demo", "GateLeft", "TriggerObjectID", "3001") +
-                    Ent("TriggerModel_Demo", "GateScript", "TriggerModelID", "9001", "XmlFilePath", @".\Data\Xml\Trigger\fake_meadow\gate.xml"))),
+                    Ent("TriggerBox_Demo", "GateBox", "Position", "0, 450, 0", "TriggerObjectID", "101") +
+                    Ent("TriggerMesh_Demo", "GateLeft", "Position", "-150, 600, 0", "TriggerObjectID", "3001") +
+                    Ent("TriggerModel_Demo", "GateScript", "Position", "0, 0, 0", "TriggerModelID", "9001", "XmlFilePath", @".\Data\Xml\Trigger\fake_meadow\gate.xml") +
+                    Ent("Crate_Demo", "Crate_01", "Position", "300, 150, 0") +
+                    Ent("Crate_Demo", "Crate_02", "Position", "450, 150, 0", "Rotation", "0, 0, 90") +
+                    Ent("Crate_Demo", "Crate_03", "Position", "450, 150, 150", "Scale", "0.5") +
+                    Ent("Lantern_Demo", "Lantern_01", "Position", "-300, 300, 150", "IsVisible", "False") +
+                    Ent("Lantern_Demo", "Lantern_02", "Position", "300, 300, 150"))),
             };
             foreach (string block in new[] { "fake_harbor", "fake_far_shore", "fake_cove", "fake_ridge" })
                 exported.Add(E("xblock/" + block + ".xblock", XBlock("")));
@@ -139,7 +148,11 @@ namespace MS2.ModKit.Tests
             var sb = new StringBuilder(Head + "<model name=\"" + name + "\" id=\"1\">\n");
             int id = 2;
             foreach (string m in mixins) sb.Append("\t<mixin name=\"" + m + "\" id=\"" + (id++) + "\" />\n");
-            sb.Append("\t<property name=\"" + idProp + "\" type=\"SInt32\" id=\"" + id + "\"><set value=\"0\" /></property>\n");
+            sb.Append("\t<property name=\"Position\" type=\"Point3\" id=\"" + (id++) + "\"><set value=\"0, 0, 0\" /></property>\n");
+            sb.Append("\t<property name=\"Rotation\" type=\"Point3\" id=\"" + (id++) + "\"><set value=\"0, 0, 0\" /></property>\n");
+            sb.Append("\t<property name=\"Scale\" type=\"Float32\" id=\"" + (id++) + "\"><set value=\"1\" /></property>\n");
+            sb.Append("\t<property name=\"IsVisible\" type=\"Boolean\" id=\"" + (id++) + "\"><set value=\"True\" /></property>\n");
+            if (idProp != null) sb.Append("\t<property name=\"" + idProp + "\" type=\"SInt32\" id=\"" + id + "\"><set value=\"0\" /></property>\n");
             return sb.Append("</model>\n").ToString();
         }
 

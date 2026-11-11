@@ -1198,6 +1198,8 @@ operations, and each copy gets the same operations applied to its own file.
 
 The view works on the data and the mod of the MS2 Tables view, as the other entity views do.
 
+![The MS2 Maps view on a made-up data set](../../docs/shots/maps.png)
+
 - **Map id or name** and **Find** list the maps (the same search as the Pick dialog). Choosing a map lists its map
   files below it: the ones its row in the map table names, with the feature and locale of each.
 - Choosing a map file reads its entities from `Resource/Exported.m2d` of the first data root that has it (a big
