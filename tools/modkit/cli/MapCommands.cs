@@ -11,6 +11,9 @@ namespace MS2.ModKit.Cli
     {
         static int MapCmd(string cmd, Args a)
         {
+            // what these commands print is the same text on every system: lines end with a line feed
+            Console.Out.NewLine = "\n";
+            Console.Error.NewLine = "\n";
             switch (cmd)
             {
                 case "map-index": return MapIndex(a);

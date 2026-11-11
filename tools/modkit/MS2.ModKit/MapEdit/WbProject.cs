@@ -24,13 +24,18 @@ namespace MS2.ModKit.MapEdit
             if (dirs.TryGetValue(dir, out d)) return d;
             d = new Dictionary<string, string>(StringComparer.Ordinal);
             if (Directory.Exists(dir))
-                foreach (string e in Directory.GetFileSystemEntries(dir))
+            {
+                // sorted, so that of two names that differ only in case the same one is found on every run
+                var names = new List<string>();
+                foreach (string e in Directory.GetFileSystemEntries(dir)) names.Add(Path.GetFileName(e));
+                names.Sort(StringComparer.Ordinal);
+                foreach (string n in names)
                 {
-                    string n = Path.GetFileName(e);
                     d["=" + n] = n;
                     string low = "~" + n.ToLowerInvariant();
                     if (!d.ContainsKey(low)) d[low] = n;
                 }
+            }
             dirs[dir] = d;
             return d;
         }
@@ -434,14 +439,20 @@ namespace MS2.ModKit.MapEdit
                 if (!cp.Exists(maps, r)) missing.Add("project not shipped (must be synthesised): " + r);
             var emts = new List<string>();
             ProjectFiles(Path.Combine(root, "Library"), emts);
-            emts.Sort(StringComparer.Ordinal);
-            string pre = root.TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+            // listed by the name below root with '/' between the parts, in ordinal order of that name: the same list on
+            // every system
+            string pre = Path.Combine(root, "Library");
+            pre = pre.Substring(0, pre.Length - "Library".Length);
+            var byRel = new List<KeyValuePair<string, string>>();
             foreach (string emt in emts)
+                byRel.Add(new KeyValuePair<string, string>(emt.Substring(pre.Length).Replace(Path.DirectorySeparatorChar, '/').Replace(Path.AltDirectorySeparatorChar, '/'), emt));
+            byRel.Sort(delegate (KeyValuePair<string, string> x, KeyValuePair<string, string> y) { return string.CompareOrdinal(x.Key, y.Key); });
+            foreach (KeyValuePair<string, string> e in byRel)
             {
-                string txt = ReadText(emt);
+                string txt = ReadText(e.Value);
                 foreach (Match m in Regex.Matches(txt, "<File\\s+path=\"([^\"]+)\""))
-                    if (!cp.Exists(Path.GetDirectoryName(emt), m.Groups[1].Value))
-                        missing.Add(emt.Substring(pre.Length).Replace(Path.DirectorySeparatorChar, '/') + ": " + m.Groups[1].Value);
+                    if (!cp.Exists(Path.GetDirectoryName(e.Value), m.Groups[1].Value))
+                        missing.Add(e.Key + ": " + m.Groups[1].Value);
             }
             return missing;
         }

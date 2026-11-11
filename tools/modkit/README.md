@@ -856,7 +856,10 @@ that map and number. Two mods that touch the same entity, or bring the same numb
 ### Converting maps for the map editor
 
 Four commands convert between the game's map files and the files the Gamebryo map editor works on. They replace
-the Python scripts of [tools/mapedit](../mapedit/README.md) and give the same bytes.
+the Python scripts of [tools/mapedit](../mapedit/README.md). modkit is the reference from now on: the files it
+writes are the same bytes on every system (lines end with a line feed where the editor does not ask for another
+end, names in lists have `/` between their parts, lists are in ordinal order of the names). What the map
+commands print ends its lines with a line feed too. The Python scripts gave the same bytes for the shipped data on Linux; they are not kept in step.
 
 ```sh
 modkit map-index <Exported.m2d or folder> index.json                # the model listing, once per game version
@@ -881,16 +884,23 @@ archives. Each of the first three can also be given alone, as an archive or an u
 
 It copies the library, writes the model and preset files the game's flat files describe, and keeps only the presets
 your maps use (and the ones those are made from) unless you pass `--all-presets`. `ASSETS.txt` lists the asset ids
-found in the values of the maps' entities and of their models, with the file each one names. With `--resource`
+found in the values of the maps' entities and of their models, with the file each one names. It does not list the
+textures that those model files pull in: they are copied (next sentence) but have no line there. With `--resource`
 those files (the model files of the props) are copied into the project at the path the game gives them, together
 with the texture files each model file names; `--no-asset-files` leaves them out. `MISSING.txt` lists what was not
 found: project entries whose file does not exist, asset ids without a path, files that are in no archive. The folder holds
 copied game files: keep it local and out of any repository.
 
+Every name that comes out of a game file (a path in a project file, a model, map or layer name, an archive entry,
+an asset path) is checked before anything is written under it. A name that is rooted, has a drive letter or a `:`,
+has a `..` part, or would end outside the project folder is refused: it is listed on the error output as
+`refused, not written: ...`, that one file is not written, the rest is, and the command ends with exit code 1.
+`map-models`, `map-solution` and `map-from-block` check the names they write the same way.
+
 The two steps also exist alone: `modkit map-models <project folder> --flats SRC [--known-ids FILE]` writes the
 model, preset and project files into a folder that already holds the library, and
-`modkit map-solution <project folder> [NAME.gsl]` writes the solution file for what the folder holds. They give
-the same bytes as `flat2model.py` and `tools/toolbench/mkgsl.py`. The file of known model ids (`known_guids.json`) comes from
+`modkit map-solution <project folder> [NAME.gsl]` writes the solution file for what the folder holds. They take
+the place of `flat2model.py` and `tools/toolbench/mkgsl.py`. The file of known model ids (`known_guids.json`) comes from
 `tools/mapedit/knownguids.py`, which reads your own copy of the SDK and has no C# counterpart; without it a model the library does
 not ship gets an id derived from its name.
 
