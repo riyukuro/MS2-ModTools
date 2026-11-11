@@ -65,8 +65,8 @@ and `validate` with the third example mod, which is made to collide with the oth
 ```
 warning: [example.rival-pets] id 905 of space "pet" is added in 1 of 2 places; nothing is added in server:Xml.m2d pet/{id}.xml
 warning: [example.rival-pets] client:Xml.m2d table/pet.xml: attribute glow is never set on ms2/pet in the shipped table/pet.xml
-conflict, example.rival-pets wins: [example.rival-pets] client:Xml.m2d table/pet.xml: pet[id=100] @hp: "80" here, "65" in mod example.bigger-pets
-conflict, example.rival-pets wins: [example.rival-pets] client:Xml.m2d table/pet.xml: deletes the row pet[id=101] that mod example.bigger-pets changes
+conflict, example.rival-pets wins: [example.bigger-pets] client:Xml.m2d table/pet.xml: pet[id=100] @hp: "65" here, "80" in mod example.rival-pets
+conflict, example.rival-pets wins: [example.bigger-pets] client:Xml.m2d table/pet.xml: changes the row pet[id=101]/skill[id=8] that mod example.rival-pets deletes
 conflict, no winner: [example.rival-pets] ids space "pet": the range 905-915 overlaps 900-909 of mod example.new-pet
 error: [example.rival-pets] client:Xml.m2d table/pet.xml: new id 905 of space "pet" is already used in the original data (server:Xml.m2d pet/{id}.xml)
 ```
@@ -181,10 +181,19 @@ modkit status --game <game folder>
   `MS2_MOD_PRIORITY` (environment, then `modtools.toml`), which may also name mods that are not given this time.
   Every conflict line begins with the outcome (`conflict, X wins:` or `conflict, no winner:`), a line
   `priority, the highest first: c > a > b` follows the conflicts, and `--json` has `priority` and a `winner` per
-  conflict. What the higher mod sets is what the plan holds: its value, its delete, its new row or its entry; the
-  lower mod's part of that conflict is left out, and the rest of the lower mod still applies. Three kinds of
-  conflict have no winner and name none: two mods whose id ranges overlap, a new id that two mods add in
-  different places (both are written), and a file in the game folder that this tool did not write.
+  conflict. The mod a line names as the winner is the one whose part is written: its value, its delete, its new
+  row or its entry; the lower mod's part of that conflict is left out, and the rest of the lower mod still
+  applies. The mods are planned from the highest down, so what a mod gets never depends on a third mod that
+  loses: where the highest of three changes a row that the middle one deletes, the row stays and the lowest
+  one's change of another field of it is written too. A whole entry (`<entry file=...>`) against an edit of
+  that entry goes the same way: the higher mod's entry is written as that mod has it, and the higher mod's edit
+  is made in the shipped entry, without the lower mod's file (in the lower mod's entry only where that mod adds
+  an entry the game does not ship). A line that is mirrored to another target is decided against the lines
+  for that target like any other line, and such a conflict stops `apply` like any other.
+  A few conflicts have no winner and name none: two mods whose id ranges overlap, a new id that two mods add
+  in different places, a mod that contradicts itself (it changes a row and deletes it, or adds one row twice),
+  and a file in the game folder that this tool did not write. No priority decides these, so they stop `apply`
+  with `--allow-conflicts` as well, until the mods are changed.
 - After writing, the changed entries are read back from the copy and compared. `--verify-all` also compares every
   untouched entry with the original.
 - Point the game at the copies yourself (or copy them over a **copy** of the game folder). For the server see
@@ -308,7 +317,8 @@ Using it:
    two mods set the same thing the higher one wins. **Up** and **Down** move the selected mod, or drag it to its
    place with the mouse. A mod folder that is new goes to the end of the list; the mod being edited, when it is
    not saved yet, is above all. **Higher mod wins a conflict** under the list decides what a conflict does: off,
-   Apply writes nothing while mods conflict; on, Apply goes on and the higher mod's change is written. Either way
+   Apply writes nothing while mods conflict; on, Apply goes on and the higher mod's change is written (a conflict with no winner stops Apply
+   either way). Either way
    Plan shows the order and the conflicts first, every conflict line beginning with its winner
    (`conflict, X wins:`). A click on a mod's box
    checks or unchecks it; a click on its name selects it. The box is kept in the Toolbench settings and

@@ -65,8 +65,8 @@ options
   --schema DIR                   schema cache (default: <MS2_OUT>/modkit/schema)
   --notes FILE                   schema notes (default: tools/modkit/schema-notes.xml)
   --allow-conflicts              apply although mods conflict: the mod of the higher priority wins, and the
-                                 conflict line names it (a file in the game folder that this tool did not
-                                 write is never overwritten)
+                                 conflict line names it (a conflict with no winner, like two mods with
+                                 overlapping id ranges, still stops the apply)
   --priority ID,ID,...           mod ids, the highest priority first; mods not named come below them, a later
                                  one above an earlier one (default: MS2_MOD_PRIORITY, then modtools.toml)
   --verify-all                   apply: compare every untouched entry with the original after writing
@@ -425,7 +425,7 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             if (step.Enabled && !x.A.Has("-w")) p.Note("--server-target and --after-apply need -w <workspace>: the server's archives are written there first");
             else foreach (string line in step.Describe(p, x.WsDir)) p.Note(line);
             if (x.Json) WriteJson(PlanJson(p)); else PrintPlan(x, p, changes);
-            return p.HasErrors || (p.HasConflicts && !x.A.Has("--allow-conflicts")) ? 1 : 0;
+            return p.HasErrors || p.Undecided > 0 || (p.HasConflicts && !x.A.Has("--allow-conflicts")) ? 1 : 0;
         }
 
         static object ResultJson(ApplyResult r)

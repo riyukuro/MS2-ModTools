@@ -145,6 +145,10 @@ namespace MS2.ModKit
 
         public bool HasErrors { get { return Errors.Count > 0; } }
         public bool HasConflicts { get { return Conflicts.Count > 0; } }
+        /// <summary>The conflicts that no priority decides (two mods claim the same ids, a mod contradicts itself):
+        /// nothing is written while there is one, whatever the options say.</summary>
+        public int Undecided { get { int n = 0; foreach (PlanMessage m in Conflicts) if (m.WinnerId == null) n++; return n; } }
+        public const string UndecidedReason = " conflict(s) that no priority decides";
 
         public PlanArchive Find(string archive)
         {
@@ -285,14 +289,16 @@ namespace MS2.ModKit
                 }
             foreach (MirrorOp mo in mirrored)
                 if (mo.Op is EntryOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
-            foreach (Mod m in mods)
-                foreach (ModOp op in m.Ops)
+            // from the highest priority down: what a mod has planned is never undone by a later one, so the result
+            // for a mod does not depend on a third mod that loses
+            for (int i = mods.Count - 1; i >= 0; i--)
+                foreach (ModOp op in mods[i].Ops)
                 {
-                    ProgressUtil.Report(options.Progress, "plan", m.Id, ++done, total);
+                    ProgressUtil.Report(options.Progress, "plan", mods[i].Id, ++done, total);
                     var ed = op as EditOp;
-                    if (ed != null && Targeted(run, m, ed)) DoEditOp(run, m, ed);
+                    if (ed != null && Targeted(run, mods[i], ed)) DoEditOp(run, mods[i], ed);
                 }
-            // from the highest priority down: where two mods make the same thing, the first one keeps it
+            // also from the highest priority down: where two mods make the same thing, the first one keeps it
             for (int i = mods.Count - 1; i >= 0; i--)
             {
                 Mod m = mods[i];
@@ -308,8 +314,10 @@ namespace MS2.ModKit
                     ProgressUtil.Report(options.Progress, "plan", m.Id, done += m.Skills.Count + m.JobSkills.Count, total);
                     DoSkills(run, m);
                 }
-            foreach (MirrorOp mo in mirrored)
-                if (mo.Op is EditOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
+            // the mirrored lines in the same order as the direct ones, so a conflict reads the same on both sides
+            for (int i = mods.Count - 1; i >= 0; i--)
+                foreach (MirrorOp mo in mirrored)
+                    if (mo.Mod == mods[i] && mo.Op is EditOp) { ProgressUtil.Report(options.Progress, "plan", mo.Mod.Id, ++done, total); RunMirrored(run, mo); }
             FinishMirror(run);
             SyncPass(run, options);
             DoMaps(run, mods);
@@ -376,6 +384,7 @@ namespace MS2.ModKit
             {
                 if (st.DeletedBy != null) { plan.Msg(plan.Notes, mod, op.Archive, st.Name, "entry is already deleted by " + Who(st.DeletedBy, mod)); return; }
                 if (!st.Existed && st.Base == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "cannot delete the entry, the archive has none of that name (mod.xml line " + op.Line + ")"); return; }
+                if (st.BaseMod == mod) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "deletes the entry that the same mod " + (st.Existed ? "replaces" : "adds")); return; }
                 if (st.BaseMod != null)
                 {
                     bool loses = run.Outranks(st.BaseMod, mod);
@@ -407,6 +416,8 @@ namespace MS2.ModKit
                 bytes = arch.Read(src);
                 from = "copy of " + src.Name;
             }
+            if (st.DeletedBy == mod) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "puts an entry where the same mod deletes one"); return; }
+            if (st.BaseMod == mod && !M2dWriter.BytesEqual(bytes, st.Base)) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, (st.Existed ? "replaces" : "adds") + " the entry twice, with different content"); return; }
             if (st.DeletedBy != null)
             {
                 bool loses = run.Outranks(st.DeletedBy, mod);
@@ -446,7 +457,19 @@ namespace MS2.ModKit
                 return;
             }
             if (st.BaseMod != null && st.BaseMod != mod)
-                plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "edits an entry that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds") + "; both are in the plan: the edit is made in the entry of mod " + st.BaseMod.Id);
+            {
+                string text = "edits an entry that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds");
+                // the whole entry of the higher mod is written as that mod has it
+                if (!run.Outranks(mod, st.BaseMod)) { plan.Conflict(mod, op.Archive, st.Name, text, st.BaseMod); return; }
+                if (st.Existed && st.Original != null && st.Doc == null)
+                {
+                    // the edit is of the higher mod: it is made in the shipped entry, the other mod's file is left out
+                    plan.Conflict(mod, op.Archive, st.Name, text, mod);
+                    DropEntryChange(plan, st);
+                    st.Base = st.Original; st.BaseMod = null;
+                }
+                else plan.Conflict(mod, op.Archive, st.Name, text + ": the edit is made in that entry", mod);
+            }
             if (!EnsureDoc(plan, mod, st)) return;
             foreach (RowOp r in op.Rows)
             {
@@ -638,13 +661,30 @@ namespace MS2.ModKit
                 for (XmlElem e = c.Value.Elem; e != null; e = e.Parent) if (e == target) { inside = true; break; }
                 if (!inside) continue;
                 drop.Add(c.Key);
-                if (c.Value.Mod == mod) { plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, "deletes the row " + row + " that " + Who(c.Value.Mod, mod) + " changes"); continue; }
-                bool loses = run.Outranks(c.Value.Mod, mod);
-                if (loses) kept = true;
-                plan.Conflict(mod, st.Archive, st.Name, "deletes the row " + row + " that " + Who(c.Value.Mod, mod) + " changes", loses ? c.Value.Mod : mod);
+                if (c.Value.Mod != mod && run.Outranks(c.Value.Mod, mod)) kept = true;
             }
-            if (kept) return;      // a mod of higher priority changes the row: it stays
+            // a mod of higher priority changes the row: it stays, and only that mod is named (the row is not
+            // deleted, so the delete wins against no one)
+            var said = new Dictionary<Mod, bool>();
+            foreach (string k in drop)
+            {
+                Mod other = st.Claims[k].Mod;
+                string text = "deletes the row " + row + " that " + Who(other, mod) + " changes";
+                if (other == mod) { if (!kept && !said.ContainsKey(other)) plan.Msg(plan.Conflicts, mod, st.Archive, st.Name, text); }
+                else if (kept ? run.Outranks(other, mod) && !said.ContainsKey(other) : !said.ContainsKey(other))
+                    plan.Conflict(mod, st.Archive, st.Name, text, kept ? other : mod);
+                said[other] = true;
+            }
+            if (kept) return;
+            // the delete wins: the changes inside the row are in no part of the plan
             foreach (string k in drop) st.Claims.Remove(k);
+            for (int i = plan.Changes.Count - 1; i >= 0; i--)
+            {
+                PlanChange c = plan.Changes[i];
+                if (c.Archive != st.Archive || c.Entry != st.Name || c.Row == null) continue;
+                if (c.Kind != ChangeKind.SetAttr && c.Kind != ChangeKind.RemoveAttr && c.Kind != ChangeKind.SetText) continue;
+                if (c.Row == row || c.Row.StartsWith(row + "/", StringComparison.Ordinal)) plan.Changes.RemoveAt(i);
+            }
             for (int i = st.Deleted.Count - 1; i >= 0; i--)
                 for (XmlElem e = st.Deleted[i].Key; e != null; e = e.Parent)
                     if (e == target) { st.Deleted.RemoveAt(i); break; }

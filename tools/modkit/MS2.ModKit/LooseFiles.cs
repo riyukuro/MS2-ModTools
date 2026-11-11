@@ -207,6 +207,7 @@ namespace MS2.ModKit
             int foreign = plan.Conflicts.Count - before;
             if (plan.HasErrors) { res.Reason = plan.Errors.Count + " error(s)"; return res; }
             if (foreign > 0) { res.Reason = foreign + " file(s) in the game folder that this tool did not write"; return res; }
+            if (plan.Undecided > 0) { res.Reason = plan.Undecided + Plan.UndecidedReason; return res; }
             if (plan.HasConflicts && !options.AllowConflicts) { res.Reason = plan.Conflicts.Count + " conflict(s)"; return res; }
 
             LooseState old = ReadState();

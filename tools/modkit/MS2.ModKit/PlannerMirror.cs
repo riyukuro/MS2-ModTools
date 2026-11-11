@@ -159,13 +159,23 @@ namespace MS2.ModKit
                 plan.Warnings.Add(new PlanMessage { ModId = m.ModId, Archive = m.Archive, Entry = m.Entry, Text = prefix + m.Text });
             }
             plan.Errors.RemoveRange(errors, plan.Errors.Count - errors);
-            // the conflict is reported once, on the side the mods name
+            // a conflict that the side the mods name has as well is reported once, there; one that is only on this
+            // side (a mirrored line against a line a mod has for this side) stays a conflict
             for (int i = conflicts; i < plan.Conflicts.Count; i++)
             {
                 PlanMessage m = plan.Conflicts[i];
-                plan.Notes.Add(new PlanMessage { ModId = m.ModId, Archive = m.Archive, Entry = m.Entry, Text = "mirrored from " + mo.From + ": " + m.Text });
+                m.Text = "mirrored from " + mo.From + ": " + m.Text;
+                bool twin = false;
+                for (int k = 0; k < conflicts && !twin; k++)
+                {
+                    PlanMessage o = plan.Conflicts[k];
+                    twin = o.Archive == mo.From && o.ModId == m.ModId && o.WinnerId == m.WinnerId && string.Equals(o.Entry, m.Entry, StringComparison.OrdinalIgnoreCase)
+                        && m.Text.EndsWith(": " + o.Text, StringComparison.Ordinal);
+                }
+                if (!twin) continue;
+                plan.Notes.Add(m);
+                plan.Conflicts.RemoveAt(i--);
             }
-            plan.Conflicts.RemoveRange(conflicts, plan.Conflicts.Count - conflicts);
         }
 
         static string StripPredicates(string at)
@@ -284,9 +294,10 @@ namespace MS2.ModKit
         static bool MirrorKeeps(Run run, Mod mod, EntryState st, XmlElem el, AttrOp a, Claim prev, string row, string what, string value)
         {
             Plan plan = run.Plan;
-            if (prev != null && !prev.Mirrored && !prev.Synced)
+            if (prev != null && !prev.Mirrored && !prev.Synced && prev.Mod == mod)
             {
-                // a mod sets it on this side itself: that line wins over the mirror of another one
+                // the mod sets it on this side itself: that line wins over the mirror of its other one (against
+                // the line of another mod the priority decides, as for two direct lines)
                 if (prev.Value != value)
                     plan.Msg(plan.Warnings, mod, st.Archive, st.Name, "not mirrored from " + run.Mirror.From + ": " + row + " " + what + " stays " + Show(prev.Value)
                         + " as " + Who(prev.Mod, mod) + " sets it here; the mirror would write " + Show(value));

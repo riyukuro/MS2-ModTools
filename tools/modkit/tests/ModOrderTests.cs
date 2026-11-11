@@ -62,14 +62,14 @@ namespace MS2.ModKit.Tests
                     string text;
                     // the default: the later mod is the higher one; a conflict stops the apply
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", a, b), Is.EqualTo(1), text);
-                    Assert.That(text, Does.Contain("conflict, b.two wins: [b.two] " + C + " " + Pet + ": pet[id=100] @hp: \"22\" here, \"11\" in mod a.one\n"));
+                    Assert.That(text, Does.Contain("conflict, b.two wins: [a.one] " + C + " " + Pet + ": pet[id=100] @hp: \"11\" here, \"22\" in mod b.two\n"));
                     Assert.That(text, Does.Contain("priority, the highest first: b.two > a.one"));
                     Assert.That(Run(out text, "apply", "--client", f.ClientDir, "-q", "-w", ws, a, b), Is.EqualTo(1), text);
                     Assert.That(Directory.Exists(ws), Is.False, "nothing written");
 
                     // the option turns it round, and with conflicts allowed the higher mod's value is written
                     Assert.That(Run(out text, "validate", "--client", f.ClientDir, "-q", "--priority", "a.one", a, b), Is.EqualTo(1), text);
-                    Assert.That(text, Does.Contain("conflict, a.one wins: [a.one] ").And.Contain("priority, the highest first: a.one > b.two"));
+                    Assert.That(text, Does.Contain("conflict, a.one wins: [b.two] ").And.Contain("priority, the highest first: a.one > b.two"));
                     Assert.That(Run(out text, "apply", "--client", f.ClientDir, "-q", "-w", ws, "--allow-conflicts", "--priority", "a.one,b.two", a, b), Is.EqualTo(0), text);
                     Assert.That(Written(ws), Does.Contain("hp=\"11\""));
                     Assert.That(Run(out text, "apply", "--client", f.ClientDir, "-q", "-w", ws, "--allow-conflicts", a, b), Is.EqualTo(0), text);
@@ -108,7 +108,7 @@ namespace MS2.ModKit.Tests
                     Assert.That(r.Applied, EditorSession.Report(r));
                     Assert.That(Written(ws), Does.Contain("hp=\"11\""));
                     // a view shows the order and the conflicts first, each conflict with its winner in front
-                    Assert.That(s.Describe(r.Plan), Does.StartWith("priority, the highest first: a.one > b.two\r\nconflict, a.one wins: [a.one] "));
+                    Assert.That(s.Describe(r.Plan), Does.StartWith("priority, the highest first: a.one > b.two\r\nconflict, a.one wins: [b.two] "));
                     Assert.That(s.Describe(r), Does.Contain("priority, the highest first: a.one > b.two"));
 
                     // b.two moved to the top

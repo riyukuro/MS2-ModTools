@@ -485,9 +485,11 @@ namespace MS2.Tables
 
         void OnModMouseDown(object sender, MouseEventArgs e)
         {
-            // not on the check box at the left, a click there only checks
-            pressOnName = e.Button == MouseButtons.Left && e.X > 16;
-            dragFrom = e.Button == MouseButtons.Left && e.X > 16 && modList != null ? modsList.IndexFromPoint(e.Location) : -1;
+            // not on the check box at the left, a click there only checks (the box is as wide as a row is high,
+            // at any display scale)
+            bool name = e.Button == MouseButtons.Left && e.X > modsList.ItemHeight + 1;
+            pressOnName = name;
+            dragFrom = name && modList != null ? modsList.IndexFromPoint(e.Location) : -1;
         }
 
         void OnModMouseMove(object sender, MouseEventArgs e)

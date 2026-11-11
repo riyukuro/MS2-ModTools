@@ -213,7 +213,7 @@ namespace MS2.ModKit.Tests
                 Plan p = f.Plan(l.LoadEnabled(null).ToArray());
                 Assert.That(Fake.Text(p, C, Pet), Does.Contain("<pet id=\"100\" name=\"Mossy\" hp=\"1\""));
                 Assert.That(p.Conflicts.Single().WinnerId, Is.EqualTo("b.second"));
-                Assert.That(EditorSession.Report(p), Does.Contain("priority, the highest first: b.second > a.first").And.Contain("conflict, b.second wins: [b.second] "));
+                Assert.That(EditorSession.Report(p), Does.Contain("priority, the highest first: b.second > a.first").And.Contain("conflict, b.second wins: [a.first] "));
                 // a drag: the third to the top, and back
                 Assert.That(l.MoveTo(2, 0), Is.EqualTo(0));
                 Assert.That(l.Items.Select(i => i.Id), Is.EqualTo(new[] { "c.third", "b.second", "a.first" }));

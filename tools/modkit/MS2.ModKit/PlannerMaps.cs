@@ -227,12 +227,17 @@ namespace MS2.ModKit
             if (st.Base == null) { plan.Msg(plan.Warnings, mod, ar, entry, target.Name + " has no such map; its map lines are skipped there (mod.xml line " + mop.Line + ")"); return null; }
             if (st.BaseMod != null && st.BaseMod != mod)
             {
-                // the whole file stays unless this mod has the higher priority and the shipped file can come back
-                bool wins = run.Outranks(mod, st.BaseMod) && st.Original != null && st.Doc == null;
-                plan.Conflict(mod, ar, st.Name, "changes a map that mod " + st.BaseMod.Id + " replaces as a whole file", wins ? mod : st.BaseMod);
+                // the whole file of the higher mod stays as it is. The map lines of the higher mod are made in the
+                // shipped file where it can come back, and else (a map the other mod adds) in the other mod's file
+                bool wins = run.Outranks(mod, st.BaseMod), back = st.Original != null && st.Doc == null;
+                string text = "changes a map that mod " + st.BaseMod.Id + " " + (st.Existed ? "replaces" : "adds") + " as a whole file";
+                plan.Conflict(mod, ar, st.Name, wins && !back ? text + ": the change is made in that file" : text, wins ? mod : st.BaseMod);
                 if (!wins) return null;
-                DropEntryChange(plan, st);
-                st.Base = st.Original; st.BaseMod = null;
+                if (back)
+                {
+                    DropEntryChange(plan, st);
+                    st.Base = st.Original; st.BaseMod = null;
+                }
             }
             MapState ms;
             if (mr.States.TryGetValue(st, out ms)) return ms;

@@ -1,0 +1,215 @@
+// Tests of the priority of mods where three mods meet in one place, where a whole entry meets an edit, where one
+// of the two lines is a mirrored one, and of the conflicts no priority decides. Made-up data only.
+using System;
+using System.IO;
+using System.Linq;
+using System.Text;
+using NUnit.Framework;
+
+namespace MS2.ModKit.Tests
+{
+    [TestFixture]
+    public class PriorityCasesTests
+    {
+        const string C = "client:Xml.m2d", S = "server:Xml.m2d", G = "gms-client:Xml.m2d", Pet = "table/pet.xml";
+        const string Five = "item/0/12/01200005.xml";
+
+        static string Set(string archive, string entry, string at, string name, string value)
+        {
+            return "<edit archive=\"" + archive + "\" entry=\"" + entry + "\"><change at=\"" + at + "\"><set name=\"" + name + "\" value=\"" + value + "\"/></change></edit>";
+        }
+
+        static string Line(string text, string start)
+        {
+            return text.Replace("\r", "").Split('\n').FirstOrDefault(l => l.TrimStart().StartsWith(start, StringComparison.Ordinal));
+        }
+
+        [Test]
+        public void ADeleteBetweenTwoChangesOfOneRow()
+        {
+            using (var f = new Fake())
+            {
+                // a < b < c: a and c set different fields of a row, b deletes the row
+                Mod a = f.Mod("a", Set(C, Pet, "pet[id=101]", "hp", "5"));
+                Mod b = f.Mod("b", "<edit archive=\"" + C + "\" entry=\"" + Pet + "\"><delete at=\"pet[id=101]\"/></edit>");
+                Mod c = f.Mod("c", Set(C, Pet, "pet[id=101]", "speed", "9"));
+                Plan p = f.Plan(a, b, c);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                // the row stays for c, so b's delete is in no part of the plan and a's change is written
+                Assert.That(Line(Fake.Text(p, C, Pet), "<pet id=\"101\""), Does.Contain("hp=\"5\"").And.Contain("speed=\"9\""), dump);
+                Assert.That(p.Conflicts, Is.Not.Empty, dump);
+                Assert.That(p.Conflicts.All(x => x.WinnerId == "c"), dump);
+                Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind + " " + x.Name), Is.EquivalentTo(new[] { "a SetAttr hp", "c SetAttr speed" }), dump);
+                // the same result as without b
+                Assert.That(Fake.Text(p, C, Pet), Is.EqualTo(Fake.Text(f.Plan(a, c), C, Pet)));
+
+                // two mods: the delete of the higher one wins, and the lower one's change is in no line of the diff
+                p = f.Plan(a, b);
+                dump = Fake.Dump(p);
+                Assert.That(Fake.Text(p, C, Pet), Does.Not.Contain("id=\"101\""), dump);
+                Assert.That(p.Conflicts.Count, Is.EqualTo(1), dump);
+                Assert.That(p.Conflicts[0].WinnerId, Is.EqualTo("b"), dump);
+                Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind), Is.EqualTo(new[] { "b DeleteRow" }), dump);
+                // and the change of the higher one keeps the row
+                p = f.Plan(b, a);
+                dump = Fake.Dump(p);
+                Assert.That(Line(Fake.Text(p, C, Pet), "<pet id=\"101\""), Does.Contain("hp=\"5\""), dump);
+                Assert.That(p.Conflicts.All(x => x.WinnerId == "a"), dump);
+                Assert.That(p.Changes.Select(x => x.ModId + " " + x.Kind), Is.EqualTo(new[] { "a SetAttr" }), dump);
+            }
+        }
+
+        [Test]
+        public void ADeleteBetweenTwoEditsOfOneEntry()
+        {
+            using (var f = new Fake())
+            {
+                Mod lo = f.Mod("lo", Set(S, "pet/100.xml", "environment/basic", "kind", "4"));
+                Mod mid = f.Mod("mid", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" delete=\"true\"/>");
+                Mod hi = f.Mod("hi", Set(S, "pet/100.xml", "environment/basic", "name", "Hi"));
+                Plan p = f.Plan(lo, mid, hi);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("name=\"Hi\" kind=\"4\""), dump);
+                Assert.That(p.Find(S).Delete, Is.Empty, dump);
+                Assert.That(p.Conflicts, Is.Not.Empty, dump);
+                Assert.That(p.Conflicts.All(x => x.WinnerId == "hi"), dump);
+                Assert.That(p.Changes.Any(x => x.Kind == ChangeKind.DeleteEntry), Is.False, dump);
+
+                // the delete is the highest: the entry goes, both edits are left out
+                p = f.Plan(lo, hi, mid);
+                dump = Fake.Dump(p);
+                Assert.That(p.Find(S).Delete, Is.EqualTo(new[] { "pet/100.xml" }), dump);
+                Assert.That(p.Conflicts.Count(x => x.WinnerId == "mid"), Is.EqualTo(2), dump);
+                Assert.That(p.Changes.Count(x => x.Archive == S), Is.EqualTo(1), dump);
+            }
+        }
+
+        static Mod FileMod(Fake f, string id, string entry, string content)
+        {
+            string d = Path.Combine(f.ModDir(id, "<entry archive=\"" + S + "\" name=\"" + entry + "\" file=\"data/p.xml\"/>"), "data");
+            Directory.CreateDirectory(d);
+            File.WriteAllBytes(Path.Combine(d, "p.xml"), Fake.Crlf(content));
+            return Mod.Load(Path.GetDirectoryName(d));
+        }
+
+        [Test]
+        public void AnEditAgainstAWholeEntry()
+        {
+            using (var f = new Fake())
+            {
+                string filed = Fake.PetFile(100, "Filed");
+                Mod edit = f.Mod("edit", Set(S, "pet/100.xml", "environment/basic", "kind", "4"));
+                Mod file = FileMod(f, "file", "pet/100.xml", filed);
+
+                // the whole entry is the higher one: it is written as the mod has it
+                Plan p = f.Plan(edit, file);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(p.Conflicts.Count(x => x.Archive == S), Is.EqualTo(1), dump);
+                PlanMessage c = p.Conflicts.First(x => x.Archive == S);
+                Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("edit file"), dump);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Is.EqualTo(Encoding.UTF8.GetString(Fake.Crlf(filed))), dump);
+                Assert.That(p.Changes.Any(x => x.ModId == "edit" && x.Archive == S), Is.False, dump);
+
+                // the edit is the higher one: the shipped entry is back and gets the edit
+                p = f.Plan(file, edit);
+                dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                c = p.Conflicts.First(x => x.Archive == S);
+                Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("edit edit"), dump);
+                Assert.That(Fake.Text(p, S, "pet/100.xml"), Does.Contain("name=\"Mossy\" kind=\"4\""), dump);
+                Assert.That(p.Changes.Any(x => x.ModId == "file" && x.Archive == S), Is.False, dump);
+
+                // an entry that the lower mod adds: the higher mod's edit is made in it, and the higher mod is named
+                Mod add = FileMod(f, "add", "pet/777.xml", Fake.PetFile(777, "New"));
+                Mod on = f.Mod("on", Set(S, "pet/777.xml", "environment/basic", "kind", "4"));
+                p = f.Plan(add, on);
+                dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                c = p.Conflicts.First(x => x.Entry == "pet/777.xml");
+                Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("on on"), dump);
+                Assert.That(Fake.Text(p, S, "pet/777.xml"), Does.Contain("name=\"New\" kind=\"4\""), dump);
+                // the other way round the added entry stays as it is
+                p = f.Plan(on, add);
+                dump = Fake.Dump(p);
+                c = p.Conflicts.First(x => x.Entry == "pet/777.xml");
+                Assert.That(c.ModId + " " + c.WinnerId, Is.EqualTo("on add"), dump);
+                Assert.That(Fake.Text(p, S, "pet/777.xml"), Does.Contain("name=\"New\" kind=\"3\""), dump);
+                // every conflict here has a winner
+                Assert.That(p.Conflicts.All(x => x.WinnerId != null), dump);
+            }
+        }
+
+        [Test]
+        public void AMirroredLineAgainstADirectLine()
+        {
+            using (var f = new FakeTargets(kms: false))
+            {
+                // one mod sets the field on the global client, the other on the server; the server line is
+                // mirrored to the global client
+                Mod direct = f.Mod("direct", Set(G, Five, "environment/property", "slotMax", "5"));
+                Mod other = f.Mod("other", Set(S, Five, "environment/property", "slotMax", "8"));
+                Func<Plan, string, string> value = (pl, ar) => pl.Changes.Where(x => x.Archive == ar && x.Entry == Five && x.Name == "slotMax").Select(x => x.ModId + "=" + x.NewValue).SingleOrDefault();
+
+                // each line is mirrored to the other side, where it meets the other mod's own line: the higher mod
+                // has its value on both sides, and each side has a conflict (not a note) that names it
+                Plan p = f.Plan(direct, other);
+                string dump = Fake.Dump(p);
+                Assert.That(p.Errors, Is.Empty, dump);
+                Assert.That(value(p, S), Is.EqualTo("other=8"), dump);
+                Assert.That(value(p, G), Is.EqualTo("other=8"), dump);
+                Assert.That(p.Conflicts.Select(x => x.Archive + " " + x.WinnerId), Is.EquivalentTo(new[] { G + " other", S + " other" }), dump);
+                Assert.That(p.Conflicts.All(x => x.Text.StartsWith("mirrored from ", StringComparison.Ordinal)), dump);
+
+                p = f.Plan(other, direct);
+                dump = Fake.Dump(p);
+                Assert.That(value(p, S), Is.EqualTo("direct=5"), dump);
+                Assert.That(value(p, G), Is.EqualTo("direct=5"), dump);
+                Assert.That(p.Conflicts.Select(x => x.Archive + " " + x.WinnerId), Is.EquivalentTo(new[] { G + " direct", S + " direct" }), dump);
+
+                // nothing is written while that conflict is not allowed
+                var ws = new Workspace(Path.Combine(f.Dir, "ws"));
+                ApplyResult r = ws.Apply(f.Data, new[] { direct, other }, new ApplyOptions { Maps = FakeItems.Maps });
+                Assert.That(r.Applied, Is.False);
+                Assert.That(r.Reason, Is.EqualTo("2 conflict(s)"));
+
+                // two mods on the server side: one conflict there, and its mirror is no second one
+                Mod second = f.Mod("second", Set(S, Five, "environment/property", "slotMax", "9"));
+                p = f.Plan(other, second);
+                dump = Fake.Dump(p);
+                Assert.That(p.Conflicts.Count, Is.EqualTo(1), dump);
+                Assert.That(p.Conflicts[0].Archive + " " + p.Conflicts[0].WinnerId, Is.EqualTo(S + " second"), dump);
+                Assert.That(value(p, G), Is.EqualTo("second=9"), dump);
+            }
+        }
+
+        [Test]
+        public void AConflictWithoutAWinnerAlwaysStopsTheApply()
+        {
+            using (var f = new Fake())
+            {
+                string where = "<where archive=\"" + C + "\" entry=\"table/pet.xml\" rows=\"pet\"/></ids>";
+                Func<string, int, int, int, Mod> mod = (id, from, to, pet) => f.Mod(id, "<ids space=\"pet\" from=\"" + from + "\" to=\"" + to + "\">" + where
+                    + "<edit archive=\"" + C + "\" entry=\"" + Pet + "\"><add><xml><pet id=\"" + pet + "\" name=\"N\"/></xml></add></edit>");
+                Mod a = mod("a", 900, 909, 901), b = mod("b", 905, 915, 906);
+                var ws = new Workspace(Path.Combine(f.Dir, "ws"));
+                ApplyResult r = ws.Apply(f.Data, new[] { a, b }, new ApplyOptions { AllowConflicts = true });
+                string dump = Fake.Dump(r.Plan);
+                Assert.That(r.Plan.Errors, Is.Empty, dump);
+                Assert.That(r.Plan.Conflicts.Count(x => x.WinnerId == null), Is.EqualTo(1), dump);
+                Assert.That(r.Applied, Is.False, dump);
+                Assert.That(r.Reason, Is.EqualTo("1 conflict(s) that no priority decides"));
+                Assert.That(Directory.Exists(Path.Combine(f.Dir, "ws")), Is.False, "nothing written");
+
+                // a mod that contradicts itself has no winner either (it does not win against itself)
+                Mod self = f.Mod("self", "<entry archive=\"" + S + "\" name=\"pet/100.xml\" copy=\"pet/101.xml\"/><entry archive=\"" + S + "\" name=\"pet/100.xml\" delete=\"true\"/>");
+                Plan p = f.Plan(self);
+                Assert.That(p.Conflicts.Count, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(p.Conflicts[0].WinnerId, Is.Null);
+                Assert.That(p.Conflicts[0].ConflictLine(), Does.StartWith("conflict, no winner: [self] " + S + " pet/100.xml: deletes the entry that the same mod replaces"));
+            }
+        }
+    }
+}

@@ -160,6 +160,7 @@ namespace MS2.ModKit
             Guard(data);
             var res = new ApplyResult { Plan = plan };
             if (res.Plan.HasErrors) { res.Reason = res.Plan.Errors.Count + " error(s)"; return res; }
+            if (res.Plan.Undecided > 0) { res.Reason = res.Plan.Undecided + Plan.UndecidedReason; return res; }
             if (res.Plan.HasConflicts && !options.AllowConflicts) { res.Reason = res.Plan.Conflicts.Count + " conflict(s)"; return res; }
 
             var targets = new List<PlanArchive>(res.Plan.Archives);

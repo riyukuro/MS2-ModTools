@@ -728,6 +728,32 @@ namespace MS2.ModKit.Tests
                 Assert.That(c[0].WinnerId, Is.EqualTo("edit2"));
                 string text = Encoding.UTF8.GetString(Bytes(p, K, FakeMaps.EntryA));
                 Assert.That(text, Does.Contain(MapValues.NewEntityId("edit2", FakeMaps.MapA, "crate-1")).And.Contain("0, 0, 90").And.Not.Contain("0, 0, 45"));
+
+                // a map that the lower mod adds as a whole file (the game ships none of that name): the higher
+                // mod's lines are made in that file, and the higher mod is the one named
+                const string NewMap = "90000009_ab", NewEntry = "xblock/" + NewMap + ".xblock";
+                Func<string, Mod> adds = id =>
+                {
+                    string d = Path.Combine(f.Dir, "mods", id, "data");
+                    Directory.CreateDirectory(d);
+                    File.WriteAllBytes(Path.Combine(d, "n.xblock"), whole);
+                    return f.Mod(id, "<entry archive=\"" + K + "\" name=\"" + NewEntry + "\" file=\"data/n.xblock\"/>");
+                };
+                string lines = "<map xblock=\"" + NewMap + "\">" + AddCrate + "</map>";
+                Mod added = adds("added"), on = f.Mod("on", lines);
+                p = f.Plan(added, on);
+                c = p.Conflicts.Where(x => x.Archive == K).ToList();
+                Assert.That(c.Count, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(c[0].ModId + " " + c[0].WinnerId, Is.EqualTo("on on"), Fake.Dump(p));
+                Assert.That(c[0].Text, Does.Contain("changes a map that mod added adds as a whole file: the change is made in that file; mod on wins"));
+                text = Encoding.UTF8.GetString(Bytes(p, K, NewEntry));
+                Assert.That(text, Does.Contain(MapValues.NewEntityId("on", NewMap, "crate-1")).And.Contain("0, 0, 45"));
+                // the other way round the added file is written as it is
+                p = f.Plan(f.Mod("under", lines), adds("added2"));
+                c = p.Conflicts.Where(x => x.Archive == K).ToList();
+                Assert.That(c.Count, Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(c[0].ModId + " " + c[0].WinnerId, Is.EqualTo("under added2"), Fake.Dump(p));
+                Assert.That(Bytes(p, K, NewEntry), Is.EqualTo(whole));
             }
         }
 
