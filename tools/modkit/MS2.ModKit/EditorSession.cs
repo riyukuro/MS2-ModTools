@@ -81,6 +81,16 @@ namespace MS2.ModKit
             return Mod;
         }
 
+        /// <summary>Saves the mod as SaveMod() does, but first checks the id a front end shows in its id box: a typed
+        /// id that is not this mod's is refused (New mod starts a mod under a new id; Save never renames).</summary>
+        public string SaveMod(string idBox)
+        {
+            string typed = (idBox ?? "").Trim();
+            if (typed != Mod.Id)
+                throw new ModKitException("the id box differs from this mod's id " + Mod.Id + "; use New mod to save under a new id");
+            return SaveMod();
+        }
+
         /// <summary>Saves the mod to &lt;mods folder&gt;/&lt;id&gt;/mod.xml and returns the folder.</summary>
         public string SaveMod()
         {

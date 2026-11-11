@@ -213,6 +213,32 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // Save mod with an id box that shows another id: refused, nothing written; New mod is the way to a new id
+        [Test]
+        public void SaveMod_IdBoxDiffers_Refuses()
+        {
+            using (var f = new Fake())
+            {
+                string mods = Path.Combine(f.Dir, "mods"), ws = Path.Combine(f.Dir, "ws");
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, mods, ws))
+                {
+                    s.NewMod("t.box");
+                    TableDraft d = s.OpenTable(Client, Pet, null);
+                    d.Set(Row(d, "pet[id=100]"), "hp", "65");
+                    var ex = Assert.Throws<ModKitException>(() => s.SaveMod("t.other"));
+                    Assert.That(ex.Message, Is.EqualTo("the id box differs from this mod's id t.box; use New mod to save under a new id"));
+                    Assert.Throws<ModKitException>(() => s.SaveMod(""), "an emptied box differs too");
+                    Assert.That(Directory.Exists(Path.Combine(mods, "t.other")), Is.False);
+                    Assert.That(Directory.Exists(Path.Combine(mods, "t.box")), Is.False);
+                    Assert.That(s.Mod.Id, Is.EqualTo("t.box"), "the mod keeps its id");
+
+                    string dir = s.SaveMod(" t.box ");
+                    Assert.That(File.Exists(Path.Combine(dir, "mod.xml")), "the mod's own id, typed with spaces, saves");
+                    Assert.That(Path.GetFileName(dir), Is.EqualTo("t.box"));
+                }
+            }
+        }
+
         [Test]
         public void SessionEditPlanApplyRevert()
         {

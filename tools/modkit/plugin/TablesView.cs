@@ -100,7 +100,7 @@ namespace MS2.Tables
             modBar.Controls.Add(Lbl("Mod id"));
             modBar.Controls.Add(modIdBox);
             modBar.Controls.Add(Btn("New mod", "Starts an empty mod with this id (the pending edits are dropped)", delegate { NewMod(); }));
-            modBar.Controls.Add(Btn("Save mod", "Saves the pending edits as <mods folder>/<mod id>/mod.xml", delegate { SaveMod(); }));
+            modBar.Controls.Add(Btn("Save mod", "Saves the pending edits as <mods folder>/<mod id>/mod.xml (the id box must show this mod's id; New mod starts one under another id)", delegate { SaveMod(); }));
             modBar.Controls.Add(Lbl("Apply to"));
             targetBox.Items.Add("workspace (patched archives)");
             targetBox.Items.Add("game folder (loose files)");
@@ -713,7 +713,7 @@ namespace MS2.Tables
         void SaveMod()
         {
             FlushEdits();
-            string dir = Session().SaveMod();
+            string dir = Session().SaveMod(modIdBox.Text);
             MarkSaved();
             FillMods();
             List<string> gone = Session().Mod.Removed;
