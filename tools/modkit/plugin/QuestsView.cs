@@ -53,6 +53,7 @@ namespace MS2.Tables
             internal bool[] Editable;
             internal string Field, Language;    // the fields grid
             internal long Talk;                 // the fields grid: the text id of a talk text line
+            internal string Feature;            // and the feature of its rows
             internal string Reward, List;       // the rewards grid: the reward element and its list
             internal int Index;                 // rewards and conditions
             internal bool Changed
@@ -620,14 +621,19 @@ namespace MS2.Tables
                     fieldLines.Add(new Line { Heading = "Talk texts: " + language + (!d.IsNew ? " (shipped: read only)" : own ? " (this quest's own)" : " (the source quest's: read only)") });
                     foreach (QuestTalkLine t in talk)
                     {
-                        int rows; bool differs;
-                        string v = editor.TalkText(t.TextId, language, out rows, out differs);
-                        fieldLines.Add(new Line
-                        {
-                            Talk = t.TextId, Language = language,
-                            Cells = new[] { t.Script + " " + t.Element + " " + t.TextId, v ?? "", !d.IsNew ? v ?? "" : "", rows == 0 ? "no row" : rows + " row(s)" + (differs ? ", they differ" : "") + (t.Own ? "" : d.IsNew ? ", shared" : "") },
-                            Editable = new[] { false, t.Own && rows > 0, false, false },
-                        });
+                        string label = t.Script + " " + t.Element + " " + t.TextId;
+                        List<QuestTalkText> texts = editor.TalkTexts(t.TextId, language);
+                        if (texts.Count == 0)
+                            fieldLines.Add(new Line { Talk = t.TextId, Language = language, Cells = new[] { label, "", "", "no row" }, Editable = new[] { false, false, false, false } });
+                        foreach (QuestTalkText x in texts)
+                            fieldLines.Add(new Line
+                            {
+                                Talk = t.TextId, Language = language, Feature = x.Feature,
+                                // the third column: the shipped text, for a quest's own text the source's
+                                Cells = new[] { label + (x.Feature.Length > 0 ? " [" + x.Feature + "]" : ""), x.Text, x.Source, x.Rows + " row(s)" + (x.Differs ? ", the targets differ" : "") + (t.Own ? "" : d.IsNew ? ", shared" : "") },
+                                Shipped = t.Own ? new[] { null, x.Source, null, null } : null,
+                                Editable = new[] { false, t.Own, false, false },
+                            });
                     }
                 }
             }
@@ -698,8 +704,8 @@ namespace MS2.Tables
             QuestDraft d = Draft();
             if (l.Talk != 0)
             {
-                int n = Editor().SetTalkText(d.Id, l.Talk, allLanguagesBox.Checked ? null : l.Language, value);
-                Edited("talk text " + l.Talk + " set in " + n + " row(s)" + (allLanguagesBox.Checked ? " (every language)" : " (" + l.Language + ")"));
+                int n = Editor().SetTalkText(d.Id, l.Talk, allLanguagesBox.Checked ? null : l.Language, value, l.Feature);
+                Edited("talk text " + l.Talk + (string.IsNullOrEmpty(l.Feature) ? "" : " [" + l.Feature + "]") + " set in " + n + " row(s)" + (allLanguagesBox.Checked ? " (every language)" : " (" + l.Language + ")"));
                 return;
             }
             if (l.Language != null)
@@ -823,7 +829,13 @@ namespace MS2.Tables
             if (!d.IsNew) throw new ModKitException("quest " + d.Id + " is a shipped quest; only a quest the mod adds gets talk texts of its own (clone it first)");
             EndEdits();
             QuestEditor ed = Editor();
-            int n = own ? ed.OwnTalkTexts(d.Id) : ed.ShareTalkTexts(d.Id);
+            int n;
+            try { n = own ? ed.OwnTalkTexts(d.Id) : ed.ShareTalkTexts(d.Id); }
+            catch (ModKitException)
+            {
+                ShowQuest(ed.Open(d.Id));   // the grid shows what the mod holds, whatever was done before the stop
+                throw;
+            }
             if (n == 0)
             {
                 host.SayOutside(!own ? "quest " + d.Id + " has no talk texts of its own"

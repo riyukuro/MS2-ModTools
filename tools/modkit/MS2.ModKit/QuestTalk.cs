@@ -7,7 +7,8 @@
 // A cloned quest copies the script row, so it speaks the source's lines. OwnTalkTexts gives the clone text rows of
 // its own: every text the copied script names gets a new text id (<new quest id>001 onward, skipping an id the data
 // or the mod already has), the text rows of the source are copied under the new id in every language of every
-// target, and the copied script row names the new ids. The new ids are recorded as an id range of the mod.
+// target, and the copied script row names the new ids. The new ids are recorded as id ranges of the mod, each with
+// the targets its text has rows on.
 using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
@@ -29,6 +30,20 @@ namespace MS2.ModKit
         /// <summary>The number of text rows, over every language and target.</summary>
         public int Rows;
         public readonly List<string> Languages = new List<string>();
+    }
+
+    /// <summary>A talk text in one language and for one feature: its rows over the targets.</summary>
+    public sealed class QuestTalkText
+    {
+        public long TextId;
+        public string Language = "", Feature = "";
+        /// <summary>The text of the first row, the number of rows and whether they differ.</summary>
+        public string Text = "";
+        public int Rows;
+        public bool Differs;
+        /// <summary>The text of the row the first row is a copy of (a quest's own text), else the row's own text.</summary>
+        public string Source = "";
+        public bool Own;
     }
 
     public sealed partial class QuestEditor
@@ -147,6 +162,7 @@ namespace MS2.ModKit
             internal XmlElem Source;
             internal RowOp Add;
             internal string Text { get { return (Add != null ? KeyValue(Add, "name") : null) ?? Source.Attr("name") ?? ""; } }
+            internal string Feature { get { return Source.Attr("feature") ?? ""; } }
         }
 
         List<TalkRow> TalkRows(long textId)
@@ -171,23 +187,37 @@ namespace MS2.ModKit
             return l;
         }
 
-        // the text ids the data ships and the ones the mod adds
-        HashSet<long> TalkIdsUsed()
+        // the text ids that are taken: the ones the data ships, the ones this mod and the other enabled mods add
+        // rows for, and the ones they reserve
+        HashSet<long> TalkIdsUsed(long from, long to)
         {
             var used = new HashSet<long>();
             foreach (string archive in Sides())
                 foreach (StringDoc sd in TalkStrings(archive))
-                {
                     foreach (long id in sd.Rows.Keys) used.Add(id);
-                    foreach (EditOp ed in Edits(archive, sd.Name))
-                        foreach (RowOp r in ed.Rows)
-                        {
-                            long v;
-                            if (r.Kind == RowOpKind.Add && TryId(KeyValue(r, "id"), out v)) used.Add(v);
-                        }
+            var mods = new List<Mod> { Mod };
+            mods.AddRange(OtherMods());
+            foreach (Mod m in mods)
+            {
+                foreach (IdRange r in m.Ids)
+                    if (r.Space == TalkIdSpace)
+                        for (long v = Math.Max(r.From, from); v <= Math.Min(r.To, to); v++) used.Add(v);
+                foreach (ModOp op in m.Ops)
+                {
+                    var ed = op as EditOp;
+                    if (ed == null || !TalkRx.IsMatch(ed.Entry.Replace('\\', '/'))) continue;
+                    foreach (RowOp r in ed.Rows)
+                    {
+                        long v;
+                        if (r.Kind == RowOpKind.Add && TryId(KeyValue(r, "id"), out v)) used.Add(v);
+                    }
                 }
+            }
             return used;
         }
+
+        // a quest's own text ids are the quest id followed by 001..999
+        static bool InOwnRange(long id, long textId) { return textId > id * 1000 && textId <= id * 1000 + MaxOwnTalkTexts; }
 
         /// <summary>
         /// The lines of a quest's talk script, in the order the script names them; a text id named twice is one
@@ -206,7 +236,7 @@ namespace MS2.ModKit
                 foreach (TalkRow t in TalkRows(r.TextId))
                 {
                     line.Rows++;
-                    if (t.Add != null) line.Own = true;
+                    if (t.Add != null && InOwnRange(id, r.TextId)) line.Own = true;
                     if (!line.Languages.Contains(t.Lang)) line.Languages.Add(t.Lang);
                     bool mine = string.Equals(t.Lang, Language, StringComparison.OrdinalIgnoreCase);
                     if (line.Text == null || (mine && !string.Equals(line.Language, Language, StringComparison.OrdinalIgnoreCase))) { line.Text = t.Text; line.Language = t.Lang; }
@@ -217,20 +247,22 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// A talk text in one language: the text of its first row, the number of rows over the targets (and the
-        /// features), and whether the rows differ. Null when the language has no row.
+        /// A talk text in one language, one entry per feature its rows have (in file order; "" = no feature).
+        /// Empty when the language has no row.
         /// </summary>
-        public string TalkText(long textId, string language, out int rows, out bool differs)
+        public List<QuestTalkText> TalkTexts(long textId, string language)
         {
-            string first = null;
-            rows = 0; differs = false;
+            var l = new List<QuestTalkText>();
             foreach (TalkRow t in TalkRows(textId))
             {
                 if (!string.Equals(t.Lang, language, StringComparison.OrdinalIgnoreCase)) continue;
-                if (rows++ == 0) first = t.Text;
-                else if (t.Text != first) differs = true;
+                string feature = t.Feature;
+                QuestTalkText e = l.Find(delegate(QuestTalkText x) { return x.Feature == feature; });
+                if (e == null) l.Add(e = new QuestTalkText { TextId = textId, Language = t.Lang, Feature = feature, Text = t.Text, Source = t.Source.Attr("name") ?? "", Own = t.Add != null });
+                else if (t.Text != e.Text) e.Differs = true;
+                e.Rows++;
             }
-            return first;
+            return l;
         }
 
         /// <summary>The languages the data has talk text files in, over the editor's targets.</summary>
@@ -258,59 +290,72 @@ namespace MS2.ModKit
         public int OwnTalkTexts(long id)
         {
             if (!AddedIds().Contains(id)) throw new ModKitException("quest " + id + " is a shipped quest; only a quest the mod adds gets talk texts of its own");
+            // first what to copy and under which ids, so that nothing is added when the ids run out
+            List<TalkRef> refs = TalkRefs(id);
             var map = new Dictionary<long, long>();
+            var copies = new List<KeyValuePair<long, List<TalkRow>>>();
             HashSet<long> used = null;
-            long next = id * 1000;
-            foreach (TalkRef r in TalkRefs(id))
+            long first = id * 1000 + 1, last = id * 1000 + MaxOwnTalkTexts, next = id * 1000;
+            foreach (TalkRef r in refs)
+            {
+                if (map.ContainsKey(r.TextId)) continue;
+                List<TalkRow> rows = TalkRows(r.TextId);
+                if (rows.Count == 0 || rows.Exists(delegate(TalkRow t) { return t.Add != null; })) continue;
+                if (used == null) used = TalkIdsUsed(first, last);
+                do
+                {
+                    next++;
+                    if (next > last) throw new ModKitException("quest " + id + " has more than " + MaxOwnTalkTexts + " talk texts, or the text ids " + first + " to " + last + " are taken; nothing was copied");
+                } while (used.Contains(next));
+                map[r.TextId] = next;
+                copies.Add(new KeyValuePair<long, List<TalkRow>>(next, rows));
+            }
+            foreach (KeyValuePair<long, List<TalkRow>> c in copies)
+            {
+                var targets = new List<string>();
+                foreach (TalkRow t in c.Value)
+                {
+                    var add = new RowOp { Kind = RowOpKind.Add, Copy = RowPath.Canonical(t.Source) };
+                    add.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "id", Value = S(c.Key) });
+                    Edit(t.Archive, t.Entry).Rows.Add(add);
+                    if (!targets.Contains(t.Archive)) targets.Add(t.Archive);
+                }
+                ReserveTalk(c.Key, targets);
+            }
+            foreach (TalkRef r in refs)
             {
                 long to;
-                if (!map.TryGetValue(r.TextId, out to))
-                {
-                    List<TalkRow> rows = TalkRows(r.TextId);
-                    if (rows.Count == 0 || rows.Exists(delegate(TalkRow t) { return t.Add != null; })) continue;
-                    if (used == null) used = TalkIdsUsed();
-                    do
-                    {
-                        next++;
-                        if (next > id * 1000 + MaxOwnTalkTexts) throw new ModKitException("quest " + id + " has more than " + MaxOwnTalkTexts + " talk texts, or the text ids " + (id * 1000 + 1) + " to " + (id * 1000 + MaxOwnTalkTexts) + " are taken");
-                    } while (used.Contains(next));
-                    to = next;
-                    used.Add(to);
-                    map[r.TextId] = to;
-                    foreach (TalkRow t in rows)
-                    {
-                        var add = new RowOp { Kind = RowOpKind.Add, Copy = RowPath.Canonical(t.Source) };
-                        add.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "id", Value = S(to) });
-                        Edit(t.Archive, t.Entry).Rows.Add(add);
-                    }
-                    ReserveTalk(to);
-                }
+                if (!map.TryGetValue(r.TextId, out to)) continue;
                 r.Op.Attrs.RemoveAll(delegate(AttrOp a) { return a.Kind == AttrOpKind.Set && a.Name == "text" && a.At == r.At; });
                 r.Op.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "text", Value = TalkRefOf(to), At = r.At });
             }
             return map.Count;
         }
 
-        void ReserveTalk(long textId)
+        // records a new text id with the targets it has rows on: a text the kms-client lacks is reserved on the
+        // server alone, so the plan does not miss it there
+        void ReserveTalk(long textId, List<string> targets)
         {
             foreach (IdRange r in Mod.Ids)
             {
-                if (r.Space != TalkIdSpace) continue;
+                if (r.Space != TalkIdSpace || r.Places.Count != targets.Count) continue;
+                bool same = true;
+                for (int i = 0; i < targets.Count; i++) if (r.Places[i].Archive != targets[i]) same = false;
+                if (!same) continue;
                 if (textId >= r.From && textId <= r.To) return;
                 if (r.To + 1 == textId) { r.To = textId; return; }
                 if (r.From - 1 == textId) { r.From = textId; return; }
             }
             var made = new IdRange { Space = TalkIdSpace, From = textId, To = textId };
-            foreach (string a in Sides())
-                if (TalkStrings(a).Count > 0) made.Places.Add(new IdPlace { Archive = a, Entry = TalkEntries, Rows = "key", Key = "id" });
+            foreach (string a in targets) made.Places.Add(new IdPlace { Archive = a, Entry = TalkEntries, Rows = "key", Key = "id" });
             Mod.Ids.Add(made);
         }
 
         /// <summary>
-        /// Sets one of a new quest's own talk texts, in the rows of one language (null: every language) on every
-        /// target. Returns the number of rows.
+        /// Sets one of a new quest's own talk texts, in the rows of one language (null: every language) and of one
+        /// feature ("" = the rows without one; null: every row) on every target. Returns the number of rows.
         /// </summary>
-        public int SetTalkText(long id, long textId, string language, string value)
+        public int SetTalkText(long id, long textId, string language, string value, string feature = null)
         {
             if (value == null) throw new ArgumentNullException("value");
             QuestTalkLine line = TalkLines(id).Find(delegate(QuestTalkLine t) { return t.TextId == textId; });
@@ -321,6 +366,7 @@ namespace MS2.ModKit
             {
                 if (t.Add == null) continue;
                 if (language != null && !string.Equals(t.Lang, language, StringComparison.OrdinalIgnoreCase)) continue;
+                if (feature != null && t.Feature != feature) continue;
                 t.Add.Attrs.RemoveAll(delegate(AttrOp a) { return a.Kind == AttrOpKind.Set && Plain(a, "name"); });
                 if ((t.Source.Attr("name") ?? "") != value) t.Add.Attrs.Add(new AttrOp { Kind = AttrOpKind.Set, Name = "name", Value = value });
                 n++;
@@ -330,7 +376,8 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Takes a new quest's own talk texts out of the mod again: the quest speaks the source's lines as it did
-        /// right after the clone. Returns the number of texts taken out. Read from the mod alone.
+        /// right after the clone. Returns the number of texts taken out. Read from the mod alone; a text name set
+        /// by hand that is not one of the quest's own ids (the quest id followed by 001..999) is left as it is.
         /// </summary>
         public int ShareTalkTexts(long id)
         {
@@ -341,7 +388,7 @@ namespace MS2.ModKit
                 kv.Value.Attrs.RemoveAll(delegate(AttrOp a)
                 {
                     long t;
-                    if (a.Kind != AttrOpKind.Set || a.Name != "text" || string.IsNullOrEmpty(a.At) || !TryTalkRef(a.Value, out t)) return false;
+                    if (a.Kind != AttrOpKind.Set || a.Name != "text" || string.IsNullOrEmpty(a.At) || !TryTalkRef(a.Value, out t) || !InOwnRange(id, t)) return false;
                     ids.Add(t);
                     return true;
                 });
