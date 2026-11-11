@@ -49,7 +49,7 @@ namespace MS2.Tables
         readonly TextBox titleBox = new TextBox { Width = 200 };
         readonly CheckBox oneLanguageBox = new CheckBox { Text = "only in this language", AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
-        readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 130 };
+        readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
         readonly IconBox portraitBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };

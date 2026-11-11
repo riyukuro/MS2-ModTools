@@ -48,7 +48,7 @@ namespace MS2.Tables
         readonly TextBox tooltipBox = new TextBox { Width = 240, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
         readonly TextBox guideBox = new TextBox { Width = 180, Height = 44, Multiline = true, ScrollBars = ScrollBars.Vertical };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
-        readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 110 };
+        readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 110 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();

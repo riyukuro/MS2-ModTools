@@ -57,7 +57,7 @@ namespace MS2.Tables
         readonly TextBox rowAttrsBox = new TextBox { Width = 220 };
         readonly DataGridView formGrid = new DataGridView { Dock = DockStyle.Top, Height = 170 };
         readonly DataGridView rowGrid = new DataGridView { Dock = DockStyle.Fill };
-        readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Both, WordWrap = false, Dock = DockStyle.Bottom, Height = 130 };
+        readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();

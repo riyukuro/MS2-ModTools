@@ -876,9 +876,11 @@ Select a shipped quest and press **Clone to new id**. An empty id box takes the 
   first.
 - Plan warns about a talk text name without a row: when, after all enabled mods are merged, a mod has brought a
   `$script:N$` into a talk script (a quest's own text, or a name set by hand in the MS2 Tables view) and that
-  target has no row N in any language, the warning names the mod, the quest and script, N and the target. Names
-  the shipped data has already are not looked at (shipped scripts name some texts without a row), and neither is
-  the clone of a quest that says such a text.
+  target has no row N in any language, the warning names the mod, the quest and script, N and the target. A name
+  the same quest and script have as shipped is not looked at (shipped scripts name some texts without a row), and
+  neither is that name in the clone of the quest, in the same script. Such a text moved to another quest or
+  script by hand is warned about. The output pane wraps its lines, so a long message reads without scrolling
+  sideways.
 - Limits: a text the script names but a target has no row for keeps the source's id on that target. A quest holds at most 999
   texts of its own; when the ids do not suffice nothing is copied. The talk texts of a shipped quest are not
   edited here; use the MS2 Tables view.
