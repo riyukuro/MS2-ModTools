@@ -592,8 +592,7 @@ namespace MS2.ModKit
                 if (File.Exists(tmp)) File.Delete(tmp);
                 throw;
             }
-            if (File.Exists(path)) File.Delete(path);
-            File.Move(tmp, path);
+            FileSwap.Into(tmp, path);
         }
 
         static int CountLines(StringBuilder c)

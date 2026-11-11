@@ -94,8 +94,7 @@ namespace MS2.ModKit
             Directory.CreateDirectory(Dir);
             string f = Path.Combine(Dir, FileName);
             File.WriteAllBytes(f + ".tmp", new UTF8Encoding(false).GetBytes(sb.ToString()));
-            if (File.Exists(f)) File.Delete(f);
-            File.Move(f + ".tmp", f);
+            FileSwap.Into(f + ".tmp", f);
         }
 
         /// <summary>Moves an item one place up (delta -1, a higher priority) or down (+1); returns its new index.</summary>
