@@ -98,6 +98,10 @@ namespace MS2.ModKit
         /// <summary>The number of places that have this row, and whether one of the places of the list lacks it or has other values.</summary>
         public int Places;
         public bool Differs;
+        /// <summary>Every place of the list, and what each holds for this row ("code xcount (rank r)"; null: no such row there).</summary>
+        public readonly List<QuestPlace> In = new List<QuestPlace>();
+        public readonly List<string> Values = new List<string>();
+        internal readonly List<QuestNode> Nodes = new List<QuestNode>();
     }
 
     public sealed class QuestCondition
@@ -188,7 +192,9 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Sets a field in every place. A place without the element gets it, and one without the attribute gets
-        /// that, except when the value is the default (empty or 0). Returns the number of places written.
+        /// that, except when the value is the default (empty or 0); an element the mod added for this field alone
+        /// leaves the mod again when the value goes back to the default. Returns the number of places that hold
+        /// the value.
         /// </summary>
         public int Set(string field, string value)
         {
@@ -202,6 +208,12 @@ namespace MS2.ModKit
                 {
                     if (Norm(value).Length == 0) continue;
                     k = Editor.AddKid(root, "<" + elem + " />");
+                }
+                else if (Norm(value).Length == 0 && Editor.AddedOnlyFor(k, attr))
+                {
+                    // the element is there only because this field was set before: the value taken back takes it out again
+                    Editor.Remove(k);
+                    continue;
                 }
                 string was = Editor.Attr(k, attr);
                 if (was == null && Norm(value).Length == 0) continue;
@@ -285,29 +297,55 @@ namespace MS2.ModKit
         /// <summary>The rows of one reward list. Row i is read from the first place that has an i-th row.</summary>
         public List<QuestReward> Rewards(string list) { return Rewards(CompleteReward, list); }
 
-        /// <summary>The rows of one list of a reward element (CompleteReward or AcceptReward).</summary>
+        /// <summary>
+        /// The rows of one list of a reward element (CompleteReward or AcceptReward). The places are paired by item:
+        /// a row of a place joins the row of the same item id (the same rank and count first) that an earlier place
+        /// gave, else it is a row of its own behind the place's row before it. So where the places hold different lists, a row never
+        /// stands for two different items; In and Values say what each place has.
+        /// </summary>
         public List<QuestReward> Rewards(string reward, string list)
         {
             CheckReward(reward); CheckList(list);
-            var per = new List<List<QuestNode>>();
-            int max = 0;
-            foreach (QuestNode root in ListRoots(list)) { List<QuestNode> r = Rows(root, reward, list); per.Add(r); max = Math.Max(max, r.Count); }
+            List<QuestNode> roots = ListRoots(list);
             var l = new List<QuestReward>();
-            for (int i = 0; i < max; i++)
+            for (int pi = 0; pi < roots.Count; pi++)
             {
-                QuestReward w = null;
-                foreach (List<QuestNode> rows in per)
+                var taken = new List<QuestReward>();
+                int at = 0;     // where a row no earlier place has goes: behind the place's row before it
+                foreach (QuestNode row in Rows(roots[pi], reward, list))
                 {
-                    if (i >= rows.Count) continue;
-                    string c = Editor.Attr(rows[i], "code") ?? "", r = Editor.Attr(rows[i], "rank") ?? "", n = Editor.Attr(rows[i], "count") ?? "";
-                    if (w == null) w = new QuestReward { List = list, Index = i, Code = c, Rank = r, Count = n };
-                    else if (c != w.Code || Norm(r) != Norm(w.Rank) || Norm(n) != Norm(w.Count)) w.Differs = true;
+                    string c = Editor.Attr(row, "code") ?? "", r = Editor.Attr(row, "rank") ?? "", n = Editor.Attr(row, "count") ?? "";
+                    QuestReward w = null;
+                    for (int pass = 0; pass < 2 && w == null; pass++)
+                        foreach (QuestReward x in l)
+                            if (x.Code == c && !taken.Contains(x) && (pass == 1 || (Norm(r) == Norm(x.Rank) && Norm(n) == Norm(x.Count)))) { w = x; break; }
+                    if (w == null)
+                    {
+                        w = new QuestReward { List = list, Code = c, Rank = r, Count = n };
+                        foreach (QuestNode root in roots) { w.In.Add(root.Place); w.Values.Add(null); w.Nodes.Add(null); }
+                        l.Insert(Math.Min(at, l.Count), w);
+                    }
+                    else if (Norm(r) != Norm(w.Rank) || Norm(n) != Norm(w.Count)) w.Differs = true;
+                    taken.Add(w);
+                    at = Math.Max(at, l.IndexOf(w) + 1);
+                    w.Nodes[pi] = row;
+                    w.Values[pi] = c + " x" + n + " (rank " + r + ")";
                     w.Places++;
                 }
-                if (w.Places < per.Count) w.Differs = true;
-                l.Add(w);
+            }
+            for (int i = 0; i < l.Count; i++)
+            {
+                l[i].Index = i;
+                if (l[i].Places < roots.Count) l[i].Differs = true;
             }
             return l;
+        }
+
+        QuestReward RewardRow(string reward, string list, int index)
+        {
+            List<QuestReward> l = Rewards(reward, list);
+            if (index < 0 || index >= l.Count) throw new ModKitException("the list " + list + " has no row " + (index + 1));
+            return l[index];
         }
 
         static void CheckItem(QuestItem it)
@@ -325,20 +363,24 @@ namespace MS2.ModKit
             if (Editor.Attr(row, "count") != it.Count) Editor.SetAttr(row, "count", it.Count);
         }
 
-        /// <summary>Sets row index of a list in every place that has such a row. Returns the number of places.</summary>
+        /// <summary>Sets row index of a list (as Rewards numbers them) in every place that has that row. Returns the number of places.</summary>
         public int SetReward(string list, int index, QuestItem item) { return SetReward(CompleteReward, list, index, item); }
 
         public int SetReward(string reward, string list, int index, QuestItem item)
         {
             CheckReward(reward); CheckList(list); CheckItem(item);
-            int n = 0;
-            foreach (QuestNode root in ListRoots(list))
+            QuestReward w = RewardRow(reward, list, index);
+            List<QuestNode> roots = ListRoots(list);
+            for (int pi = 0; pi < roots.Count; pi++)
             {
-                List<QuestNode> rows = Rows(root, reward, list);
-                if (index < 0 || index >= rows.Count) continue;
-                Write(rows[index], item); n++;
+                if (w.Nodes[pi] == null) continue;
+                foreach (QuestNode r in Rows(roots[pi], reward, list))
+                    if (!SameNode(r, w.Nodes[pi]) && Same(r, item))
+                        throw new ModKitException("the list " + list + " already has item " + item.Code + " rank " + item.Rank + " count " + item.Count + " (" + roots[pi].Place.Label + "); change the count of that row");
             }
-            if (n == 0) throw new ModKitException("the list " + list + " has no row " + (index + 1));
+            int n = 0;
+            foreach (QuestNode node in w.Nodes)
+                if (node != null) { Write(node, item); n++; }
             return n;
         }
 
@@ -348,6 +390,13 @@ namespace MS2.ModKit
                 if (Norm(Editor.Attr(r, "code")).Length == 0) { Write(r, it); return; }
             QuestNode cr = Kid(root, reward) ?? Editor.AddKid(root, "<" + reward + " />");
             Editor.AddKid(cr, "<" + list + " code=\"" + it.Code + "\" rank=\"" + it.Rank + "\" count=\"" + it.Count + "\" />");
+        }
+
+        static bool SameNode(QuestNode a, QuestNode b)
+        {
+            if (a.Orig != b.Orig || a.Add != b.Add || a.Path.Length != b.Path.Length) return false;
+            for (int i = 0; i < a.Path.Length; i++) if (a.Path[i] != b.Path[i]) return false;
+            return true;
         }
 
         bool Same(QuestNode r, QuestItem it)
@@ -373,28 +422,27 @@ namespace MS2.ModKit
             return roots.Count;
         }
 
-        // The files write an empty completeReward list as one row with code 0: the last row of a file's list becomes
-        // that row. acceptReward has no such row.
-        void RemoveRow(QuestNode root, string reward, string list, QuestNode row)
+        // A removed row goes away: a row the mod added leaves the mod, a shipped one is deleted. Only the "code 0"
+        // row the full format ships for an empty list, when an added item took it, is put back as it shipped.
+        void RemoveRow(QuestNode row)
         {
-            if (reward == CompleteReward && root.Place.Kind == QuestPlace.File && RawRows(root, reward, list).Count == 1) Write(row, new QuestItem { Code = "0", Rank = "0", Count = "0" });
+            if (row.Orig != null && Norm(row.Orig.Attr("code")).Length == 0)
+                foreach (string a in new[] { "code", "rank", "count" })
+                {
+                    if (Editor.Attr(row, a) != row.Orig.Attr(a)) Editor.SetAttr(row, a, row.Orig.Attr(a));
+                }
             else Editor.Remove(row);
         }
 
-        /// <summary>Removes row index of a list in every place that has such a row.</summary>
+        /// <summary>Removes row index of a list (as Rewards numbers them) in every place that has that row.</summary>
         public int RemoveReward(string list, int index) { return RemoveReward(CompleteReward, list, index); }
 
         public int RemoveReward(string reward, string list, int index)
         {
             CheckReward(reward); CheckList(list);
             int n = 0;
-            foreach (QuestNode root in ListRoots(list))
-            {
-                List<QuestNode> rows = Rows(root, reward, list);
-                if (index < 0 || index >= rows.Count) continue;
-                RemoveRow(root, reward, list, rows[index]); n++;
-            }
-            if (n == 0) throw new ModKitException("the list " + list + " has no row " + (index + 1));
+            foreach (QuestNode node in RewardRow(reward, list, index).Nodes)
+                if (node != null) { RemoveRow(node); n++; }
             return n;
         }
 
@@ -417,7 +465,7 @@ namespace MS2.ModKit
                 foreach (QuestNode root in ListRoots(list))
                 {
                     List<QuestNode> rows = Rows(root, CompleteReward, list);
-                    for (int i = rows.Count - 1; i >= items.Count; i--) RemoveRow(root, CompleteReward, list, rows[i]);
+                    for (int i = rows.Count - 1; i >= items.Count; i--) RemoveRow(rows[i]);
                     for (int i = 0; i < items.Count && i < rows.Count; i++) Write(rows[i], items[i]);
                     for (int i = rows.Count; i < items.Count; i++) AddRow(root, CompleteReward, list, items[i]);
                     n++;
@@ -996,6 +1044,16 @@ namespace MS2.ModKit
             return l;
         }
 
+        /// <summary>True for an element the mod adds by a line of its own that has nothing but this one attribute.</summary>
+        internal bool AddedOnlyFor(QuestNode n, string attr)
+        {
+            if (!n.Literal || n.Path.Length != 0) return false;
+            XmlElem e = Frag(n);
+            if (e.Children.Count > 0) return false;
+            foreach (XmlAttr a in e.Attrs) if (a.Name != attr) return false;
+            return true;
+        }
+
         /// <summary>Adds a child element (literal XML) as the last one.</summary>
         internal QuestNode AddKid(QuestNode n, string xml)
         {
@@ -1259,12 +1317,37 @@ namespace MS2.ModKit
 
         // ---- clone ----
 
-        /// <summary>The first id from the given one that no shipped quest and no quest of the mod has.</summary>
+        /// <summary>
+        /// The other enabled mods (null: none known). The quest ids they reserve (&lt;ids space="quest"&gt;) are not
+        /// offered by NextFreeId and not taken by Clone.
+        /// </summary>
+        public Func<IEnumerable<Mod>> Others;
+
+        // the mod of the others that reserves the id, or null
+        Mod ReservedBy(long id, List<Mod> others)
+        {
+            foreach (Mod m in others)
+                foreach (IdRange r in m.Ids)
+                    if (r.Space == IdSpace && id >= r.From && id <= r.To) return m;
+            return null;
+        }
+
+        List<Mod> OtherMods()
+        {
+            var l = new List<Mod>();
+            if (Others == null) return l;
+            IEnumerable<Mod> mods = Others();
+            if (mods != null) foreach (Mod m in mods) if (m != null && m != Mod && m.Id != Mod.Id) l.Add(m);
+            return l;
+        }
+
+        /// <summary>The first id from the given one that no shipped quest and no quest of the mod has, and that no other enabled mod reserves.</summary>
         public long NextFreeId(long from)
         {
             List<long> added = AddedIds();
+            List<Mod> others = OtherMods();
             for (long id = Math.Max(1, from); id <= MaxId; id++)
-                if (!added.Contains(id) && !Exists(id)) return id;
+                if (!added.Contains(id) && !Exists(id) && ReservedBy(id, others) == null) return id;
             throw new ModKitException("no quest id is free from " + from);
         }
 
@@ -1291,6 +1374,8 @@ namespace MS2.ModKit
             if (newId <= 0 || newId > MaxId) throw new ModKitException("the new id must be from 1 to " + MaxId + " (the file name has 8 digits)");
             if (AddedIds().Contains(newId)) throw new ModKitException("the mod already adds a quest " + newId);
             if (Exists(newId)) throw new ModKitException("the id " + newId + " is already used in the data");
+            Mod owner = ReservedBy(newId, OtherMods());
+            if (owner != null) throw new ModKitException("the quest id " + newId + " is reserved by the enabled mod " + owner.Id);
             if (AddedIds().Contains(sourceId)) throw new ModKitException("quest " + sourceId + " is itself new in this mod; clone the shipped quest it was copied from");
             if (!Exists(sourceId)) throw new ModKitException("the data has no quest " + sourceId);
             List<XmlElem> rows;

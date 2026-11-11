@@ -315,8 +315,29 @@ namespace MS2.ModKit.Tests
                 Assert.That(FakeQuests.Out(p, S, F2), Does.Not.Contain("<start npc=\"0\""));
                 // taking the value back removes the added element
                 d = f.Editor().Open(702);
+                Assert.That(d.SetStartNpc(0), Is.EqualTo(2), "only the server's files hold the 0");
+                Assert.That(d.Get(d.PlacesOf(QuestPlace.Table)[0], "start@npc"), Is.Null);
+                Assert.That(f.Mod.ToXml(), Does.Not.Contain("start npc").And.Contain("completeReward exp=\"40\""), "the other added elements stay");
+                p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, T), Does.Not.Contain("<start npc=\"0\"").And.Not.Contain("<start npc=\"62\""));
+            }
+        }
+
+        [Test]
+        public void SetField_TakenBack_LeavesNoLine()
+        {
+            using (var f = new FakeQuests(true, false, true))
+            {
+                QuestDraft d = f.Editor().Open(702);
+                Assert.That(d.SetStartNpc(61), Is.EqualTo(5));
+                Assert.That(f.Mod.Ops.Count, Is.GreaterThan(0));
                 d.SetStartNpc(0);
-                Assert.That(d.Get(d.PlacesOf(QuestPlace.Table)[0], "start@npc"), Is.EqualTo("0"));
+                Assert.That(f.Mod.Ops, Is.Empty, f.Mod.ToXml());
+                // the same after a save and load
+                d.SetStartNpc(61);
+                f.Reload();
+                f.Editor().Open(702).SetStartNpc(0);
+                Assert.That(f.Mod.Ops, Is.Empty, f.Mod.ToXml());
             }
         }
 
@@ -348,7 +369,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(FakeQuests.Out(p, G, F1), Is.EqualTo(s));
                 Assert.That(FakeQuests.Out(p, K, F1), Does.Contain("<essentialItem code=\"9005\" rank=\"2\" count=\"1\" />"));
 
-                // remove: an added row leaves the mod, a shipped one is deleted, the last one of a file becomes the code 0 row
+                // remove: an added row leaves the mod, a shipped one is deleted, the code 0 row of an empty list comes back as it shipped
                 d.RemoveReward("v", 1);
                 d.RemoveReward("v", 0);
                 d.RemoveReward("globalEssentialItem", 0);
@@ -361,7 +382,9 @@ namespace MS2.ModKit.Tests
                 p = f.Plan();
                 Assert.That(FakeQuests.Out(p, K, T), Does.Not.Contain("<v code=\"90"));
                 s = FakeQuests.Out(p, S, F1);
-                Assert.That(s, Does.Contain("<completeReward exp=\"100\" money=\"20\">\n\t\t\t\t<essentialItem code=\"0\" rank=\"0\" count=\"0\" />\n\t\t\t\t<globalEssentialItem code=\"0\" rank=\"0\" count=\"0\" />"));
+                Assert.That(s, Does.Contain("<completeReward exp=\"100\" money=\"20\">\n\t\t\t\t<globalEssentialItem code=\"0\" rank=\"0\" count=\"0\" />"));
+                Assert.That(s, Does.Contain("</acceptReward>\n\t\t\t<completeReward exp=\"100\" money=\"20\">\n\t\t\t\t<globalEssentialItem"), "a removed row is gone, not a code 0 row");
+                Assert.That(FakeQuests.Out(p, K, F1), Does.Contain("<completeReward exp=\"100\" money=\"20\">\n\t\t\t</completeReward>"));
                 // and a row can be added again after that
                 d.AddReward("essentialItem", new QuestItem(9010, 1, 1));
                 d.AddReward("v", new QuestItem(9010, 1, 1));
@@ -369,6 +392,172 @@ namespace MS2.ModKit.Tests
                 Assert.That(FakeQuests.Out(p, S, F1), Does.Contain("<essentialItem code=\"9010\" rank=\"1\" count=\"1\" />"));
                 Assert.That(FakeQuests.Out(p, K, T), Does.Contain("<v code=\"9010\" rank=\"1\" count=\"1\" />"));
             }
+        }
+
+        [Test]
+        public void RemoveReward_OfAnAddedRow_LeavesNoLine()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestDraft d = f.Editor().Open(701);
+                d.AddReward("essentialItem", new QuestItem(9005, 2, 1));
+                d.AddReward("globalEssentialItem", new QuestItem(9006, 1, 3));
+                f.Reload();
+                d = f.Editor().Open(701);
+                List<QuestReward> l = d.Rewards("essentialItem");
+                Assert.That(l.ConvertAll(x => x.Code), Is.EqualTo(new[] { "9001", "9002", "9005" }), "in the order of the longer list");
+                Assert.That(l[1].Differs, Is.True);
+                Assert.That(l[2].Differs, Is.False);
+                d.RemoveReward("essentialItem", 2);
+                d.RemoveReward("globalEssentialItem", 0);
+                Assert.That(f.Mod.Ops, Is.Empty, f.Mod.ToXml());
+            }
+        }
+
+        [Test]
+        public void Rewards_ArePairedByItem_WhereThePlacesHoldDifferentLists()
+        {
+            string xml;
+            using (var k = new FakeQuests(true, false, false))
+            {
+                // the kms-client copy alone: its one row becomes the item the other two have second
+                k.Editor().Open(701).SetReward("essentialItem", 0, new QuestItem(9002, 1, 5));
+                xml = k.Mod.ToXml();
+            }
+            using (var f = new FakeQuests(true, true, true))
+            {
+                f.Mod = Mod.Parse(xml, "made on one target");
+                QuestDraft d = f.Editor().Open(701);
+                List<QuestReward> l = d.Rewards("essentialItem");
+                Assert.That(l.Count, Is.EqualTo(2));
+                Assert.That(l[0].Code, Is.EqualTo("9001"));
+                Assert.That(l[0].Places, Is.EqualTo(1));
+                Assert.That(l[0].Differs, Is.True);
+                Assert.That(l[0].In.Count, Is.EqualTo(2), "the kms-client file and the one the gms-client and the server share");
+                Assert.That(l[0].Values, Is.EqualTo(new[] { null, "9001 x1 (rank 1)" }));
+                Assert.That(l[1].Code, Is.EqualTo("9002"));
+                Assert.That(l[1].Places, Is.EqualTo(2));
+                Assert.That(l[1].Differs, Is.False);
+                // a row is one item everywhere: the count goes to the 9002 rows, the 9001 row stays
+                Assert.That(d.SetReward("essentialItem", 1, new QuestItem(9002, 1, 8)), Is.EqualTo(2));
+                Assert.Throws<ModKitException>(delegate { d.SetReward("essentialItem", 0, new QuestItem(9002, 1, 8)); }, "a place would hold the item twice");
+                Assert.Throws<ModKitException>(delegate { d.RemoveReward("essentialItem", 2); });
+                Plan p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, F1), Does.Contain("<essentialItem code=\"9002\" rank=\"1\" count=\"8\" />").And.Not.Contain("code=\"9001\""));
+                Assert.That(FakeQuests.Out(p, S, F1), Does.Contain("<essentialItem code=\"9001\" rank=\"1\" count=\"1\" />\n\t\t\t\t<essentialItem code=\"9002\" rank=\"1\" count=\"8\" />"));
+                Assert.That(d.RemoveReward("essentialItem", 1), Is.EqualTo(2));
+                l = d.Rewards("essentialItem");
+                Assert.That(l.Count, Is.EqualTo(1));
+                Assert.That(l[0].Code, Is.EqualTo("9001"));
+                p = f.Plan();
+                Assert.That(FakeQuests.Out(p, K, F1), Does.Contain("<completeReward exp=\"100\" money=\"20\">\n\t\t\t</completeReward>"));
+                Assert.That(FakeQuests.Out(p, S, F1), Does.Contain("<essentialItem code=\"9001\" rank=\"1\" count=\"1\" />").And.Not.Contain("code=\"9002\""));
+                Assert.That(FakeQuests.Out(p, G, F1), Is.EqualTo(FakeQuests.Out(p, S, F1)));
+            }
+        }
+
+        [Test]
+        public void NewIds_SkipWhatOtherEnabledModsReserve()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            {
+                QuestEditor e = f.Editor();
+                Mod other = Mod.Parse("<mod id=\"other.mod\" name=\"o\" version=\"1\"><ids space=\"quest\" from=\"703\" to=\"710\"/><ids space=\"item\" from=\"711\" to=\"720\"/></mod>", "other");
+                e.Others = delegate { return new[] { other, f.Mod }; };
+                Assert.That(e.NextFreeId(701), Is.EqualTo(711), "the item range is another id space");
+                ModKitException x = Assert.Throws<ModKitException>(delegate { e.Clone(701, 705); });
+                Assert.That(x.Message, Is.EqualTo("the quest id 705 is reserved by the enabled mod other.mod"));
+                Assert.That(f.Mod.Ops, Is.Empty);
+                e.Clone(701, 711);
+                Assert.That(e.NextFreeId(701), Is.EqualTo(712), "the mod's own range does not hide its free ids");
+                f.Plan();
+            }
+        }
+
+        [Test]
+        public void Session_AppliesAndRevertsAQuestPlan()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            using (var s = new EditorSession(Path.Combine(f.Dir, "kms"), Path.Combine(f.Dir, "gms"), Path.Combine(f.Dir, "server"), Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+            {
+                s.Adopt(f.Mod);
+                QuestEditor e = s.Quests();
+                QuestDraft d = e.Open(701);
+                d.SetLevel(9); d.SetText("name", "Renamed Errand");
+                d.AddReward("essentialItem", new QuestItem(9005, 2, 1));
+                e.Clone(701, 750).SetExp(77);
+                ApplyResult r = s.Apply();
+                Assert.That(r.Applied, Is.True, s.Describe(r));
+                Assert.That(r.Outputs.Count, Is.EqualTo(4), s.Describe(r));
+                string k = Applied(r, K, T), sv = Applied(r, S, F1);
+                Assert.That(k, Does.Contain("<quest id=\"701\">\n\t\t<basic chapter=\"1\" />\n\t\t<require level=\"9\" />").And.Contain("<quest id=\"750\">"));
+                Assert.That(sv, Does.Contain("<require level=\"9\" />").And.Contain("<essentialItem code=\"9005\" rank=\"2\" count=\"1\" />"));
+                Assert.That(Applied(r, G, F1), Is.EqualTo(sv));
+                foreach (string a in new[] { K, G, S })
+                {
+                    Assert.That(Applied(r, a, "quest/00000750.xml"), Does.Contain("questID=\"00000750\"").And.Contain("exp=\"77\""), a);
+                    Assert.That(Applied(r, a, "string/en/questdescription_a.xml"), Does.Contain("questID=\"00000701\" name=\"Renamed Errand\""), a);
+                    Assert.That(Applied(r, a, QF), Does.Contain("<quest id=\"750\" fields=\"61,62\" />"), a);
+                    Assert.That(Applied(r, a, "quest/00000702.xml"), Is.Not.Null, "an entry the mod leaves alone is kept: " + a);
+                }
+                Assert.That(Count(Applied(r, M, MC), "questID=\"750\""), Is.EqualTo(3));
+                // the applied files read back as a data set show the edits as shipped values
+                using (var again = new DataSet(Path.Combine(f.Dir, "ws", "client"), Path.Combine(f.Dir, "ws", "gms-client"), Path.Combine(f.Dir, "ws", "server")))
+                {
+                    var e2 = new QuestEditor(again, Mod.Parse("<mod id=\"second\" name=\"t\" version=\"1\"/>", "second"));
+                    QuestDraft d2 = e2.Open(750);
+                    Assert.That(d2.Exp, Is.EqualTo("77"));
+                    Assert.That(d2.Differs("completeReward@exp"), Is.False);
+                    Assert.That(e2.Open(701).Name, Is.EqualTo("Renamed Errand"));
+                    Assert.That(e2.Open(701).Rewards("essentialItem").Count, Is.EqualTo(3));
+                }
+                var paths = new List<string>();
+                foreach (ApplyOutput o in r.Outputs) paths.Add(o.Path);
+                r = s.Revert();
+                Assert.That(r.Applied, Is.True, s.Describe(r));
+                foreach (string path in paths) Assert.That(File.Exists(path), Is.False, path);
+                // and the shipped archives were never written
+                using (var shipped = new FakeQuests(true, true, true))
+                    foreach (string sub in new[] { "kms/Xml.m2d", "gms/Xml.m2d", "server/Xml.m2d", "server/Server.m2d" })
+                        Assert.That(File.ReadAllBytes(Path.Combine(f.Dir, sub)), Is.EqualTo(File.ReadAllBytes(Path.Combine(shipped.Dir, sub))), sub);
+            }
+        }
+
+        [Test]
+        public void Session_NewIds_SkipTheOtherEnabledMods()
+        {
+            using (var f = new FakeQuests(true, true, true))
+            using (var s = new EditorSession(Path.Combine(f.Dir, "kms"), Path.Combine(f.Dir, "gms"), Path.Combine(f.Dir, "server"), Path.Combine(f.Dir, "mods"), Path.Combine(f.Dir, "ws")))
+            {
+                s.Adopt(f.Mod);
+                Assert.That(s.Quests().NextFreeId(701), Is.EqualTo(703));
+                string other = Path.Combine(Path.Combine(f.Dir, "mods"), "other.mod");
+                Directory.CreateDirectory(other);
+                File.WriteAllText(Path.Combine(other, "mod.xml"), "<mod id=\"other.mod\" name=\"o\" version=\"1\">\n  <ids space=\"quest\" from=\"703\" to=\"704\"/>\n</mod>\n", new UTF8Encoding(false));
+                QuestEditor e = s.Quests();
+                Assert.That(e.NextFreeId(701), Is.EqualTo(705));
+                Assert.Throws<ModKitException>(delegate { e.Clone(701, 703); });
+                // a disabled mod reserves nothing
+                ModList l = s.ModList();
+                l.FindId("other.mod").Enabled = false;
+                l.Save();
+                Assert.That(e.NextFreeId(701), Is.EqualTo(703));
+            }
+        }
+
+        /// <summary>The text of an entry in the archive an apply wrote (LF line ends), or null when it is not there.</summary>
+        static string Applied(ApplyResult r, string archive, string entry)
+        {
+            foreach (ApplyOutput o in r.Outputs)
+            {
+                if (o.Archive != archive) continue;
+                using (M2dArchive a = M2dArchive.Open(o.Path))
+                {
+                    M2dEntry e = a.Find(entry);
+                    return e == null ? null : new UTF8Encoding(false).GetString(a.Read(e)).Replace("\r\n", "\n");
+                }
+            }
+            return null;
         }
 
         [Test]

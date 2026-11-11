@@ -130,7 +130,20 @@ namespace MS2.ModKit
         }
 
         /// <summary>The quest editor over the data and the mod being edited (see Quests.cs). Ask again after the mod is replaced.</summary>
-        public QuestEditor Quests() { return new QuestEditor(Data, Mod); }
+        public QuestEditor Quests()
+        {
+            var ed = new QuestEditor(Data, Mod);
+            // the ids the other enabled mods reserve are not offered for a new quest; read when an id is asked for
+            ed.Others = delegate
+            {
+                var others = new List<Mod>();
+                if (ModsDir == null || !System.IO.Directory.Exists(ModsDir)) return others;
+                try { foreach (Mod m in ActiveMods()) if (m != Mod) others.Add(m); }
+                catch (ModKitException) { }
+                return others;
+            };
+            return ed;
+        }
 
         /// <summary>The skill and effect editor over the data and the mod being edited (see SkillEditor.cs). Ask again after the mod is replaced.</summary>
         public SkillEditor Skills() { return new SkillEditor(Data, Mod); }
