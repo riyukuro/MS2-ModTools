@@ -146,7 +146,7 @@ namespace MS2.ModKit
             try { arch = run.Data.Open(ar); } catch (ModKitException) { return null; }
             string locale, type;
             run.Data.FeatureOption(target, out locale, out type);
-            set = FeatureSet.Read(PlannedEntry(run, ar, arch, FeatureSet.SettingTable), PlannedEntry(run, ar, arch, FeatureSet.FeatureTable), locale, type);
+            set = FeatureSet.Read(PlannedEntry(run, ar, arch, FeatureSet.SettingTable), PlannedEntry(run, ar, arch, FeatureSet.FeatureTable), locale, type, target.IsServer);
             mr.Features[target.Root] = set;
             return set;
         }
@@ -205,7 +205,7 @@ namespace MS2.ModKit
                 {
                     MapFileUse loaded = LoadedFile(set, ofMap);
                     if (loaded != null && string.Equals(loaded.File, u.File, StringComparison.OrdinalIgnoreCase)) continue;
-                    plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, "with this target's features (" + set.Text + ") the game loads "
+                    plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, "with this target's features (" + set.Text + ") the " + (set.ServerRule ? "server" : "game") + " loads "
                         + (loaded != null ? loaded.File : "no map file") + " for map " + D(u.MapId) + ", not this map file; the map table names " + FilesText(ofMap) + at);
                 }
                 else

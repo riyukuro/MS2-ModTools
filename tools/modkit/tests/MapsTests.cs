@@ -96,10 +96,10 @@ namespace MS2.ModKit.Tests
         }
 
         // a map with one map file per feature
-        public static string TwoFiles(string open, string close)
+        public static string TwoFiles(string open, string close, string feature = "MadeUp")
         {
             return "\t<" + open + ">\n\t\t<environment>\n\t\t\t<xblock name=\"90000005_AB\" />\n\t\t</environment>\n"
-                + "\t\t<environment feature=\"MadeUp\">\n\t\t\t<xblock name=\"90000005_CD\" />\n\t\t</environment>\n\t</" + close + ">\n";
+                + "\t\t<environment feature=\"" + feature + "\">\n\t\t\t<xblock name=\"90000005_CD\" />\n\t\t</environment>\n\t</" + close + ">\n";
         }
 
         public const string TagRow = "<region mapCode=\"90000001\" spawnPointID=\"7\" difficulty=\"1\" tag=\"wolf\" coolTime=\"20\" population=\"3\" />";
@@ -111,7 +111,7 @@ namespace MS2.ModKit.Tests
         public const string FeatureSetting = Head + "<ms2>\n\t<setting type=\"Dev\" KR=\"99\" NA=\"99\" />\n\t<setting type=\"Live\" KR=\"10\" NA=\"5\" />\n</ms2>\n";
         public const string Feature = Head + "<ms2>\n\t<feature name=\"MadeUp\" KR=\"8\" NA=\"7\" />\n\t<feature name=\"Other\" KR=\"8\" NA=\"0\" />\n</ms2>\n";
 
-        public FakeMaps(bool serverLinksToKms = false, bool features = false)
+        public FakeMaps(bool serverLinksToKms = false, bool features = false, string secondFileFeature = "MadeUp")
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-maps-" + Guid.NewGuid().ToString("N"));
             KmsDir = Path.Combine(Dir, "orig", "kms");
@@ -129,7 +129,7 @@ namespace MS2.ModKit.Tests
             else Exported(ServerDir, false);
             var kms = new List<KeyValuePair<string, byte[]>>
             {
-                E("table/fielddata.xml", Head + "<ms2>\n" + Row("fieldData id=\"90000001\"", "fieldData", "90000001_AB") + Row("fieldData id=\"90000002\"", "fieldData", "90000002_AB") + TwoFiles("fieldData id=\"90000005\"", "fieldData") + "</ms2>\n"),
+                E("table/fielddata.xml", Head + "<ms2>\n" + Row("fieldData id=\"90000001\"", "fieldData", "90000001_AB") + Row("fieldData id=\"90000002\"", "fieldData", "90000002_AB") + TwoFiles("fieldData id=\"90000005\"", "fieldData", secondFileFeature) + "</ms2>\n"),
                 E("npcdata/990.xml", Head + "<ms2>\n\t<npc id=\"99000001\" />\n</ms2>\n"),
                 E(TagEntry, TagTable),      // the Korean client ships the table too; the made-up global client does not
             };
@@ -139,7 +139,7 @@ namespace MS2.ModKit.Tests
             {
                 E("map/90000001.xml", Head + Row("ms2", "ms2", "90000001_AB")),
                 E("map/90000002.xml", Head + Row("ms2", "ms2", "90000002_AB")),
-                E("map/90000005.xml", Head + TwoFiles("ms2", "ms2")),
+                E("map/90000005.xml", Head + TwoFiles("ms2", "ms2", secondFileFeature)),
                 E("npc/9/90/99000001.xml", Head + "<ms2 />\n"),
             };
             if (features) { perId.Add(E(FeatureSet.SettingTable, FeatureSetting)); perId.Add(E(FeatureSet.FeatureTable, Feature)); }
@@ -356,7 +356,8 @@ namespace MS2.ModKit.Tests
                 p = f.Plan(f.Mod("b", MapOf("90000005_cd", "", AddCrate)));
                 w = Lines(p.Warnings).Where(x => x.Contains("map table")).ToArray();
                 Assert.That(w.Length, Is.EqualTo(2), Fake.Dump(p));
-                Assert.That(w.All(x => x.Contains("(locale NA, server type Live, level 5) the game loads 90000005_AB for map 90000005")), Is.True, Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains("(locale NA, server type Live, level 5) the game loads 90000005_AB for map 90000005") && x.Contains(" " + G + " ")), Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains("(locale NA, server type Live, level 5) the server loads 90000005_AB for map 90000005") && x.Contains(" " + S + " ")), Is.EqualTo(1), Fake.Dump(p));
                 Assert.That(w.Any(x => x.Contains(" " + K + " ")), Is.False, Fake.Dump(p));
             }
         }
@@ -374,7 +375,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 string[] w = Lines(p.Warnings).Where(x => x.Contains("map table")).ToArray();
                 Assert.That(w.Length, Is.EqualTo(2), Fake.Dump(p));
-                Assert.That(w.Count(x => x.Contains("(locale NA, server type Dev, level 99) the game loads 90000005_CD") && x.Contains(" " + S + " ")), Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains("(locale NA, server type Dev, level 99) the server loads 90000005_CD") && x.Contains(" " + S + " ")), Is.EqualTo(1), Fake.Dump(p));
                 string[] n = Lines(p.Notes).Where(x => x.Contains("map 90000005 has more than one map file in the map table")).ToArray();
                 Assert.That(n.Length, Is.EqualTo(1), Fake.Dump(p));
                 Assert.That(n[0], Does.Contain(" " + G + " "));
@@ -414,6 +415,57 @@ namespace MS2.ModKit.Tests
             Assert.That(kr.SecondWins("MadeUp", "", "MadeUp", "KR"), Is.True);
             Assert.That(kr.SecondWins("MadeUp", "KR", "MadeUp", ""), Is.False);
             Assert.That(kr.SecondWins("MadeUp", "", "MadeUp", ""), Is.False);
+        }
+
+        [Test]
+        public void TheServerPicksRowsByItsOwnRule()
+        {
+            byte[] setting = Encoding.UTF8.GetBytes(FakeMaps.FeatureSetting), feature = Encoding.UTF8.GetBytes(FakeMaps.Feature);
+            FeatureSet game = FeatureSet.Read(setting, feature, "NA", "Live"), server = FeatureSet.Read(setting, feature, "NA", "Live", true);
+            // a feature at level 0: off for the game, on for the server
+            Assert.That(game.IsOn("Other"), Is.False);
+            Assert.That(server.IsOn("Other"), Is.True);
+            Assert.That(server.IsOn("MadeUp"), Is.False);       // level 7 over 5, as for the game
+            Assert.That(server.IsOn("NotInTheTable"), Is.False);
+            // the server type and the feature name compare with letter case, the row's locale without
+            Assert.That(FeatureSet.Read(setting, feature, "NA", "live", true), Is.Null);
+            Assert.That(server.IsOn("other"), Is.False);
+            Assert.That(server.Allows("", "na"), Is.True);
+            Assert.That(game.Allows("", "na"), Is.False);
+            // a locale the server does not know; a level that is not written counts as 0
+            Assert.That(FeatureSet.Read(setting, feature, "ZZ", "Live", true), Is.Null);
+            Assert.That(FeatureSet.Read(setting, feature, "JP", "Live", true).Level, Is.EqualTo(0));
+
+            FeatureSet gameDev = FeatureSet.Read(setting, feature, "KR", "Dev"), serverDev = FeatureSet.Read(setting, feature, "KR", "Dev", true);
+            // a row of the locale against a row without one with a feature: the game takes the feature, the server the locale
+            Assert.That(gameDev.SecondWins("", "KR", "MadeUp", ""), Is.True);
+            Assert.That(serverDev.SecondWins("", "KR", "MadeUp", ""), Is.False);
+            Assert.That(serverDev.SecondWins("MadeUp", "", "", "KR"), Is.True);
+            // equal levels: the game takes the later name, the server the first row
+            Assert.That(gameDev.SecondWins("MadeUp", "", "Other", ""), Is.True);
+            Assert.That(serverDev.SecondWins("MadeUp", "", "Other", ""), Is.False);
+            // two rows without a feature: the game keeps the first, the server the last
+            Assert.That(gameDev.SecondWins("", "", "", ""), Is.False);
+            Assert.That(serverDev.SecondWins("", "", "", ""), Is.True);
+            // a feature goes before no feature on both
+            Assert.That(serverDev.SecondWins("", "", "MadeUp", ""), Is.True);
+            Assert.That(serverDev.SecondWins("MadeUp", "", "", ""), Is.False);
+        }
+
+        [Test]
+        public void AFeatureAtLevelZeroIsOnForTheServerOnly()
+        {
+            // the second file of map 90000005 hangs on feature Other, which is at level 0 for NA: the global client
+            // loads 90000005_AB, the server 90000005_CD, from the same tables with the same locale and server type
+            using (var f = new FakeMaps(features: true, secondFileFeature: "Other"))
+            {
+                Plan p = f.Plan(f.Mod("a", MapOf(FakeMaps.MapTwo, "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string[] w = Lines(p.Warnings).Where(x => x.Contains("map table")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(2), Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains("the server loads 90000005_CD for map 90000005") && x.Contains(" " + S + " ")), Is.EqualTo(1), Fake.Dump(p));
+                Assert.That(w.Count(x => x.Contains("(locale KR, server type Live, level 10) the game loads 90000005_CD") && x.Contains(" " + K + " ")), Is.EqualTo(1), Fake.Dump(p));
+            }
         }
 
         [Test]

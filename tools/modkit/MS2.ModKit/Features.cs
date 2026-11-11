@@ -8,6 +8,15 @@
 // a row is out when its locale is set and is not the target's, or when its feature is not on (no feature = on).
 // Of the rows left, the one whose feature has the higher level wins (no feature = level 0; equal levels: the name
 // that sorts later); with the same feature the row of the target's locale wins over the row without a locale.
+//
+// The server reads the same two tables with its own rule (the data parser it is built on), and it differs:
+//   - the server type compares with letter case, and a level that is not written counts as 0;
+//   - a feature at level 0 is on (0 is not above any level); for the game such a feature does not exist;
+//   - a row's locale compares without letter case, a feature name with it;
+//   - of the rows left, the rows of the server's locale go before the rows without a locale, whatever their
+//     features; then a row with a feature goes before a row without one (of those the last), then the higher level; equal
+//     levels: the first.
+// The locales the server knows are TW, TH, NA, CN, JP and KR.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -23,9 +32,25 @@ namespace MS2.ModKit
 
         public readonly string Locale, ServerType;
         public readonly int Level;
-        readonly Dictionary<string, int> levels = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        /// <summary>True: the rule of the server's data parser; false: the rule of the game.</summary>
+        public readonly bool ServerRule;
+        readonly Dictionary<string, int> levels;
+        static readonly string[] ServerLocales = { "TW", "TH", "NA", "CN", "JP", "KR" };
 
-        FeatureSet(string locale, string serverType, int level) { Locale = locale; ServerType = serverType; Level = level; }
+        FeatureSet(string locale, string serverType, int level, bool serverRule)
+        {
+            Locale = locale; ServerType = serverType; Level = level; ServerRule = serverRule;
+            levels = new Dictionary<string, int>(serverRule ? StringComparer.Ordinal : StringComparer.OrdinalIgnoreCase);
+        }
+
+        // the level a row has for a locale; false when it cannot be read
+        static bool LevelAttr(XmlElem row, string locale, bool serverRule, out int level)
+        {
+            string text = row.Attr(locale);
+            level = 0;
+            if (text == null && serverRule) return true;
+            return int.TryParse(text ?? "", NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out level);
+        }
 
         /// <summary>"NA/Live", "KR", "/Dev" -> locale and server type; a part left out stays null.</summary>
         public static void ParseOption(string text, out string locale, out string serverType)
@@ -41,11 +66,13 @@ namespace MS2.ModKit
 
         /// <summary>
         /// The feature set the two tables give for a locale and a server type; null when it cannot be known: a table is
-        /// missing or unreadable, or no setting row of that type has a level for the locale.
+        /// missing or unreadable, or no setting row of that type has a level for the locale. With serverRule the
+        /// tables are read as the server reads them (see the head of this file).
         /// </summary>
-        public static FeatureSet Read(byte[] settingXml, byte[] featureXml, string locale, string serverType)
+        public static FeatureSet Read(byte[] settingXml, byte[] featureXml, string locale, string serverType, bool serverRule = false)
         {
             if (settingXml == null || featureXml == null || string.IsNullOrEmpty(locale) || string.IsNullOrEmpty(serverType)) return null;
+            if (serverRule && Array.IndexOf(ServerLocales, locale) < 0) return null;
             XmlDoc setting, feature;
             try
             {
@@ -57,10 +84,10 @@ namespace MS2.ModKit
             FeatureSet set = null;
             foreach (XmlElem row in setting.Root.Children)
             {
-                if (row.Name != "setting" || !string.Equals(row.Attr("type") ?? "", serverType, StringComparison.OrdinalIgnoreCase)) continue;
+                if (row.Name != "setting" || !string.Equals(row.Attr("type") ?? "", serverType, serverRule ? StringComparison.Ordinal : StringComparison.OrdinalIgnoreCase)) continue;
                 int level;
-                if (!int.TryParse(row.Attr(locale) ?? "", NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out level)) return null;
-                set = new FeatureSet(locale, serverType, level);
+                if (!LevelAttr(row, locale, serverRule, out level)) return null;
+                set = new FeatureSet(locale, serverType, level, serverRule);
                 break;
             }
             if (set == null) return null;
@@ -69,7 +96,12 @@ namespace MS2.ModKit
                 string name = row.Name == "feature" ? row.Attr("name") : null;
                 int level;
                 if (string.IsNullOrEmpty(name)) continue;
-                if (!int.TryParse(row.Attr(locale) ?? "", NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out level) || level == 0) continue;
+                if (!LevelAttr(row, locale, serverRule, out level))
+                {
+                    if (serverRule) return null;        // the server stops on such a table
+                    continue;
+                }
+                if (level == 0 && !serverRule) continue;
                 set.levels[name] = level;
             }
             return set;
@@ -93,7 +125,7 @@ namespace MS2.ModKit
         /// <summary>May the game take a row with this feature and locale at all?</summary>
         public bool Allows(string feature, string locale)
         {
-            if (!string.IsNullOrEmpty(locale) && !string.Equals(locale, Locale, StringComparison.Ordinal)) return false;
+            if (!string.IsNullOrEmpty(locale) && !string.Equals(locale, Locale, ServerRule ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) return false;
             return IsOn(feature);
         }
 
@@ -101,6 +133,12 @@ namespace MS2.ModKit
         public bool SecondWins(string featureA, string localeA, string featureB, string localeB)
         {
             featureA = featureA ?? ""; featureB = featureB ?? ""; localeA = localeA ?? ""; localeB = localeB ?? "";
+            if (ServerRule)
+            {
+                if ((localeA.Length > 0) != (localeB.Length > 0)) return localeB.Length > 0;
+                if (featureA.Length == 0) return true;      // a row without a feature stays only until any other row comes
+                return featureB.Length > 0 && LevelOf(featureB) > LevelOf(featureA);
+            }
             if (!string.Equals(featureA, featureB, StringComparison.Ordinal))
             {
                 int a = LevelOf(featureA), b = LevelOf(featureB);
