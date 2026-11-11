@@ -11,6 +11,7 @@
 // of the mod the MS2 Tables view is editing; the session, the worker thread (Plan / Apply / Revert), the output text
 // and the close question stay in that view (TablesView, "for the other views of the plugin").
 using System;
+using System.Text;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Globalization;
@@ -517,6 +518,27 @@ namespace MS2.Tables
             return p.Target + (p.Kind == QuestPlace.Table ? " table" : p.Kind == QuestPlace.File ? " file" : "") + (p.Feature.Length > 0 ? " [" + p.Feature + "]" : "");
         }
 
+        /// <summary>"3 place(s)", or what each place of the list holds for the row when they do not agree ("-": no such row).</summary>
+        static string RewardWhere(QuestReward w)
+        {
+            if (!w.Differs) return w.Places + " place(s)";
+            var sb = new StringBuilder("differs: ");
+            for (int i = 0; i < w.In.Count; i++)
+                sb.Append(i > 0 ? "; " : "").Append(Short(w.In[i])).Append(" = ").Append(w.Values[i] ?? "-");
+            return sb.ToString();
+        }
+
+        /// <summary>The shipped row a row stands for: the one of the same item, else the one at its index when that item is gone.</summary>
+        static QuestReward Shipped(List<QuestReward> shipped, List<QuestReward> now, QuestReward w)
+        {
+            if (shipped == null) return null;
+            foreach (QuestReward x in shipped) if (x.Code == w.Code) return x;
+            if (w.Index >= shipped.Count) return null;
+            QuestReward at = shipped[w.Index];
+            foreach (QuestReward x in now) if (x.Code == at.Code) return null;
+            return at;
+        }
+
         /// <summary>"3 place(s)", or each place with its value when they do not agree.</summary>
         static string Where(QuestDraft d, string field)
         {
@@ -626,11 +648,11 @@ namespace MS2.Tables
                     rewardLines.Add(new Line { Heading = (accept ? "On accept: " : "On complete: ") + list + (list == "v" ? "  (kms-client table)" : "  (quest files)"), Reward = reward, List = list, Index = -1 });
                     foreach (QuestReward w in rows)
                     {
-                        QuestReward was = wasRows != null && w.Index < wasRows.Count ? wasRows[w.Index] : null;
+                        QuestReward was = Shipped(wasRows, rows, w);
                         rewardLines.Add(new Line
                         {
                             Reward = reward, List = list, Index = w.Index,
-                            Cells = new[] { (w.Index + 1).ToString(CultureInfo.InvariantCulture), w.Code, w.Rank, w.Count, was != null ? ItemText(was) : shipped != null ? "(new row)" : "", w.Places + " place(s)" + (w.Differs ? ", they differ" : "") },
+                            Cells = new[] { (w.Index + 1).ToString(CultureInfo.InvariantCulture), w.Code, w.Rank, w.Count, was != null ? ItemText(was) : shipped != null ? "(new row)" : "", RewardWhere(w) },
                             Shipped = shipped != null ? new[] { null, was != null ? was.Code : "", was != null ? was.Rank : "", was != null ? was.Count : "", null, null } : null,
                             Editable = new[] { false, true, true, true, false, false },
                         });
