@@ -3,6 +3,9 @@
 //               table/dungeonroom.xml (dungeons 9300001, 9300002), and their name files in string/en/
 //   gms-client and server  one file per map (map/09100001.xml, map/09100003.xml: map 9100003 is global only),
 //               table/interactobject_mastery.xml (object 9200003), table/na/dungeonroom.xml (dungeon 9300003)
+//   every target  trigger scripts (Triggers.cs): trigger/fake_meadow/door.xml (clean), trigger/fake_meadow/broken.xml
+//               (a goto to no state, an unreachable state, an unknown action, a missing argument), and on the gms-client
+//               and server trigger/fake_far_shore/tide.xml
 // Dungeon 9300002 and object 9200002 have no name. Every id and name in here is made up.
 using System;
 using System.Collections.Generic;
@@ -30,6 +33,58 @@ namespace MS2.ModKit.Tests
             return Head + "<ms2>\n\t<environment>\n\t\t<xblock name=\"" + block + "\" />\n\t</environment>\n</ms2>\n";
         }
 
+        public const string Door = Head + "<ms2>\n" +
+            "    <state name=\"Wait\">\n" +
+            "        <onEnter>\n" +
+            "            <action name=\"set_mesh\" arg1=\"3001,3002\" arg2=\"0\" />\n" +
+            "        </onEnter>\n" +
+            "        <condition name=\"user_detected\" arg1=\"101\">\n" +
+            "            <transition state=\"Open\" />\n" +
+            "        </condition>\n" +
+            "    </state>\n" +
+            "    <state name=\"Open\">\n" +
+            "        <onEnter>\n" +
+            "            <action name=\"set_mesh\" arg1=\"3001,3002\" arg2=\"1\" />\n" +
+            "            <action name=\"set_timer\" arg1=\"1\" arg2=\"5\" />\n" +
+            "        </onEnter>\n" +
+            "        <condition name=\"time_expired\" arg1=\"1\">\n" +
+            "            <transition state=\"Wait\" />\n" +
+            "        </condition>\n" +
+            "        <onExit>\n" +
+            "            <action name=\"reset_timer\" arg1=\"1\" />\n" +
+            "        </onExit>\n" +
+            "    </state>\n" +
+            "</ms2>\n";
+
+        public const string Broken = Head + "<ms2>\n" +
+            "    <state name=\"Start\">\n" +
+            "        <onEnter>\n" +
+            "            <action name=\"wave_a_flag\" arg1=\"1\" />\n" +
+            "        </onEnter>\n" +
+            "        <condition name=\"wait_tick\" arg1=\"1000\">\n" +
+            "            <transition state=\"Nowhere\" />\n" +
+            "        </condition>\n" +
+            "    </state>\n" +
+            "    <state name=\"Lonely\">\n" +
+            "        <condition name=\"time_expired\">\n" +
+            "            <transition state=\"Start\" />\n" +
+            "        </condition>\n" +
+            "    </state>\n" +
+            "</ms2>\n";
+
+        public const string Tide = Head + "<ms2>\n" +
+            "    <state name=\"Low\">\n" +
+            "        <condition name=\"wait_tick\" arg1=\"5000\">\n" +
+            "            <transition state=\"High\" />\n" +
+            "        </condition>\n" +
+            "    </state>\n" +
+            "    <state name=\"High\">\n" +
+            "        <condition name=\"wait_tick\" arg1=\"5000\">\n" +
+            "            <transition state=\"Low\" />\n" +
+            "        </condition>\n" +
+            "    </state>\n" +
+            "</ms2>\n";
+
         public FakeIdTables()
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-idtables-" + Guid.NewGuid().ToString("N"));
@@ -47,6 +102,7 @@ namespace MS2.ModKit.Tests
                 E("table/interactobject.xml", Head + "<ms2>\n\t<interact id=\"9200001\" type=\"1\" />\n\t<interact id=\"9200002\" type=\"1\" />\n</ms2>\n"),
                 E("table/dungeonroom.xml", Head + "<ms2>\n\t<dungeonRoom dungeonRoomID=\"9300001\" rewardCount=\"1\" />\n\t<dungeonRoom dungeonRoomID=\"9300002\" rewardCount=\"1\" />\n</ms2>\n"),
                 E("string/en/mapname.xml", maps), E("string/en/interactname.xml", objects), E("string/en/stringfieldenterance.xml", dungeons),
+                E("trigger/fake_meadow/door.xml", Door), E("trigger/fake_meadow/broken.xml", Broken),
             });
             foreach (string d in new[] { g, s })
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
@@ -55,6 +111,7 @@ namespace MS2.ModKit.Tests
                     E("table/interactobject_mastery.xml", Head + "<ms2>\n\t<interact id=\"9200003\" type=\"2\" />\n</ms2>\n"),
                     E("table/na/dungeonroom.xml", Head + "<ms2>\n\t<dungeonRoom dungeonRoomID=\"9300003\" rewardCount=\"1\" />\n</ms2>\n"),
                     E("string/en/mapname.xml", maps), E("string/en/interactname.xml", objects), E("string/en/stringfieldenterance.xml", dungeons),
+                    E("trigger/fake_meadow/door.xml", Door), E("trigger/fake_meadow/broken.xml", Broken), E("trigger/fake_far_shore/tide.xml", Tide),
                 });
         }
 
