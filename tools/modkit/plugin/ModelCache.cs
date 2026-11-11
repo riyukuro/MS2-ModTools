@@ -14,28 +14,32 @@ using MS2.ModKit.Models;
 
 namespace MS2.Tables
 {
-    /// <summary>What a model box asks for: the files of an item, or the .kfm file of an npc.</summary>
+    /// <summary>What a model box asks for: the model of an item as a gender wears it, or the .kfm file of an npc.</summary>
     internal sealed class ModelRequest
     {
-        public readonly string[] Paths;
+        public readonly ItemQuery Query;
+        public readonly int Gender;
         public readonly string Kfm;
         public readonly string Key;
 
-        ModelRequest(string[] paths, string kfm)
+        ModelRequest(ItemQuery item, int gender, string kfm)
         {
-            Paths = paths;
+            Query = item;
+            Gender = gender;
             Kfm = kfm;
-            Key = kfm != null ? "kfm\n" + kfm : "nif\n" + string.Join("\n", paths ?? new string[0]);
+            if (kfm != null) { Key = "kfm\n" + kfm; return; }
+            var k = new System.Text.StringBuilder("item\n").Append(gender);
+            // the id picks the model only when the item's own file names none (the client's list is asked then)
+            if (item.Own.Count == 0) k.Append('\n').Append(item.Id);
+            foreach (ItemAsset a in item.Own)
+                k.Append('\n').Append(a.Slot).Append('|').Append(a.Gender).Append('|').Append(a.TargetNode).Append('|').Append(a.Path);
+            if (item.Fallback != null) k.Append("\nas\n").Append(item.Fallback.Path);
+            Key = k.ToString();
         }
 
-        public static ModelRequest Item(IList<string> paths)
-        {
-            var a = new string[paths == null ? 0 : paths.Count];
-            if (paths != null) paths.CopyTo(a, 0);
-            return new ModelRequest(a, null);
-        }
+        public static ModelRequest Item(ItemQuery q, int gender) { return new ModelRequest(q ?? new ItemQuery(), gender == 1 ? 1 : 0, null); }
 
-        public static ModelRequest Npc(string kfmFile) { return new ModelRequest(null, kfmFile ?? ""); }
+        public static ModelRequest Npc(string kfmFile) { return new ModelRequest(null, 0, kfmFile ?? ""); }
     }
 
     /// <summary>A drawn request: the picture, or the line shown in its place.</summary>
@@ -45,6 +49,10 @@ namespace MS2.Tables
         public string Message;
         public string Notes;
         public int Triangles;
+        /// <summary>True for an item whose two genders have different models.</summary>
+        public bool Genders;
+        internal string RequestKey;
+        internal bool Dropped;      // left the cache while a box still showed it: disposed when the box lets go
     }
 
     internal sealed class ModelCache : IDisposable
@@ -69,40 +77,97 @@ namespace MS2.Tables
             public string Key;
             public ModelRequest Request;
             public int Width, Height;
-            public Control Repaint;
+            public readonly List<ModelBox> Boxes = new List<ModelBox>();    // repainted when the picture is there
         }
 
         readonly DataSet data;
         readonly object gate = new object();
         readonly Dictionary<string, ModelShot> shots = new Dictionary<string, ModelShot>(StringComparer.Ordinal);
         readonly List<string> order = new List<string>();
+        readonly List<Job> pending = new List<Job>();       // at most one per box; boxes that ask for the same share one
+        readonly Dictionary<ModelBox, ModelShot> held = new Dictionary<ModelBox, ModelShot>();   // what each box shows
         ModelSource source;
-        Job next;           // the request waiting for the worker (a newer one replaces it)
-        string running;     // the key the worker is drawing
+        Job running;        // the job the worker is drawing
         bool working, disposed;
 
         ModelCache(DataSet data) { this.data = data; }
 
         /// <summary>
-        /// The picture of the request at this size, or null while it is drawn; the control is repainted when it
-        /// is there.
+        /// The picture of the request at this size, or null while it is drawn; the box is repainted when it is
+        /// there. The box holds the picture it was given until it is given another or lets go (Forget).
         /// </summary>
-        public ModelShot Get(ModelRequest request, int width, int height, Control repaint)
+        public ModelShot Get(ModelRequest request, int width, int height, ModelBox box)
         {
-            if (request == null || width < 8 || height < 8) return null;
+            if (request == null || box == null || width < 8 || height < 8) return null;
             string key = width + "x" + height + "\n" + request.Key;
             lock (gate)
             {
                 if (disposed) return null;
                 ModelShot shot;
-                if (shots.TryGetValue(key, out shot)) return shot;
-                if (running == key) return null;
-                next = new Job { Key = key, Request = request, Width = width, Height = height, Repaint = repaint };
+                if (shots.TryGetValue(key, out shot)) { Unqueue(box, null); Hold(box, shot); return shot; }
+                Job job = running != null && running.Key == key ? running : null;
+                if (job == null) foreach (Job j in pending) if (j.Key == key) job = j;
+                if (job == null)
+                {
+                    job = new Job { Key = key, Request = request, Width = width, Height = height };
+                    pending.Add(job);
+                }
+                Unqueue(box, job);
+                if (!job.Boxes.Contains(box)) job.Boxes.Add(box);
                 if (working) return null;
                 working = true;
             }
             ThreadPool.QueueUserWorkItem(delegate { Work(); });
             return null;
+        }
+
+        /// <summary>The box shows nothing of this cache any more.</summary>
+        public void Forget(ModelBox box)
+        {
+            if (box == null) return;
+            lock (gate)
+            {
+                Unqueue(box, null);
+                Hold(box, null);
+            }
+        }
+
+        // Takes the box out of the waiting jobs other than keep; a waiting job no box wants is dropped. Under the gate.
+        void Unqueue(ModelBox box, Job keep)
+        {
+            for (int i = pending.Count - 1; i >= 0; i--)
+            {
+                Job j = pending[i];
+                if (j == keep || !j.Boxes.Remove(box)) continue;
+                if (j.Boxes.Count == 0) pending.RemoveAt(i);
+            }
+            if (running != null && running != keep) running.Boxes.Remove(box);
+        }
+
+        // Notes what the box shows now; a picture that left the cache is disposed once no box shows it. Under the gate.
+        void Hold(ModelBox box, ModelShot shot)
+        {
+            ModelShot old;
+            held.TryGetValue(box, out old);
+            if (shot == null) held.Remove(box); else held[box] = shot;
+            if (old != null && old != shot && old.Dropped && !held.ContainsValue(old)) Free(old);
+        }
+
+        static void Free(ModelShot shot)
+        {
+            Bitmap b = shot.Picture;
+            shot.Picture = null;
+            if (b != null) b.Dispose();
+        }
+
+        // Takes a picture out of the cache. Under the gate.
+        void Drop(string key)
+        {
+            ModelShot shot;
+            if (!shots.TryGetValue(key, out shot)) return;
+            shots.Remove(key);
+            order.Remove(key);
+            if (held.ContainsValue(shot)) shot.Dropped = true; else Free(shot);
         }
 
         void Work()
@@ -112,38 +177,46 @@ namespace MS2.Tables
                 Job job;
                 lock (gate)
                 {
-                    job = next;
-                    next = null;
-                    if (job == null || disposed) { working = false; running = null; return; }
-                    running = job.Key;
+                    running = null;
+                    if (pending.Count == 0 || disposed) { working = false; return; }
+                    job = pending[0];
+                    pending.RemoveAt(0);
+                    running = job;
                 }
                 ModelShot shot = Draw(job);
+                ModelBox[] boxes;
                 lock (gate)
                 {
                     running = null;
                     if (disposed)
                     {
-                        if (shot.Picture != null) shot.Picture.Dispose();
+                        Free(shot);
                         working = false;
                         return;
                     }
+                    // one size of a request is kept: a box dragged to new sizes leaves no picture per size behind
+                    foreach (string k in new List<string>(order))
+                        if (shots[k].RequestKey == job.Request.Key) Drop(k);
                     shots[job.Key] = shot;
                     order.Add(job.Key);
-                    // old pictures are dropped from the list but not disposed: a box may still be showing one
-                    while (order.Count > Keep) { shots.Remove(order[0]); order.RemoveAt(0); }
+                    while (order.Count > Keep) Drop(order[0]);
+                    boxes = job.Boxes.ToArray();
                 }
-                Control c = job.Repaint;
-                try
+                foreach (ModelBox box in boxes)
                 {
-                    if (c != null && !c.IsDisposed && c.IsHandleCreated) c.BeginInvoke((MethodInvoker)delegate { if (!c.IsDisposed) c.Invalidate(); });
+                    ModelBox c = box;
+                    try
+                    {
+                        if (!c.IsDisposed && c.IsHandleCreated) c.BeginInvoke((MethodInvoker)delegate { if (!c.IsDisposed) c.Invalidate(); });
+                    }
+                    catch (InvalidOperationException) { }   // the box's window went away meanwhile
                 }
-                catch (InvalidOperationException) { }   // the control's window went away meanwhile
             }
         }
 
         ModelShot Draw(Job job)
         {
-            var shot = new ModelShot();
+            var shot = new ModelShot { RequestKey = job.Request.Key };
             try
             {
                 ModelSource src;
@@ -154,8 +227,9 @@ namespace MS2.Tables
                 }
                 ModelPicture p = job.Request.Kfm != null
                     ? src.NpcPicture(job.Request.Kfm, job.Width, job.Height, null)
-                    : src.Picture(job.Request.Paths, job.Width, job.Height, null);
+                    : src.ItemPicture(job.Request.Query, job.Request.Gender, job.Width, job.Height, null);
                 shot.Message = p.Message;
+                shot.Genders = p.Genders;
                 shot.Triangles = p.Triangles;
                 if (p.Notes.Count > 0) shot.Notes = string.Join("; ", p.Notes.ToArray());
                 if (p.Argb != null && p.Message == null)
@@ -187,9 +261,10 @@ namespace MS2.Tables
             {
                 if (disposed) return;
                 disposed = true;
+                foreach (string k in new List<string>(order)) Drop(k);   // a picture a box still shows goes when the box lets go
                 shots.Clear();
                 order.Clear();
-                next = null;
+                pending.Clear();
                 src = source;
                 source = null;
             }
@@ -220,9 +295,16 @@ namespace MS2.Tables
         public void Show(ModelCache c, ModelRequest r)
         {
             if (cache == c && request != null && r != null && request.Key == r.Key) return;
+            if (cache != null && (cache != c || r == null)) { cache.Forget(this); last = null; lastKey = null; }
             cache = c;
             request = r;
             Invalidate();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing && cache != null) { cache.Forget(this); cache = null; last = null; }
+            base.Dispose(disposing);
         }
 
         protected override void OnPaint(PaintEventArgs e)

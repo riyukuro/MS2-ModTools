@@ -40,6 +40,8 @@ namespace MS2.Tables
         readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 260, IntegralHeight = false, DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 36 };
         readonly IconBox iconBox = new IconBox { Dock = DockStyle.Left, Width = 96, Margin = new Padding(0) };
         ModelBox modelBox;     // the item's model beside the form
+        Button genderButton;   // in the model box, for an item with a model per gender: shows the other one
+        int modelGender;       // 0 male, 1 female: whose model the box shows
         // the icon entry of each listed item as the mod has it (null: none); filled when the row is drawn
         readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();
         readonly Label itemLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
@@ -158,8 +160,21 @@ namespace MS2.Tables
             right.Controls.Add(head);
             // the item's model at the right of the form, over its whole height
             modelBox = ModelBox.AttachRight(right);
-            tips.SetToolTip(modelBox, "The item's model (the first asset of each slot), drawn from Resource/Model of your client data");
-            modelBox.Shown += delegate(ModelShot shot) { tips.SetToolTip(modelBox, ModelTip(shot)); };
+            tips.SetToolTip(modelBox, "The item's model (one asset of each slot), drawn from Resource/Model of your client data");
+            genderButton = new Button { Text = "Male", Location = new Point(6, 6), Size = new Size(64, 24), FlatStyle = FlatStyle.System, Visible = false };
+            tips.SetToolTip(genderButton, "This item has a model for each gender: click to show the other one");
+            genderButton.Click += delegate
+            {
+                modelGender = modelGender == 1 ? 0 : 1;
+                genderButton.Text = modelGender == 1 ? "Female" : "Male";
+                if (draft != null) ShowModel(draft);
+            };
+            modelBox.Controls.Add(genderButton);
+            modelBox.Shown += delegate(ModelShot shot)
+            {
+                tips.SetToolTip(modelBox, ModelTip(shot));
+                genderButton.Visible = shot.Genders;
+            };
             // in a low window the icon is drawn at its own size (64) instead of 96, and the bars never take more than
             // the height that leaves the grid a header and four rows
             bool fitting = false;
@@ -431,6 +446,7 @@ namespace MS2.Tables
                 itemLabel.Text = "(no item)";
                 iconBox.Show(null, null);
                 modelBox.Show(null, null);
+                genderButton.Visible = false;
                 nameBox.Text = tooltipBox.Text = guideBox.Text = cloneIdBox.Text = optionBox.Text = "";
                 return;
             }
@@ -474,24 +490,24 @@ namespace MS2.Tables
 
         // ---- model ----
 
-        /// <summary>Shows the model the draft's slot assets name now; the box draws it again only when they changed.</summary>
+        /// <summary>Shows the model the draft's slot assets name now for the chosen gender; the box draws it again only when they changed.</summary>
         void ShowModel(ItemDraft d)
         {
             ModelCache cache = null;
-            List<string> assets = null;
+            ItemQuery query = null;
             try
             {
                 if (host != null) cache = ModelCache.For(host.SharedSession().Data);
-                assets = ModelNames.ItemAssets(d);
+                query = ModelNames.Query(d);    // the draft's own fields only; the client's list is read by the cache's worker
             }
             catch (ModKitException) { }
             catch (System.IO.IOException) { }
-            modelBox.Show(cache, ModelRequest.Item(assets));
+            modelBox.Show(cache, ModelRequest.Item(query, modelGender));
         }
 
         static string ModelTip(ModelShot shot)
         {
-            string t = shot.Picture != null ? "The item's model: " + shot.Triangles.ToString(CultureInfo.InvariantCulture) + " triangles, drawn as the file stores it" : (shot.Message ?? "no model");
+            string t = shot.Picture != null ? "The item's model: " + shot.Triangles.ToString(CultureInfo.InvariantCulture) + " triangles, placed on the character node its asset names" : (shot.Message ?? "no model");
             return shot.Notes == null ? t : t + "\n" + shot.Notes;
         }
 
