@@ -59,6 +59,7 @@ namespace MS2.ModKit
         public Mod NewMod(string id)
         {
             Mod = Mod.Parse("<mod id=\"" + Xml.XmlDoc.EscapeAttr(id ?? "", '"') + "\" name=\"\" version=\"1\"/>", "the new mod");
+            savedPrint = null;
             return Mod;
         }
 
@@ -67,6 +68,7 @@ namespace MS2.ModKit
         {
             if (mod == null) throw new ArgumentNullException("mod");
             Mod = mod;
+            savedPrint = mod.Dir != null ? mod.XmlPrint() : null;
         }
 
         /// <summary>Loads a mod: a path to its folder or mod.xml, or the name of a folder under the mods folder.</summary>
@@ -75,6 +77,7 @@ namespace MS2.ModKit
             string p = pathOrName;
             if (!Directory.Exists(p) && !File.Exists(p) && ModsDir != null) p = Path.Combine(ModsDir, pathOrName);
             Mod = Mod.Load(p);
+            savedPrint = Mod.XmlPrint();
             return Mod;
         }
 
@@ -87,9 +90,20 @@ namespace MS2.ModKit
             string dir = ModFolder.DirOf(ModsDir, Mod.Id);
             if ((Mod.Dir == null || !SamePath(Mod.Dir, dir)) && File.Exists(Path.Combine(dir, "mod.xml")))
                 throw new ModKitException(dir + " already holds a mod; give this one another id");
+            // an empty mod as it was loaded is not written: the save would take away the files under its files/
+            // folder that no op names (put there by hand, say)
+            if (Mod.IsEmpty && !EmptiedHere()) return dir;
             Mod.Save(dir);
+            savedPrint = Mod.XmlPrint();
             return dir;
         }
+
+        // a print of the mod's text (Mod.XmlPrint) when it was loaded, adopted or saved; null for a new mod
+        string savedPrint;
+
+        /// <summary>The mod being edited was loaded from (or saved to) its folder under the mods folder and has been
+        /// changed since: an empty one was emptied in this session.</summary>
+        public bool EmptiedHere() { return SavedHere() && Mod.XmlPrint() != savedPrint; }
 
         /// <summary>The mod being edited was loaded from, or saved to, its folder under the mods folder.</summary>
         public bool SavedHere()
@@ -335,15 +349,23 @@ namespace MS2.ModKit
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
             if (Target == ApplyTarget.Workspace && WorkspaceDir == null) throw new ModKitException("the workspace folder is not set");
             LooseTarget loose = Target == ApplyTarget.LooseFiles ? Loose() : null;
-            if (!Mod.IsEmpty || SavedHere()) SaveMod();
+            // an empty mod is saved only when it was emptied here: one loaded empty is left as it is on disk
+            if (!Mod.IsEmpty || EmptiedHere()) SaveMod();
             List<Mod> mods = ActiveMods();
             // no mod takes part: an earlier apply is undone by applying nothing (as the plan shows), else there is
             // nothing to do
             if (mods.Count == 0 && !AppliedBefore(loose))
                 throw new ModKitException(Mod.IsEmpty && SavedHere()
-                    ? "mod " + Mod.Id + " is saved empty and no other mod is enabled in " + ModsDir + "; there is nothing to apply"
+                    ? "mod " + Mod.Id + " is empty and no other mod is enabled in " + ModsDir + "; there is nothing to apply"
                     : "no enabled mod in " + ModsDir + " and no pending change; there is nothing to apply");
             var options = new ApplyOptions { Schemas = Schemas(), Progress = progress, Maps = Maps, NoSync = NoSync, AllowConflicts = AllowConflicts };
+            ApplyResult done = ApplyMods(loose, mods, options, progress);
+            done.Undone = done.Applied && mods.Count == 0;
+            return done;
+        }
+
+        ApplyResult ApplyMods(LooseTarget loose, List<Mod> mods, ApplyOptions options, Action<ProgressInfo> progress)
+        {
 
             if (loose == null)
             {
@@ -514,7 +536,9 @@ namespace MS2.ModKit
         {
             // a refused apply says so first, then why: the plan as a view shows it
             if (!r.Applied) return "nothing written: " + r.Reason + "\r\n" + (r.Plan != null ? Describe(r.Plan) : "");
-            var sb = new StringBuilder(Targets.Line(Data)).Append("\r\n");
+            var sb = new StringBuilder();
+            if (r.Undone) sb.Append(UndoneLine(r)).Append("\r\n");
+            sb.Append(Targets.Line(Data)).Append("\r\n");
             if (r.Plan != null) foreach (string l in Targets.PlanLines(r.Plan, Data)) sb.Append("  plan, ").Append(l).Append("\r\n");
             foreach (string l in Targets.ResultLines(r, Data, WorkspaceDir)) sb.Append("  ").Append(l).Append("\r\n");
             if (r.Plan != null) { Totals(sb, r.Plan); Conflicts(sb, r.Plan); Capped(sb, r.Plan, true, true); }
@@ -522,11 +546,17 @@ namespace MS2.ModKit
             return sb.ToString();
         }
 
+        static string UndoneLine(ApplyResult r)
+        {
+            return "no mod is enabled: this apply took away what the earlier apply wrote (" + r.Removed.Count + " file(s) removed)";
+        }
+
         public static string Report(ApplyResult r)
         {
             var sb = new StringBuilder();
             if (r.Plan != null) sb.Append(Report(r.Plan));
             if (!r.Applied) return sb.Append("nothing written: ").Append(r.Reason).Append("\r\n").ToString();
+            if (r.Undone) sb.Append(UndoneLine(r)).Append("\r\n");
             foreach (ApplyOutput o in r.Outputs)
                 sb.Append("wrote ").Append(o.Path).Append(" (").Append(o.Archive).Append(": ")
                   .Append(o.Copied ? "copied as it is" : o.Replaced + " replaced, " + o.Added + " added, " + o.Deleted + " deleted, " + o.Kept + " kept")

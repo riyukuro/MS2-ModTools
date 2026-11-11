@@ -209,13 +209,47 @@ namespace MS2.ModKit.Tests
                     Assert.That(r.Applied, Is.True, s.Describe(r));
                     Assert.That(File.Exists(copy), Is.False, "the copy of the earlier apply is gone");
                     Assert.That(r.Removed, Has.Some.EqualTo(copy));
+                    Assert.That(r.Undone, Is.True);
+                    Assert.That(s.Describe(r), Does.StartWith("no mod is enabled: this apply took away what the earlier apply wrote (2 file(s) removed)\r\n"));
+                    Assert.That(EditorSession.Report(r), Does.Contain("no mod is enabled: this apply took away what the earlier apply wrote"));
                     Assert.That(Mod.Load(Path.Combine(mods, "a.one")).IsEmpty, Is.True, "the mod is saved empty");
                     var x = Assert.Throws<ModKitException>(() => s.Apply(null));
-                    Assert.That(x.Message, Does.StartWith("mod a.one is saved empty and no other mod is enabled"));
+                    Assert.That(x.Message, Does.StartWith("mod a.one is empty and no other mod is enabled"));
                     // a new mod that holds nothing is not saved over a folder
                     s.NewMod("b.new");
                     Assert.That(s.SavedHere(), Is.False);
                     Assert.Throws<ModKitException>(() => s.SaveMod());
+                }
+            }
+        }
+
+        // a mod loaded empty (only its head) is not saved by Apply or Save: the save would take away the files under
+        // its files/ folder that no op names
+        [Test]
+        public void SessionApply_OfAModLoadedEmpty_KeepsItsFiles()
+        {
+            using (var f = new Fake())
+            {
+                string mods = Path.Combine(f.Dir, "mods"), ws = Path.Combine(f.Dir, "ws");
+                f.ModDir("a.one", Hp("11"));
+                string head = f.ModDir("c.head", "");
+                Directory.CreateDirectory(Path.Combine(head, "files"));
+                string x = Path.Combine(Path.Combine(head, "files"), "x.txt");
+                File.WriteAllText(x, "by hand");
+                byte[] manifest = File.ReadAllBytes(Path.Combine(head, "mod.xml"));
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, mods, ws))
+                {
+                    s.LoadMod("c.head");
+                    Assert.That(s.Mod.IsEmpty && s.SavedHere(), Is.True);
+                    Assert.That(s.EmptiedHere(), Is.False);
+                    ApplyResult r = s.Apply(null);
+                    Assert.That(r.Applied, Is.True, s.Describe(r));
+                    Assert.That(r.Undone, Is.False);
+                    Assert.That(s.Describe(r), Does.Not.Contain("no mod is enabled"));
+                    Assert.That(File.Exists(x), Is.True, "files/x.txt is kept");
+                    Assert.That(File.ReadAllBytes(Path.Combine(head, "mod.xml")), Is.EqualTo(manifest), "mod.xml is not written");
+                    s.SaveMod();
+                    Assert.That(File.Exists(x), Is.True, "Save mod of the unchanged empty mod writes nothing either");
                 }
             }
         }

@@ -55,6 +55,7 @@ namespace MS2.ModKit
         public readonly List<string> Written = new List<string>();     // loose files written into a game folder (LooseTarget)
         public readonly List<string> Left = new List<string>();        // loose files of the record that were changed since and are left alone
         public ServerStepResult Server;                                 // what followed on the server's side (ServerStep); null when nothing is set
+        public bool Undone;             // no mod took part: the apply only took away what an earlier apply left (EditorSession)
     }
 
     public sealed class WorkspaceMod { public string Id, Path, Version; }
