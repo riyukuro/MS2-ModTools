@@ -54,6 +54,9 @@ namespace MS2.Tables
         readonly TextBox valueBox = new TextBox { Width = 200 };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 130 };
         readonly ToolTip tips = new ToolTip();
+        Font struck;
+        /// <summary>A data-set change came while a job ran: the chosen map file is read again when it ends.</summary>
+        bool reopen;
         readonly List<Control> lockable = new List<Control>();
         readonly List<long> hitIds = new List<long>();
         readonly List<string> fileNames = new List<string>();
@@ -177,7 +180,12 @@ namespace MS2.Tables
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) Hook(null);
+            if (disposing)
+            {
+                Hook(null);
+                tips.Dispose();
+                if (struck != null) struck.Dispose();
+            }
             base.Dispose(disposing);
         }
 
@@ -254,7 +262,18 @@ namespace MS2.Tables
 
         void OnHostSaid(string text) { OutputWrap.Set(outputBox, text); }
 
-        void OnHostBusy(bool on) { ViewLayout.Lock(this, lockable, on, outputBox); }
+        void OnHostBusy(bool on)
+        {
+            ViewLayout.Lock(this, lockable, on, outputBox);
+            if (on || !reopen || IsDisposed) return;
+            reopen = false;
+            // after the job's own end: the file chosen when the data set changed is read from the new one
+            BeginInvoke((MethodInvoker)delegate
+            {
+                if (IsDisposed || host == null || host.Busy || xblock != null || fileList.SelectedIndex < 0) return;
+                Guard(delegate { OpenFile(); });
+            });
+        }
 
         /// <summary>Another session, mod or edit: the lists again from the same map, file and entity.</summary>
         void OnHostChanged()
@@ -276,7 +295,11 @@ namespace MS2.Tables
                     if (mapId != 0)
                     {
                         ShowFiles(mapId, keep);
-                        if (fileList.SelectedIndex >= 0 && !host.Busy) OpenFile();
+                        if (fileList.SelectedIndex >= 0)
+                        {
+                            if (host.Busy) reopen = true;
+                            else OpenFile();
+                        }
                     }
                 }
                 else FillEntities();
@@ -284,6 +307,7 @@ namespace MS2.Tables
             catch (ModKitException ex) { host.SayOutside(ex.Message); }
             catch (System.IO.IOException ex) { host.SayOutside(ex.Message); }
             catch (System.IO.InvalidDataException ex) { host.SayOutside(ex.Message); }
+            catch (UnauthorizedAccessException ex) { host.SayOutside(ex.Message); }
         }
 
         EditorSession Session() { return host.SharedSession(); }
@@ -380,6 +404,8 @@ namespace MS2.Tables
             string name = fileNames[i];
             MapEditor ed = Editor();
             if (!ed.Has(name)) { ShowEntities(null, null); host.SayOutside(ed.Exported + " has no map file xblock/" + MapEditor.Key(name) + ".xblock"); return; }
+            // the old file's entities go now: a read that fails must not leave them to be edited under this file's name
+            ShowEntities(null, null);
             List<XEntity> got = null;
             var watch = System.Diagnostics.Stopwatch.StartNew();
             host.RunOutside("reading map file " + name, delegate { got = ed.Shipped(name); }, delegate
@@ -395,10 +421,10 @@ namespace MS2.Tables
             if (xblock == null || entities == null) return "";
             Mod mod = Session().Mod;
             int changed = 0, removed = 0;
-            foreach (XEntity e in entities)
+            foreach (MapOpKind k in MapEditor.Edits(mod, xblock).Values)
             {
-                if (MapEditor.IsRemoved(mod, xblock, e.Id)) removed++;
-                else if (MapEditor.IsChanged(mod, xblock, e.Id)) changed++;
+                if (k == MapOpKind.Remove) removed++;
+                else changed++;
             }
             int added = MapEditor.NewEntities(mod, xblock);
             return "map file " + xblock + " (" + editor.Exported + "): " + N(entities.Count) + " entities; mod " + mod.Id + " changes "
@@ -415,18 +441,14 @@ namespace MS2.Tables
             FillEntities();
         }
 
-        static string Position(XEntity e)
-        {
-            XProp p = e.Find("Position");
-            return p != null && p.Scalar && p.Items.Count > 0 ? p.Items[0].Value : "";
-        }
-
         void FillEntities()
         {
             string keepId = entity != null ? entity.Id : null;
             string find = filterBox.Text.Trim();
             Mod mod = Session().Mod;
             int shown = 0, matched = 0;
+            Dictionary<string, MapOpKind> edits = MapEditor.Edits(mod, xblock);
+            if (struck == null) struck = new Font(entityList.Font, FontStyle.Strikeout);
             filling = true;
             try
             {
@@ -437,17 +459,19 @@ namespace MS2.Tables
                     foreach (XEntity e in entities)
                     {
                         if (find.Length > 0 && !Has(e.Name, find) && !Has(e.Model, find) && !Has(e.Id, find)) continue;
-                        bool removed = MapEditor.IsRemoved(mod, xblock, e.Id), changed = !removed && MapEditor.IsChanged(mod, xblock, e.Id);
+                        MapOpKind k = MapOpKind.Change;
+                        bool edited = e.Id != null && edits.TryGetValue(e.Id, out k);
+                        bool removed = edited && k == MapOpKind.Remove, changed = edited && !removed;
                         if (editedOnlyBox.Checked && !removed && !changed) continue;
                         matched++;
                         if (shown >= MaxEntities) continue;
                         shown++;
                         var it = new ListViewItem(e.Name ?? "") { Tag = e };
                         it.SubItems.Add(e.Model ?? "");
-                        it.SubItems.Add(Position(e));
+                        it.SubItems.Add(MapEditor.Position(e));
                         it.SubItems.Add(removed ? "removed" : changed ? "changed" : "");
                         it.SubItems.Add(e.Id ?? "");
-                        if (removed) { it.ForeColor = SystemColors.GrayText; it.Font = new Font(entityList.Font, FontStyle.Strikeout); }
+                        if (removed) { it.ForeColor = SystemColors.GrayText; it.Font = struck; }
                         else if (changed) it.ForeColor = Color.RoyalBlue;
                         it.ToolTipText = removed ? "the mod removes this entity" : changed ? "the mod sets properties of this entity" : "as shipped";
                         entityList.Items.Add(it);
@@ -563,7 +587,7 @@ namespace MS2.Tables
             string name = propBox.Text.Trim(), index = indexBox.Text.Trim();
             if (name.Length == 0) throw new ModKitException("give the name of the property");
             string value = unset ? null : valueBox.Text;
-            MapEditor.Set(mod, xblock, entity, name, index.Length == 0 ? null : index, value);
+            MapEditor.Set(mod, xblock, entity, name, index.Length == 0 ? null : index, value, Editor().Model(entity.Model));
             Edited((unset ? "unset " : "set ") + name + (index.Length > 0 ? "[" + index + "]" : "") + (unset ? "" : " = " + value)
                 + " on " + (entity.Name ?? entity.Id) + " in " + xblock);
         }

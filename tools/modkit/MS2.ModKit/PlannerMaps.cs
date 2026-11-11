@@ -433,6 +433,19 @@ namespace MS2.ModKit
             }
             var fresh = new List<XProp>();
             var check = new List<XProp>();
+            // unsets that take every item of a property delete the property: the map files carry no <property> without a <set>
+            var unsets = new Dictionary<XmlElem, int>();
+            foreach (MapSet s in op.Sets)
+            {
+                XmlElem prop, item;
+                FindItem(me.Elem, s, out prop, out item);
+                if (prop == null) continue;
+                int n;
+                unsets.TryGetValue(prop, out n);
+                if (s.Value != null) unsets[prop] = int.MinValue / 2;   // a set on the same property keeps it
+                else if (item != null) unsets[prop] = n + 1;
+            }
+            var gone = new Dictionary<XmlElem, bool>();
             foreach (MapSet s in op.Sets)
             {
                 XmlElem prop, item;
@@ -440,7 +453,9 @@ namespace MS2.ModKit
                 string row = EntRow(op.Id) + "/property[name=" + s.Name + "]" + (s.Index != null ? "/set[index=" + s.Index + "]" : "");
                 if (s.Value == null)
                 {
-                    if (prop.Children.Count == 1) st.Ed.Delete(prop); else st.Ed.Delete(item);
+                    if (item == null) continue;
+                    if (unsets[prop] >= prop.Children.Count) { if (!gone.ContainsKey(prop)) { gone[prop] = true; st.Ed.Delete(prop); } }
+                    else st.Ed.Delete(item);
                     plan.Changes.Add(new PlanChange { Kind = ChangeKind.RemoveAttr, ModId = mod.Id, Archive = ms.ArchiveRef, Entry = st.Name, Row = row, Name = "value", OldValue = s.Old, OwnSides = true });
                     continue;
                 }

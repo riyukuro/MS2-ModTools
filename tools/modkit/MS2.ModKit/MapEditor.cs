@@ -35,7 +35,9 @@ namespace MS2.ModKit
         /// <summary>The archive ref of the map files read ("client:Resource/Exported.m2d").</summary>
         public readonly string Exported;
         readonly M2dArchive arch;
-        readonly Dictionary<string, List<XEntity>> maps = new Dictionary<string, List<XEntity>>(StringComparer.OrdinalIgnoreCase);
+        // the last map files read (a big one holds 15,000 entities): kept parsed, the oldest goes
+        const int KeepMaps = 2;
+        readonly List<KeyValuePair<string, List<XEntity>>> maps = new List<KeyValuePair<string, List<XEntity>>>();
         Dictionary<string, M2dEntry> flats;
         readonly Dictionary<string, FlatModel> models = new Dictionary<string, FlatModel>(StringComparer.Ordinal);
 
@@ -64,11 +66,18 @@ namespace MS2.ModKit
         /// <summary>The shipped entities of a map file; null when the archive has none of that name.</summary>
         public List<XEntity> Shipped(string xblock)
         {
-            List<XEntity> l;
-            if (maps.TryGetValue(xblock, out l)) return l;
+            for (int i = 0; i < maps.Count; i++)
+                if (string.Equals(maps[i].Key, xblock, StringComparison.OrdinalIgnoreCase))
+                {
+                    KeyValuePair<string, List<XEntity>> kv = maps[i];
+                    maps.RemoveAt(i);
+                    maps.Add(kv);
+                    return kv.Value;
+                }
             M2dEntry e = arch.Find(Entry(xblock));
-            l = e == null ? null : XBlock.Read(arch.Read(e), Exported + " " + e.Name);
-            maps[xblock] = l;
+            List<XEntity> l = e == null ? null : XBlock.Read(arch.Read(e), Exported + " " + e.Name);
+            maps.Add(new KeyValuePair<string, List<XEntity>>(xblock, l));
+            if (maps.Count > KeepMaps) maps.RemoveAt(0);
             return l;
         }
 
@@ -143,9 +152,37 @@ namespace MS2.ModKit
             return null;
         }
 
+        /// <summary>Every change of an entity: the editor makes one, a hand-written mod may have more.</summary>
+        static List<MapEntityOp> ChangesOf(MapOp m, string id)
+        {
+            var l = new List<MapEntityOp>();
+            if (m != null)
+                foreach (MapEntityOp op in m.Ops)
+                    if (op.Kind == MapOpKind.Change && string.Equals(op.Id, id, StringComparison.OrdinalIgnoreCase)) l.Add(op);
+            return l;
+        }
+
         public static bool IsRemoved(Mod mod, string xblock, string id) { return OpOf(MapOf(mod, xblock), id, MapOpKind.Remove) != null; }
 
         public static bool IsChanged(Mod mod, string xblock, string id) { return OpOf(MapOf(mod, xblock), id, MapOpKind.Change) != null; }
+
+        /// <summary>
+        /// The shipped entities the mod edits on a map file, by lower-case id: Remove when it removes one, else Change.
+        /// One pass over the ops, for a view that marks thousands of entities.
+        /// </summary>
+        public static Dictionary<string, MapOpKind> Edits(Mod mod, string xblock)
+        {
+            var d = new Dictionary<string, MapOpKind>(StringComparer.OrdinalIgnoreCase);
+            MapOp m = mod == null ? null : MapOf(mod, xblock);
+            if (m != null)
+                foreach (MapEntityOp op in m.Ops)
+                {
+                    if (op.Id == null || (op.Kind != MapOpKind.Remove && op.Kind != MapOpKind.Change)) continue;
+                    MapOpKind k;
+                    if (op.Kind == MapOpKind.Remove || !d.TryGetValue(op.Id, out k)) d[op.Id] = op.Kind;
+                }
+            return d;
+        }
 
         /// <summary>The ops the mod has on the map file that are not edits of a shipped entity (add, spawn, portal).</summary>
         public static int NewEntities(Mod mod, string xblock)
@@ -163,7 +200,8 @@ namespace MS2.ModKit
             return null;
         }
 
-        static string Position(XEntity e)
+        /// <summary>The entity's position as the map stores it; "" when it stores none.</summary>
+        public static string Position(XEntity e)
         {
             XProp p = e.Find("Position");
             return p != null && p.Scalar ? p.Items[0].Value : "";
@@ -173,7 +211,7 @@ namespace MS2.ModKit
         public List<MapPropRow> Rows(Mod mod, string xblock, XEntity e)
         {
             var rows = new List<MapPropRow>();
-            MapEntityOp op = OpOf(MapOf(mod, xblock), e.Id, MapOpKind.Change);
+            List<MapEntityOp> changes = ChangesOf(MapOf(mod, xblock), e.Id);
             FlatModel model = Model(e.Model);
             var named = new Dictionary<string, bool>(StringComparer.Ordinal);
             foreach (XProp p in e.Props)
@@ -181,7 +219,7 @@ namespace MS2.ModKit
                 named[p.Name] = true;
                 foreach (XSet s in p.Items) rows.Add(Row(model, p.Name, s.Index, s.Value));
             }
-            if (op != null)
+            foreach (MapEntityOp op in changes)
                 foreach (MapSet s in op.Sets)
                 {
                     MapPropRow r = rows.Find(delegate (MapPropRow x) { return x.Name == s.Name && x.Index == s.Index; });
@@ -207,23 +245,49 @@ namespace MS2.ModKit
             return r;
         }
 
+        /// <summary>The id of a shipped entity, refused when a mod could not keep it (mod.xml takes 32 hex digits).</summary>
+        static string IdOf(XEntity e)
+        {
+            string id = e == null ? null : e.Id;
+            bool ok = id != null && id.Length == 32;
+            if (ok) foreach (char c in id) if (!Uri.IsHexDigit(c)) { ok = false; break; }
+            if (!ok) throw new ModKitException("the entity " + (e == null ? "(none)" : (e.Name ?? "") + " has the id \"" + id + "\", not 32 hex digits") + "; a mod cannot name it");
+            return id.ToLowerInvariant();
+        }
+
         /// <summary>
         /// Sets one property item of a shipped entity (value null: unsets it). The shipped value again drops the set.
-        /// Refused on an entity the mod removes.
+        /// Refused on an entity the mod removes. With the entity's model (Model(e.Model)) a property the model and the
+        /// entity lack is refused, and an index where the model's type is a plain value (or none where it is a list).
         /// </summary>
-        public static void Set(Mod mod, string xblock, XEntity e, string name, string index, string value)
+        public static void Set(Mod mod, string xblock, XEntity e, string name, string index, string value, FlatModel model = null)
         {
             if (string.IsNullOrEmpty(name)) throw new ModKitException("give the name of the property");
             if (name.Trim() != name) throw new ModKitException("the property name \"" + name + "\" has spaces at an end");
-            if (IsRemoved(mod, xblock, e.Id)) throw new ModKitException("the mod removes entity " + e.Id + "; restore it first");
+            if (index != null && index.Trim().Length == 0) throw new ModKitException("the index is empty; leave it out for a plain value");
+            string id = IdOf(e);
+            if (IsRemoved(mod, xblock, id)) throw new ModKitException("the mod removes entity " + id + "; restore it first");
             XProp shippedProp = e.Find(name);
             if (shippedProp != null && shippedProp.Items.Count > 0 && (index == null) != (shippedProp.Items[0].Index == null))
                 throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
+            if (model != null && shippedProp == null)
+            {
+                FlatProp fp = model.Prop(name);
+                if (fp == null) throw new ModKitException("the model " + model.Name + " has no property " + name);
+                bool list = fp.Type != null && fp.Type.StartsWith("Assoc", StringComparison.Ordinal);
+                if (list != (index != null))
+                    throw new ModKitException("the property " + name + " is " + (list ? "a list (" + fp.Type + "); give an index" : "a plain value (" + fp.Type + "); leave the index out"));
+            }
             string old = Shipped(e, name, index);
             MapOp m = MapOf(mod, xblock);
-            MapEntityOp op = OpOf(m, e.Id, MapOpKind.Change);
+            MapEntityOp op = null;
             MapSet set = null;
-            if (op != null) set = op.Sets.Find(delegate (MapSet s) { return s.Name == name && s.Index == index; });
+            foreach (MapEntityOp c in ChangesOf(m, id))
+            {
+                if (op == null) op = c;
+                MapSet f = c.Sets.Find(delegate (MapSet s) { return s.Name == name && s.Index == index; });
+                if (f != null) { op = c; set = f; break; }
+            }
             if (value == old)
             {
                 if (set != null) op.Sets.Remove(set);
@@ -231,21 +295,21 @@ namespace MS2.ModKit
                 return;
             }
             if (m == null) mod.Maps.Add(m = new MapOp { XBlock = Key(xblock) });
-            if (op == null) m.Ops.Add(op = new MapEntityOp { Kind = MapOpKind.Change, Id = e.Id, Model = e.Model, Position = Position(e) });
+            if (op == null) m.Ops.Add(op = new MapEntityOp { Kind = MapOpKind.Change, Id = id, Model = e.Model, Position = Position(e) });
             if (set == null) op.Sets.Add(set = new MapSet { Name = name, Index = index });
             set.Old = old;
             set.Value = value;
         }
 
-        /// <summary>Removes a shipped entity: its change gives way to a remove.</summary>
+        /// <summary>Removes a shipped entity: its changes give way to a remove.</summary>
         public static void Remove(Mod mod, string xblock, XEntity e)
         {
-            if (IsRemoved(mod, xblock, e.Id)) return;
+            string id = IdOf(e);
+            if (IsRemoved(mod, xblock, id)) return;
             MapOp m = MapOf(mod, xblock);
             if (m == null) mod.Maps.Add(m = new MapOp { XBlock = Key(xblock) });
-            MapEntityOp ch = OpOf(m, e.Id, MapOpKind.Change);
-            if (ch != null) m.Ops.Remove(ch);
-            m.Ops.Add(new MapEntityOp { Kind = MapOpKind.Remove, Id = e.Id, Model = e.Model, Position = Position(e) });
+            m.Ops.RemoveAll(delegate (MapEntityOp op) { return op.Kind == MapOpKind.Change && string.Equals(op.Id, id, StringComparison.OrdinalIgnoreCase); });
+            m.Ops.Add(new MapEntityOp { Kind = MapOpKind.Remove, Id = id, Model = e.Model, Position = Position(e) });
         }
 
         /// <summary>Drops every op of the mod on a shipped entity.</summary>

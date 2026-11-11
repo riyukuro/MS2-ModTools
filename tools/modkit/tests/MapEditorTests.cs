@@ -135,5 +135,126 @@ namespace MS2.ModKit.Tests
                 Assert.That(mod.Maps, Is.Empty);
             }
         }
+
+        [Test]
+        public void UnsettingEveryItemOfAListDeletesTheProperty()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                const string X = "90000001_AB";
+                XEntity crate2 = ed.Find(X, FakeMaps.Crate2);
+
+                Mod all = f.Mod("all", "");
+                MapEditor.Set(all, X, crate2, "Tags", "0", null);
+                MapEditor.Set(all, X, crate2, "Tags", "1", null);
+                Plan p = f.Plan(all);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                foreach (string ar in new[] { K, G, S })
+                {
+                    string t = Text(p, ar, FakeMaps.EntryA);
+                    Assert.That(t, Does.Not.Contain("\"Tags\""), ar + ": no <property> without a <set>");
+                    Assert.That(t, Does.Contain("300, 0, 150"), ar);
+                }
+
+                Mod one = f.Mod("one", "");
+                MapEditor.Set(one, X, crate2, "Tags", "0", null);
+                p = f.Plan(one);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string k = Text(p, K, FakeMaps.EntryA);
+                Assert.That(k, Does.Contain("\"Tags\""));
+                Assert.That(k, Does.Contain("value=\"b\""));
+                Assert.That(k, Does.Not.Contain("value=\"a\""));
+
+                // every shipped item unset but a new one set: the property stays with the new item
+                Mod swap = f.Mod("swap", "");
+                MapEditor.Set(swap, X, crate2, "Tags", "0", null);
+                MapEditor.Set(swap, X, crate2, "Tags", "1", null);
+                MapEditor.Set(swap, X, crate2, "Tags", "2", "z");
+                p = f.Plan(swap);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                k = Text(p, K, FakeMaps.EntryA);
+                Assert.That(k, Does.Contain("\"Tags\""));
+                Assert.That(k, Does.Contain("value=\"z\""));
+                Assert.That(k, Does.Not.Contain("value=\"a\"").And.Not.Contain("value=\"b\""));
+            }
+        }
+
+        [Test]
+        public void SetRefusesWhatTheModelLacksAndIdsAModCannotKeep()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                var mod = new Mod { Id = "m" };
+                const string X = "90000001_AB";
+                XEntity crate2 = ed.Find(X, FakeMaps.Crate2);
+                FlatModel model = ed.Model(crate2.Model);
+                Assert.That(model, Is.Not.Null);
+                Assert.Throws<ModKitException>(() => MapEditor.Set(mod, X, crate2, "Nope", null, "1", model), "the model has no such property");
+                Assert.Throws<ModKitException>(() => MapEditor.Set(mod, X, crate2, "Scale", "3", "2", model), "Scale is a plain value");
+                Assert.Throws<ModKitException>(() => MapEditor.Set(mod, X, crate2, "Position", "", "1, 1, 1", model), "an empty index");
+                Assert.That(mod.Maps, Is.Empty);
+                MapEditor.Set(mod, X, crate2, "Scale", null, "2", model);
+                MapEditor.Set(mod, X, crate2, "Nope", null, "1");         // without the model: the planner warns, as for a hand-written mod
+                Assert.That(mod.Maps[0].Ops[0].Sets.Count, Is.EqualTo(2));
+
+                var bad = new XEntity { Id = "not-an-id", Model = crate2.Model, Name = "x" };
+                Assert.Throws<ModKitException>(() => MapEditor.Set(mod, X, bad, "Scale", null, "2"));
+                Assert.Throws<ModKitException>(() => MapEditor.Remove(mod, X, bad));
+                Assert.Throws<ModKitException>(() => MapEditor.Remove(mod, X, new XEntity { Model = "m" }));
+                var upper = new XEntity { Id = FakeMaps.Crate1.ToUpperInvariant(), Model = crate2.Model, Name = "u" };
+                MapEditor.Remove(mod, X, upper);
+                Assert.That(mod.Maps[0].Ops.Last().Id, Is.EqualTo(FakeMaps.Crate1.ToLowerInvariant()), "a mod keeps ids in lower case");
+            }
+        }
+
+        [Test]
+        public void EveryChangeOfAnEntityCounts()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                var mod = new Mod { Id = "m" };
+                const string X = "90000001_AB";
+                XEntity crate2 = ed.Find(X, FakeMaps.Crate2);
+                // a hand-written mod: two changes of one entity
+                var m = new MapOp { XBlock = MapEditor.Key(X) };
+                mod.Maps.Add(m);
+                var c1 = new MapEntityOp { Kind = MapOpKind.Change, Id = crate2.Id, Model = crate2.Model, Position = MapEditor.Position(crate2) };
+                c1.Sets.Add(new MapSet { Name = "Position", Old = "300, 0, 150", Value = "1, 1, 1" });
+                var c2 = new MapEntityOp { Kind = MapOpKind.Change, Id = crate2.Id, Model = crate2.Model, Position = MapEditor.Position(crate2) };
+                c2.Sets.Add(new MapSet { Name = "Scale", Value = "3" });
+                m.Ops.Add(c1);
+                m.Ops.Add(c2);
+
+                List<MapPropRow> rows = ed.Rows(mod, X, crate2);
+                Assert.That(rows.Where(r => r.Edited).Select(r => r.Name + "=" + r.Current).ToArray(), Is.EqualTo(new[] { "Position=1, 1, 1", "Scale=3" }));
+                MapEditor.Set(mod, X, crate2, "Scale", null, "4");
+                Assert.That(c2.Sets.Single().Value, Is.EqualTo("4"), "the set is changed where it is");
+                Assert.That(c1.Sets.Count, Is.EqualTo(1));
+                Assert.That(MapEditor.Edits(mod, X)[crate2.Id], Is.EqualTo(MapOpKind.Change));
+
+                MapEditor.Remove(mod, X, crate2);
+                Assert.That(m.Ops.Single().Kind, Is.EqualTo(MapOpKind.Remove), "both changes give way");
+                Assert.That(MapEditor.Edits(mod, X)[crate2.Id.ToUpperInvariant()], Is.EqualTo(MapOpKind.Remove));
+            }
+        }
+
+        [Test]
+        public void OnlyTheLastMapFilesStayParsed()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                List<XEntity> a = ed.Shipped("90000001_AB");
+                Assert.That(ed.Shipped("90000001_ab"), Is.SameAs(a));
+                ed.Shipped("90000005_AB");
+                ed.Shipped("90000005_CD");
+                List<XEntity> again = ed.Shipped("90000001_AB");
+                Assert.That(again, Is.Not.SameAs(a), "read again after two others");
+                Assert.That(again.Count, Is.EqualTo(a.Count));
+            }
+        }
     }
 }

@@ -295,6 +295,7 @@ namespace MS2.Tables
             catch (ModKitException ex) { ShowScript(null); host.SayOutside(ex.Message); }
             catch (System.IO.IOException ex) { ShowScript(null); host.SayOutside(ex.Message); }
             catch (System.IO.InvalidDataException ex) { ShowScript(null); host.SayOutside(ex.Message); }
+            catch (UnauthorizedAccessException ex) { ShowScript(null); host.SayOutside(ex.Message); }
             // a mod loaded or made: its "lint errors only warn" choice shows at once, with or without a script
             RefreshWarnBox();
         }
