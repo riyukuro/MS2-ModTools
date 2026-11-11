@@ -94,6 +94,64 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ARawEditOfAGroupsIdMovesItsRows()
+        {
+            using (var f = new FakeGroups())
+            using (EditorSession s = Session(f.Dir))
+            {
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5001)), Does.Contain("drop box 7100: group 1 item"));
+                TableDraft flat = s.OpenTable(Profile.Server.ArchiveIn("x:Xml.m2d"), Planner.DefaultDropSplit, null);
+                foreach (TableRow r in flat.Rows)
+                    if (flat.Get(r, "individualDropBoxID") == "7100") flat.Set(r, "individualDropBoxID", "7101");
+                List<string> l = Lines(new WhereUsed(s).Of(IdLookup.Item, 5001));
+                Assert.That(l, Does.Contain("drop box 7101: group 1 item (new) [added]"), "the row under its new id");
+                Assert.That(l, Does.Not.Contain("drop box 7100: group 1 item"), "and no longer under the old one");
+            }
+        }
+
+        [Test]
+        public void TheModsGroupsArePlannedOnce_WhileTheirOpsStay()
+        {
+            using (var f = new FakeGroups())
+            using (EditorSession s = Session(f.Dir))
+            {
+                long shop = s.Groups().Clone(GroupKind.Shop, 9002, 0);
+                TableDraft flat = s.OpenTable(Profile.Server.ArchiveIn("x:Xml.m2d"), Planner.DefaultDropSplit, null);
+                foreach (TableRow r in flat.Rows)
+                    if (flat.Get(r, "individualDropBoxID") == "7100") flat.Set(r, "item", "5006");
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5006)), Is.EqualTo(new[] { "drop box 7100: group 1 item (new)" }));
+                WhereUsedStats st = WhereUsed.Stats(s.Data);
+                Assert.That(st.GroupScans, Is.EqualTo(1));
+                s.Mod.Version = "2";
+                Assert.That(Lines(new WhereUsed(s).Of(IdLookup.Item, 5001)), Does.Contain("shop " + shop + ": sn 1 id (new) [added]"));
+                Assert.That(st.ModScans, Is.EqualTo(2), "the mod changed");
+                Assert.That(st.GroupScans, Is.EqualTo(1), "its group ops and raw group edits did not");
+                s.Groups().SetHeader(GroupKind.Shop, shop, "iconName", "other");
+                new WhereUsed(s).Of(IdLookup.Item, 5001);
+                Assert.That(st.GroupScans, Is.EqualTo(2), "a group op changed");
+            }
+        }
+
+        [Test]
+        public void AFailingPlanOfTheGroupsFallsBackToTheShippedRows_AndSaysSo()
+        {
+            // the server's nested drop table does not parse, and the mod edits a row of it
+            using (var f = new FakeGroups(FakeGroups.ServerFinal.Replace("</ms2>", "<dropBox")))
+            using (EditorSession s = Session(f.Dir))
+            {
+                s.Adopt(Mod.Parse("<mod id=\"t\" name=\"t\" version=\"1\"><edit archive=\"" + Planner.ServerTables + "\" entry=\"" + Planner.ServerDropEntry +
+                    "\"><change at=\"dropBox[dropBoxID=7001]/group[dropGroupID=1]/v[itemID=5001]\"><set name=\"weight\" value=\"3\"/></change></edit></mod>", "test"));
+                List<string> l = null;
+                Assert.DoesNotThrow(delegate { l = Lines(new WhereUsed(s).Of(IdLookup.Item, 5001)); }, "the raw edit's unreadable entry is skipped");
+                WhereUsedStats st = WhereUsed.Stats(s.Data);
+                Assert.That(st.ModError, Does.StartWith("the mod's shops and drop boxes could not be planned, their shipped rows are shown"));
+                Assert.That(l, Does.Contain("shop 9001: sn 1 id"), "the shipped rows");
+                Assert.That(l, Does.Contain("drop box 7100: group 1 item"));
+                Assert.That(new WhereUsed(s).LeftBehind(IdLookup.Item, 5001), Is.Not.Null);
+            }
+        }
+
+        [Test]
         public void AGroupWithoutAnIdIsOneLabelOnBothSides()
         {
             string final = FakeGroups.ServerFinal.Replace("</ms2>",
@@ -304,6 +362,40 @@ namespace MS2.ModKit.Tests
                 }
             }
             finally { try { Directory.Delete(dir, true); } catch (IOException) { } }
+        }
+
+        /// <summary>
+        /// A question with a mod of one shop op (a clone of the first shop) and one raw drop edit (the first flat
+        /// drop row), on the data set in MS2_WHEREUSED_DATA: the first, a second with the same mod, and one after a
+        /// change outside the groups. Runs only when asked for by name.
+        /// </summary>
+        [Test, Explicit]
+        public void MeasureAModWithAShopOpAndARawDropEdit()
+        {
+            string dir = Environment.GetEnvironmentVariable("MS2_WHEREUSED_DATA");
+            if (string.IsNullOrEmpty(dir)) Assert.Ignore("MS2_WHEREUSED_DATA is not set");
+            using (EditorSession s = Session(dir))
+            {
+                var clock = System.Diagnostics.Stopwatch.StartNew();
+                new WhereUsed(s).Of(IdLookup.Item, 1);
+                long shipped = clock.ElapsedMilliseconds;
+                s.Groups().Clone(GroupKind.Shop, s.Groups().ShippedIds(GroupKind.Shop)[0], 0);
+                TableDraft flat = s.OpenTable(Profile.Server.ArchiveIn("x:Xml.m2d"), Planner.DefaultDropSplit, null);
+                flat.Set(flat.Rows[0], "maxCount", "9");
+                clock.Restart();
+                new WhereUsed(s).Of(IdLookup.Item, 1);
+                long first = clock.ElapsedMilliseconds;
+                clock.Restart();
+                new WhereUsed(s).Of(IdLookup.Npc, 1);
+                long same = clock.ElapsedMilliseconds;
+                s.Mod.Version = "2";
+                clock.Restart();
+                new WhereUsed(s).Of(IdLookup.Item, 1);
+                long other = clock.ElapsedMilliseconds;
+                WhereUsedStats st = WhereUsed.Stats(s.Data);
+                TestContext.Progress.WriteLine("shipped " + shipped + " ms; with the mod " + first + " ms, same mod " + same + " ms, after a change outside the groups " + other +
+                    " ms; mod sides " + st.ModScans + ", group plans " + st.GroupScans + (st.ModError == null ? "" : "; " + st.ModError));
+            }
         }
 
         /// <summary>

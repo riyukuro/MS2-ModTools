@@ -23,14 +23,17 @@ namespace MS2.Tables
             EditorSession session = host.SharedSession();
             List<UseHit> hits = null;
             List<string> skipped = null;
+            string modError = null;
             host.RunOutside("Where used " + kind + " " + id.ToString(CultureInfo.InvariantCulture), delegate
             {
                 bool first = !WhereUsed.IsIndexed(session.Data);
                 hits = new WhereUsed(session).Of(kind, id, Max);
                 skipped = Skipped(session, first);
+                modError = ModError(session);
             }, delegate
             {
                 if (skipped != null) host.SayOutside(SkippedText(skipped));
+                if (modError != null) host.SayOutside("Where used: " + modError);
                 if (owner.IsDisposed) return;
                 UseHit go;
                 using (var d = new WhereUsedDialog(kind, id, hits, Max, WhereUsedSkipped(session)))
@@ -53,22 +56,28 @@ namespace MS2.Tables
             EditorSession session = host.SharedSession();
             string w = null;
             List<string> skipped = null;
+            string modError = null;
             host.RunOutside("Checking what still names " + kind + " " + id.ToString(CultureInfo.InvariantCulture), delegate
             {
                 bool first = !WhereUsed.IsIndexed(session.Data);
                 w = new WhereUsed(session).LeftBehind(kind, id);
                 skipped = Skipped(session, first);
+                modError = ModError(session);
             }, delegate
             {
-                host.SayOutside(LeftBehindText(said, skipped, w, kind, id));
+                host.SayOutside(LeftBehindText(said, skipped, modError, w, kind, id));
             });
         }
 
-        /// <summary>The whole text of a Remove clone or Discard: what was done, the skipped files, what still names the id.</summary>
-        internal static string LeftBehindText(string said, List<string> skipped, string w, string kind, long id)
+        /// <summary>
+        /// The whole text of a Remove clone or Discard: what was done, the skipped files, why the mod's groups were
+        /// read as shipped, what still names the id.
+        /// </summary>
+        internal static string LeftBehindText(string said, List<string> skipped, string modError, string w, string kind, long id)
         {
             var l = new List<string> { said };
             if (skipped != null) l.Add(SkippedText(skipped));
+            if (modError != null) l.Add("Where used: " + modError);
             l.Add(w == null ? "no place still names " + kind + " " + id.ToString(CultureInfo.InvariantCulture) : w.Replace("\n", "\r\n"));
             return string.Join("\r\n", l.ToArray());
         }
@@ -77,6 +86,13 @@ namespace MS2.Tables
         {
             WhereUsedStats st = WhereUsed.Stats(session.Data);
             return st == null ? 0 : st.Skipped.Count;
+        }
+
+        // why the mod's shops and drop boxes were read as shipped at the last question; null when they were planned
+        static string ModError(EditorSession session)
+        {
+            WhereUsedStats st = WhereUsed.Stats(session.Data);
+            return st == null ? null : st.ModError;
         }
 
         // the files the shipped read skipped, once: right after the read that skipped them

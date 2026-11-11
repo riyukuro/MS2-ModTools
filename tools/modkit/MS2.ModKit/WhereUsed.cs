@@ -77,6 +77,13 @@ namespace MS2.ModKit
         public long ShippedMs;
         /// <summary>The shipped files that could not be read ("archive entry: error"), skipped.</summary>
         public readonly List<string> Skipped = new List<string>();
+        /// <summary>
+        /// Why the mod's shops and drop boxes could not be planned at the last mod-side read (their shipped rows were
+        /// taken instead); null when they could.
+        /// </summary>
+        public string ModError;
+        /// <summary>How often the mod's shops and drop boxes were planned (their part is kept while the mod's group ops and raw group edits stay).</summary>
+        public int GroupScans;
     }
 
     public sealed class WhereUsed
@@ -309,7 +316,7 @@ namespace MS2.ModKit
 
         sealed class Source { internal string Kind; internal long Id; internal bool New; }
 
-        List<Source> Touched()
+        List<Source> Touched(Index ix)
         {
             var l = new List<Source>();
             var seen = new HashSet<string>();
@@ -323,31 +330,68 @@ namespace MS2.ModKit
             foreach (GroupOp g in Mod.Groups)
                 add(GroupSpace(g.Kind), g.Id, g.New || g.IsClone);
             foreach (KeyValuePair<GroupKind, long> kv in Groups().RawTouched()) add(GroupSpace(kv.Key), kv.Value, false);
+            // a raw edit can change a group's id itself: the groups whose planned rows differ from the shipped ones
+            // (or that the shipped side lacks) are the mod's too
+            if (Groups().HasRawEdits())
+                foreach (KeyValuePair<string, Refs> kv in ModGroups().By)
+                {
+                    HashSet<string> had;
+                    ix.Of.TryGetValue(kv.Key, out had);
+                    var now = new HashSet<string>();
+                    foreach (Ref x in kv.Value.List) now.Add(TargetKey(x.Kind, x.Id) + "\n" + x.Hit.Key);
+                    if (had != null && had.SetEquals(now)) continue;
+                    KeyValuePair<GroupKind, long> g = ModGroups().Ids[kv.Key];
+                    add(GroupSpace(g.Key), g.Value, had == null);
+                }
             return l;
         }
 
-        Dictionary<string, Refs> modGroups;
+        /// <summary>The shops and drop boxes as the mod leaves them, kept while its group ops and raw group edits stay.</summary>
+        sealed class GroupSide
+        {
+            internal string Print;
+            internal readonly Dictionary<string, Refs> By = new Dictionary<string, Refs>();
+            internal readonly Dictionary<string, KeyValuePair<GroupKind, long>> Ids = new Dictionary<string, KeyValuePair<GroupKind, long>>();
+            internal string Error;
+        }
+
+        const string GroupKey = "whereused\ngroups";
 
         /// <summary>
         /// The places of the shops and drop boxes as the mod leaves them (its group ops and its raw row edits of the
-        /// group tables, planned once per question), by source.
+        /// group tables, planned together), by source. When the plan fails, the shipped rows are taken and the
+        /// reason is kept in the stats (ModError).
         /// </summary>
-        Dictionary<string, Refs> ModGroups()
+        GroupSide ModGroups()
         {
-            if (modGroups != null) return modGroups;
-            var by = new Dictionary<string, Refs>();
-            try
+            string print = Groups().GroupPrint();
+            object o;
+            WhereUsedStats st = MyStats();
+            if (print != null && Data.Cache.TryGetValue(GroupKey, out o) && ((GroupSide)o).Print == print)
             {
-                Groups().ScanMod(delegate(GroupKind kind, long id, int index, string describe, XmlElem row)
-                {
-                    string k = TargetKey(GroupSpace(kind), id);
-                    Refs r;
-                    if (!by.TryGetValue(k, out r)) by[k] = r = new Refs();
-                    GroupRow(r, kind, id, index, describe, Attrs(row));
-                });
+                st.ModError = ((GroupSide)o).Error;
+                return (GroupSide)o;
             }
-            catch (ModKitException) { }
-            return modGroups = by;
+            var side = new GroupSide { Print = print };
+            GroupEditor.RowVisit visit = delegate(GroupKind kind, long id, int index, string describe, XmlElem row)
+            {
+                string k = TargetKey(GroupSpace(kind), id);
+                Refs r;
+                if (!side.By.TryGetValue(k, out r)) { side.By[k] = r = new Refs(); side.Ids[k] = new KeyValuePair<GroupKind, long>(kind, id); }
+                GroupRow(r, kind, id, index, describe, Attrs(row));
+            };
+            try { Groups().ScanMod(visit); }
+            catch (ModKitException ex)
+            {
+                side.By.Clear();
+                side.Ids.Clear();
+                side.Error = "the mod's shops and drop boxes could not be planned, their shipped rows are shown: " + ex.Message;
+                Groups().ScanShipped(visit, delegate(string file, Exception e) { });
+            }
+            st.ModError = side.Error;
+            st.GroupScans++;
+            if (print != null) Data.Cache[GroupKey] = side; else Data.Cache.Remove(GroupKey);
+            return side;
         }
 
         /// <summary>The places of one source as the mod leaves it.</summary>
@@ -378,7 +422,7 @@ namespace MS2.ModKit
                 else
                 {
                     Refs g;
-                    if (ModGroups().TryGetValue(TargetKey(s.Kind, s.Id), out g)) return g;
+                    if (ModGroups().By.TryGetValue(TargetKey(s.Kind, s.Id), out g)) return g;
                 }
             }
             catch (ModKitException) { }     // a source the mod leaves unreadable names nothing
@@ -473,9 +517,9 @@ namespace MS2.ModKit
             object o;
             if (print != null && Data.Cache.TryGetValue(ModKey, out o) && ((ModIndex)o).Print == print) return (ModIndex)o;
             var mi = new ModIndex { Print = print };
-            modGroups = null;
+            MyStats().ModError = null;
             int places = 0;
-            foreach (Source s in Touched())
+            foreach (Source s in Touched(ix))
             {
                 string sk = TargetKey(s.Kind, s.Id);
                 if (!mi.Touched.Add(sk)) continue;
@@ -493,7 +537,6 @@ namespace MS2.ModKit
                     places++;
                 }
             }
-            modGroups = null;
             WhereUsedStats st = MyStats();
             st.ModScans++;
             st.ModPlaces = places;
@@ -800,7 +843,12 @@ namespace MS2.ModKit
                 RowEntry re = null;
                 foreach (RowEntry x in entries)
                     if (x.Archive == ed.Archive && string.Equals(x.Entry, ed.Entry.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase)) { re = x; break; }
-                XmlDoc d = Read(null, re.Archive, re.Entry);
+                // an entry whose shipped copy cannot be read (the shipped scan skipped it) gives no touched group
+                XmlDoc d;
+                try { d = Read(null, re.Archive, re.Entry); }
+                catch (ModKitException) { continue; }
+                catch (IOException) { continue; }
+                catch (InvalidDataException) { continue; }
                 if (d == null || d.Root == null) continue;
                 foreach (RowOp r in ed.Rows)
                 {
@@ -824,6 +872,21 @@ namespace MS2.ModKit
                 }
             }
             return l;
+        }
+
+        internal bool HasRawEdits() { return RawEdits(RowEntries()).Count > 0; }
+
+        /// <summary>The mod's group ops and raw group edits as one string (null: cannot say); the mod side of the groups is kept while it stays.</summary>
+        internal string GroupPrint()
+        {
+            try
+            {
+                var m = new Mod { Id = "groups", Name = "groups", Version = "1", Dir = Mod.Dir };
+                foreach (GroupOp g in Mod.Groups) m.Groups.Add(g);
+                foreach (EditOp ed in RawEdits(RowEntries())) m.Ops.Add(ed);
+                return m.ToXml() + "\n" + Mod.Dir;
+            }
+            catch (ModKitException) { return null; }
         }
 
         /// <summary>
