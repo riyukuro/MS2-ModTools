@@ -5,8 +5,10 @@
 //
 // Edits (MS2.ModKit.MapEditor): set or unset one property item, remove an entity, restore it. Each edit is a <change>
 // or <remove> op of the mod's <map xblock="..."> with the shipped value as the expected old one, so Plan makes it on
-// every target that ships the same entity (client, global client, server) and warns where one does not. Plan, Apply
-// and Save mod are the MS2 Tables view's.
+// every target that ships the same entity (client, global client, server) and warns where one does not. Add spawn
+// point and Add portal make a <spawn> or <portal> op: the new entity is listed first as "new", its properties, numbers
+// and server rows are edited the same way, and Remove entity takes it out of the mod. Plan, Apply and Save mod are the
+// MS2 Tables view's. Each edited row has a mark in its first column that stays when the row is selected.
 //
 // The view holds no data logic: MS2.ModKit.MapEditor reads the files and makes the ops. The session, the worker
 // thread and the output stay in the MS2 Tables view, as for the other entity views.
@@ -36,6 +38,7 @@ namespace MS2.Tables
         string xblock;
         List<XEntity> entities;
         XEntity entity;
+        MapEntityOp newOp;
         bool filling;
 
         readonly TextBox searchBox = new TextBox { Width = 200 };
@@ -60,6 +63,9 @@ namespace MS2.Tables
         readonly List<Control> lockable = new List<Control>();
         readonly List<long> hitIds = new List<long>();
         readonly List<string> fileNames = new List<string>();
+
+        readonly ImageList marks = new ImageList { ImageSize = new Size(12, 12), ColorDepth = ColorDepth.Depth32Bit };
+        const int MarkChanged = 0, MarkRemoved = 1, MarkNew = 2;
 
         static readonly string[] EntityColumns = { "name", "model", "position", "edit", "id" };
         static readonly int[] EntityWidths = { 220, 200, 160, 70, 260 };
@@ -94,6 +100,11 @@ namespace MS2.Tables
             entityBar.Controls.Add(editedOnlyBox);
             tips.SetToolTip(editedOnlyBox, "Shows only the entities the mod changes or removes");
             entityBar.Controls.Add(entitiesLabel);
+            entityBar.Controls.Add(Btn("Add spawn point", "Adds a spawn point to the map file in the mod, with the next free SpawnPointID of the mod range; give it server rows as \"" + MapEditor.ServerRow + "\"", delegate { AddNew(false); }));
+            entityBar.Controls.Add(Btn("Add portal", "Adds a portal to the map file in the mod, with the next free PortalID of the mod range, that leads to a portal of a map", delegate { AddNew(true); }));
+            MakeMarks();
+            entityList.SmallImageList = marks;
+            propList.SmallImageList = marks;
             for (int i = 0; i < EntityColumns.Length; i++) entityList.Columns.Add(EntityColumns[i], EntityWidths[i]);
             entityList.ShowItemToolTips = true;
             var entityPanel = new Panel { Dock = DockStyle.Fill };
@@ -190,6 +201,27 @@ namespace MS2.Tables
         }
 
         // ---- small builders ----
+
+        /// <summary>The marks of edited rows: an image keeps its colours on a selected row, a ForeColor does not.</summary>
+        void MakeMarks()
+        {
+            Color[] fill = { Color.RoyalBlue, Color.Gray, Color.SeaGreen };
+            for (int i = 0; i < fill.Length; i++)
+            {
+                var b = new Bitmap(12, 12);
+                using (Graphics g = Graphics.FromImage(b))
+                using (var br = new SolidBrush(fill[i]))
+                using (var pen = new Pen(Color.White, 2))
+                {
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                    g.Clear(Color.Transparent);
+                    g.FillEllipse(br, 1, 1, 10, 10);
+                    if (i == MarkRemoved) g.DrawLine(pen, 3, 6, 9, 6);
+                    if (i == MarkNew) { g.DrawLine(pen, 3, 6, 9, 6); g.DrawLine(pen, 6, 3, 6, 9); }
+                }
+                marks.Images.Add(b);
+            }
+        }
 
         static FlowLayoutPanel Bar()
         {
@@ -289,6 +321,7 @@ namespace MS2.Tables
                     editorData = null;
                     entities = null;
                     entity = null;
+                    newOp = null;
                     string keep = xblock;
                     xblock = null;
                     FillEntities();
@@ -428,7 +461,7 @@ namespace MS2.Tables
             }
             int added = MapEditor.NewEntities(mod, xblock);
             return "map file " + xblock + " (" + editor.Exported + "): " + N(entities.Count) + " entities; mod " + mod.Id + " changes "
-                + N(changed) + ", removes " + N(removed) + (added > 0 ? ", and has " + N(added) + " other ops on it (added entities, spawns, portals)" : "");
+                + N(changed) + ", removes " + N(removed) + ", adds " + N(added);
         }
 
         // ---- entities ----
@@ -438,15 +471,17 @@ namespace MS2.Tables
             xblock = name;
             entities = list;
             entity = null;
+            newOp = null;
             FillEntities();
         }
 
         void FillEntities()
         {
             string keepId = entity != null ? entity.Id : null;
+            MapEntityOp keepNew = newOp;
             string find = filterBox.Text.Trim();
             Mod mod = Session().Mod;
-            int shown = 0, matched = 0;
+            int shown = 0, matched = 0, added = 0;
             Dictionary<string, MapOpKind> edits = MapEditor.Edits(mod, xblock);
             if (struck == null) struck = new Font(entityList.Font, FontStyle.Strikeout);
             filling = true;
@@ -456,6 +491,24 @@ namespace MS2.Tables
                 entityList.Items.Clear();
                 if (entities != null)
                 {
+                    // the mod's new entities first: they are few and always in view
+                    foreach (MapEntityOp op in MapEditor.NewOps(mod, xblock))
+                    {
+                        added++;
+                        if (find.Length > 0 && !Has(op.Name, find) && !Has(op.Model, find)) continue;
+                        matched++;
+                        shown++;
+                        string kind = op.Kind == MapOpKind.Spawn ? "spawn point " : op.Kind == MapOpKind.Portal ? "portal " : "";
+                        var it = new ListViewItem(op.Name ?? "", MarkNew) { Tag = op };
+                        it.SubItems.Add(op.Model ?? "");
+                        it.SubItems.Add(MapEditor.Position(op));
+                        it.SubItems.Add("new");
+                        it.SubItems.Add(op.Kind == MapOpKind.Add ? "(new)" : "(new " + kind + op.Number.ToString(CultureInfo.InvariantCulture) + ")");
+                        it.ForeColor = Color.SeaGreen;
+                        it.ToolTipText = "the mod adds this " + (kind.Length > 0 ? kind.Trim() : "entity") + "; Remove entity takes it out";
+                        entityList.Items.Add(it);
+                        if (op == keepNew) it.Selected = true;
+                    }
                     foreach (XEntity e in entities)
                     {
                         if (find.Length > 0 && !Has(e.Name, find) && !Has(e.Model, find) && !Has(e.Id, find)) continue;
@@ -466,7 +519,7 @@ namespace MS2.Tables
                         matched++;
                         if (shown >= MaxEntities) continue;
                         shown++;
-                        var it = new ListViewItem(e.Name ?? "") { Tag = e };
+                        var it = new ListViewItem(e.Name ?? "", removed ? MarkRemoved : changed ? MarkChanged : -1) { Tag = e };
                         it.SubItems.Add(e.Model ?? "");
                         it.SubItems.Add(MapEditor.Position(e));
                         it.SubItems.Add(removed ? "removed" : changed ? "changed" : "");
@@ -482,15 +535,17 @@ namespace MS2.Tables
             finally { entityList.EndUpdate(); filling = false; }
             FitColumns(entityList, EntityColumns.Length - 1);
             entitiesLabel.Text = entities == null ? "" : matched > shown ? N(shown) + " of " + N(matched) + " entities shown (filter to see the rest)"
-                : N(matched) + " of " + N(entities.Count) + " entities";
+                : N(matched) + " of " + N(entities.Count + added) + " entities";
             if (entityList.SelectedItems.Count > 0) entityList.SelectedItems[0].EnsureVisible();
-            else entity = null;
+            else { entity = null; newOp = null; }
             FillProps();
         }
 
         void OpenEntity()
         {
-            entity = entityList.SelectedItems.Count > 0 ? (XEntity)entityList.SelectedItems[0].Tag : null;
+            object tag = entityList.SelectedItems.Count > 0 ? entityList.SelectedItems[0].Tag : null;
+            entity = tag as XEntity;
+            newOp = tag as MapEntityOp;
             FillProps();
         }
 
@@ -505,26 +560,40 @@ namespace MS2.Tables
                 propList.BeginUpdate();
                 propList.Items.Clear();
                 propBox.Items.Clear();
-                if (entity == null)
+                if (entity == null && newOp == null)
                 {
                     entityLabel.Text = "no entity chosen";
                     return;
                 }
                 Mod mod = Session().Mod;
-                bool removed = MapEditor.IsRemoved(mod, xblock, entity.Id);
-                entityLabel.Text = (entity.Name ?? entity.Id) + (removed ? " (removed by the mod)" : "");
-                var names = new HashSet<string>(StringComparer.Ordinal);
-                foreach (MapPropRow r in Editor().Rows(mod, xblock, entity))
+                List<MapPropRow> rows;
+                if (newOp != null)
                 {
-                    var it = new ListViewItem(r.Name ?? "") { Tag = r };
+                    entityLabel.Text = newOp.Name + " (new " + (newOp.Kind == MapOpKind.Spawn ? "spawn point " : newOp.Kind == MapOpKind.Portal ? "portal " : "entity ")
+                        + (newOp.Kind == MapOpKind.Add ? "" : newOp.Number.ToString(CultureInfo.InvariantCulture)) + ")";
+                    rows = Editor().RowsOfNew(newOp);
+                    if (newOp.Kind == MapOpKind.Spawn)
+                        rows.Add(new MapPropRow { Name = MapEditor.ServerRow, Index = newOp.Rows.Count.ToString(CultureInfo.InvariantCulture), Type = "server" });   // the next row to add
+                }
+                else
+                {
+                    bool removed = MapEditor.IsRemoved(mod, xblock, entity.Id);
+                    entityLabel.Text = (entity.Name ?? entity.Id) + (removed ? " (removed by the mod)" : "");
+                    rows = Editor().Rows(mod, xblock, entity);
+                }
+                var names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (MapPropRow r in rows)
+                {
+                    var it = new ListViewItem(r.Name ?? "", r.Edited ? (newOp != null ? MarkNew : MarkChanged) : -1) { Tag = r };
                     it.SubItems.Add(r.Index ?? "");
                     it.SubItems.Add(r.Shipped ?? "");
                     it.SubItems.Add(r.Edited ? (r.Current ?? "(unset)") : "");
                     it.SubItems.Add(r.Default ?? "");
                     it.SubItems.Add(r.Type ?? "");
-                    if (r.Edited) it.ForeColor = Color.RoyalBlue;
+                    if (r.Edited) it.ForeColor = newOp != null ? Color.SeaGreen : Color.RoyalBlue;
                     else if (r.Shipped == null) it.ForeColor = SystemColors.GrayText;
-                    it.ToolTipText = r.Edited ? "the mod " + (r.Current == null ? "unsets" : "sets") + " this item; shipped: " + (r.Shipped ?? "none")
+                    it.ToolTipText = newOp != null ? (r.Edited ? "the new entity has this item" : r.Name == MapEditor.ServerRow ? "Set a server row here to add one (key=value pairs)" : "the model's default holds; Set gives the new entity a value")
+                        : r.Edited ? "the mod " + (r.Current == null ? "unsets" : "sets") + " this item; shipped: " + (r.Shipped ?? "none")
                         : r.Shipped == null ? "the map stores no value: the model's default holds" : "as shipped";
                     propList.Items.Add(it);
                     if (r.Name != null && names.Add(r.Name)) propBox.Items.Add(r.Name);
@@ -568,7 +637,7 @@ namespace MS2.Tables
         Mod NeedEntity()
         {
             if (xblock == null || entities == null) throw new ModKitException("choose a map file first");
-            if (entity == null) throw new ModKitException("choose an entity first");
+            if (entity == null && newOp == null) throw new ModKitException("choose an entity first");
             Mod mod = Session().Mod;
             if (mod == null) throw new ModKitException("no mod is being edited");
             return mod;
@@ -587,14 +656,23 @@ namespace MS2.Tables
             string name = propBox.Text.Trim(), index = indexBox.Text.Trim();
             if (name.Length == 0) throw new ModKitException("give the name of the property");
             string value = unset ? null : valueBox.Text;
-            MapEditor.Set(mod, xblock, entity, name, index.Length == 0 ? null : index, value, Editor().Model(entity.Model));
+            if (newOp != null) MapEditor.SetNew(mod, xblock, newOp, name, index.Length == 0 ? null : index, value);
+            else MapEditor.Set(mod, xblock, entity, name, index.Length == 0 ? null : index, value, Editor().Model(entity.Model));
             Edited((unset ? "unset " : "set ") + name + (index.Length > 0 ? "[" + index + "]" : "") + (unset ? "" : " = " + value)
-                + " on " + (entity.Name ?? entity.Id) + " in " + xblock);
+                + " on " + (newOp != null ? newOp.Name + " (new)" : entity.Name ?? entity.Id) + " in " + xblock);
         }
 
         void RemoveEntity()
         {
             Mod mod = NeedEntity();
+            if (newOp != null)
+            {
+                string gone = newOp.Name;
+                MapEditor.RemoveNew(mod, xblock, newOp);
+                newOp = null;
+                Edited("took the new entity " + gone + " out of the mod");
+                return;
+            }
             MapEditor.Remove(mod, xblock, entity);
             Edited("removed " + (entity.Name ?? entity.Id) + " from " + xblock);
         }
@@ -602,8 +680,101 @@ namespace MS2.Tables
         void RestoreEntity()
         {
             Mod mod = NeedEntity();
+            if (newOp != null) throw new ModKitException(newOp.Name + " is new: nothing of it ships to restore; Remove entity takes it out of the mod");
             MapEditor.Restore(mod, xblock, entity.Id);
             Edited("restored " + (entity.Name ?? entity.Id) + " in " + xblock + " (no edit of it is left in the mod)");
+        }
+
+        /// <summary>Add spawn point / Add portal: the models of the file that fit are read by a job, then the dialog.</summary>
+        void AddNew(bool portal)
+        {
+            if (xblock == null || entities == null) throw new ModKitException("choose a map file first");
+            Mod mod = Session().Mod;
+            if (mod == null) throw new ModKitException("no mod is being edited");
+            MapEditor ed = Editor();
+            string file = xblock;
+            long map = mapId;
+            string near = entity != null ? MapEditor.Position(entity) : newOp != null ? MapEditor.Position(newOp) : "";
+            List<string> models = null;
+            long number = 0;
+            host.RunOutside("reading the models of " + file, delegate
+            {
+                models = ed.ModelsWith(file, portal ? "PortalID" : "SpawnPointID");
+                number = ed.NextNumber(mod, file, portal);
+            }, delegate
+            {
+                if (IsDisposed || ed != editor || file != xblock) return;
+                Guard(delegate { ShowAddDialog(ed, mod, map, file, portal, models, number, near); });
+            });
+        }
+
+        void ShowAddDialog(MapEditor ed, Mod mod, long map, string file, bool portal, List<string> models, long number, string near)
+        {
+            string what = portal ? "portal" : "spawn point";
+            int k = 1;
+            while (MapEditor.FindNew(mod, file, (portal ? "portal-" : "spawn-") + k) != null) k++;
+            using (var dlg = new Form { Text = "Add " + what + " to " + file, FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false,
+                StartPosition = FormStartPosition.CenterParent, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false })
+            {
+                var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8) };
+                var nameBox = new TextBox { Width = 260, Text = (portal ? "portal-" : "spawn-") + k };
+                var modelBox = new ComboBox { Width = 260 };
+                foreach (string m in models) modelBox.Items.Add(m);
+                if (models.Count > 0) modelBox.SelectedIndex = 0;
+                var posBox = new TextBox { Width = 260, Text = near };
+                var toMapBox = new TextBox { Width = 260 };
+                var toPortalBox = new TextBox { Width = 260 };
+                Action<string, Control, string> row = delegate (string label, Control c, string tip)
+                {
+                    grid.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(3, 7, 8, 0) });
+                    grid.Controls.Add(c);
+                    tips.SetToolTip(c, tip);
+                };
+                row("Name", nameBox, "The name of the op in the mod and of the new entity; its id comes from the mod id, the map file and this name");
+                row("Model", modelBox, models.Count > 0 ? "The " + what + " models the map file's entities use, most used first (or type another of the model listing)"
+                    : "No entity of this map file uses a " + what + " model: type one of the model listing");
+                row("Position", posBox, "x, y, z (the chosen entity's position to start from); empty: the model's default");
+                if (portal)
+                {
+                    row("To map", toMapBox, "The map id the portal leads to (TargetFieldSN)");
+                    row("To portal", toPortalBox, "The PortalID of the portal it leads to on that map (TargetPortalID)");
+                }
+                grid.Controls.Add(new Label { Text = (portal ? "PortalID " : "SpawnPointID ") + number.ToString(CultureInfo.InvariantCulture) + " (the next free one of the mod range; editable after)",
+                    AutoSize = true, Margin = new Padding(3, 8, 3, 3) });
+                grid.SetColumnSpan(grid.Controls[grid.Controls.Count - 1], 2);
+                var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill };
+                var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+                var ok = new Button { Text = "Add", AutoSize = true, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+                buttons.Controls.Add(cancel);
+                buttons.Controls.Add(ok);
+                grid.Controls.Add(buttons);
+                grid.SetColumnSpan(buttons, 2);
+                dlg.Controls.Add(grid);
+                dlg.AcceptButton = ok;
+                dlg.CancelButton = cancel;
+                MapEntityOp made = null;
+                ok.Click += delegate
+                {
+                    try
+                    {
+                        if (portal)
+                        {
+                            long tm, tp;
+                            if (!long.TryParse(toMapBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out tm)) throw new ModKitException("To map takes a map id");
+                            if (!long.TryParse(toPortalBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out tp)) throw new ModKitException("To portal takes a PortalID");
+                            made = ed.AddPortal(mod, map, file, nameBox.Text, modelBox.Text.Trim(), posBox.Text, tm, tp);
+                        }
+                        else made = ed.AddSpawn(mod, map, file, nameBox.Text, modelBox.Text.Trim(), posBox.Text);
+                        dlg.DialogResult = DialogResult.OK;
+                    }
+                    catch (ModKitException ex) { MessageBox.Show(dlg, ex.Message, dlg.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                };
+                if (dlg.ShowDialog(this) != DialogResult.OK || made == null) return;
+                entity = null;
+                newOp = made;
+                Edited("added " + what + " " + made.Name + " (" + (portal ? "PortalID " : "SpawnPointID ") + made.Number.ToString(CultureInfo.InvariantCulture) + ") to " + file
+                    + (portal ? "" : "; give it a server row (" + MapEditor.ServerRow + ", e.g. tag=... population=... coolTime=...) so that something spawns"));
+            }
         }
 
         // ---- layout ----
