@@ -236,7 +236,7 @@ namespace MS2.ModKit
         {
             FlatIndex f;
             if (mr.Flats.TryGetValue(ar, out f)) return f;
-            try { f = FlatIndex.FromArchive(arch); }
+            try { f = FlatIndex.FromArchiveOnDemand(arch); }
             catch (ModKitException x) { run.Plan.Msg(run.Plan.Warnings, mod, ar, null, "the model listing cannot be read (" + x.Message + "): models and properties are not checked"); f = null; }
             mr.Flats[ar] = f;
             return f;

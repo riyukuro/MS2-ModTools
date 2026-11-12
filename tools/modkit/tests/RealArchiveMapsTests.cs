@@ -15,6 +15,28 @@ namespace MS2.ModKit.Tests
     [TestFixture]
     public class RealArchiveMapsTests
     {
+        // the on-demand listing of the planner finds a model only in the files of its name
+        [Test]
+        public void EveryModelFileIsNamedAfterItsModel()
+        {
+            string data = RealData.Client;
+            if (string.IsNullOrEmpty(data)) Assert.Ignore("MS2_CLIENT_DATA is not set");
+            string path = Path.Combine(Path.Combine(data, "Resource"), "Exported.m2d");
+            if (!File.Exists(path)) Assert.Ignore("no " + path);
+            using (M2dArchive arch = M2dArchive.Open(path))
+            {
+                FlatIndex full = FlatIndex.FromArchive(arch), lazy = FlatIndex.FromArchiveOnDemand(arch);
+                Assert.That(full.Count, Is.GreaterThan(1000));
+                var wrong = new List<string>();
+                foreach (string n in full.Names)
+                {
+                    FlatModel m = full.Get(n), l = lazy.Get(n);
+                    if (l == null || l.File != m.File || l.Props.Count != m.Props.Count || l.Mixins.Count != m.Mixins.Count) wrong.Add(m.File);
+                }
+                Assert.That(wrong, Is.Empty);
+            }
+        }
+
         [Test]
         public void TwentyMapsRoundTrip()
         {

@@ -68,22 +68,70 @@ namespace MS2.ModKit.MapEdit
     {
         readonly Dictionary<string, FlatModel> models = new Dictionary<string, FlatModel>(StringComparer.Ordinal);
         readonly List<string> order = new List<string>();
-        public readonly List<FlatError> Errors = new List<FlatError>();
+        readonly List<FlatError> errors = new List<FlatError>();
 
-        public int Count { get { return order.Count; } }
-        public IList<string> Names { get { return order.AsReadOnly(); } }
+        // on demand (FromArchiveOnDemand): the flat files by their lower-case file name, read and parsed when a
+        // model of that name is asked for; the whole listing is read only when Names or Errors is asked for
+        Func<string, byte[]> read;
+        List<string> files;
+        Dictionary<string, List<string>> byStem;
+        Dictionary<string, bool> parsedStems;
+
+        public List<FlatError> Errors { get { LoadAll(); return errors; } }
+
+        /// <summary>The number of models; on demand, the number of model files.</summary>
+        public int Count { get { return read != null ? files.Count : order.Count; } }
+        public IList<string> Names { get { LoadAll(); return order.AsReadOnly(); } }
 
         public FlatModel Get(string name)
         {
+            if (name == null) return null;
             FlatModel m;
-            return name != null && models.TryGetValue(name, out m) ? m : null;
+            if (models.TryGetValue(name, out m)) return m;
+            if (read == null) return null;
+            string stem = name.ToLowerInvariant();
+            List<string> cand;
+            if (parsedStems.ContainsKey(stem) || !byStem.TryGetValue(stem, out cand)) return null;
+            parsedStems[stem] = true;
+            foreach (string f in cand) ParseOne(f);
+            return models.TryGetValue(name, out m) ? m : null;
+        }
+
+        static string StemOf(string file)
+        {
+            int slash = file.LastIndexOf('/'), dot = file.LastIndexOf('.');
+            return file.Substring(slash + 1, (dot > slash ? dot : file.Length) - slash - 1).ToLowerInvariant();
+        }
+
+        void ParseOne(string f)
+        {
+            FlatModel m;
+            try { m = ParseFlat(read(f), f); }
+            catch (ModKitException x) { errors.Add(new FlatError { File = f, Error = x.Message }); return; }
+            Add(m);
+        }
+
+        void LoadAll()
+        {
+            if (read == null) return;
+            models.Clear(); order.Clear(); errors.Clear();
+            Func<string, byte[]> r = read;
+            read = null;
+            foreach (string f in files)
+            {
+                FlatModel m;
+                try { m = ParseFlat(r(f), f); }
+                catch (ModKitException x) { errors.Add(new FlatError { File = f, Error = x.Message }); continue; }
+                Add(m);
+            }
+            files = null; byStem = null; parsedStems = null;
         }
 
         void Add(FlatModel m)
         {
             string key = m.Name ?? "";
             FlatModel old;
-            if (models.TryGetValue(key, out old)) Errors.Add(new FlatError { File = m.File, Error = "duplicate model name", Other = old.File });
+            if (models.TryGetValue(key, out old)) errors.Add(new FlatError { File = m.File, Error = "duplicate model name", Other = old.File });
             else order.Add(key);
             models[key] = m;        // as the script this replaces: the later file wins
         }
@@ -133,7 +181,7 @@ namespace MS2.ModKit.MapEdit
             {
                 FlatModel m;
                 try { m = ParseFlat(f.Value, f.Key); }
-                catch (ModKitException x) { ix.Errors.Add(new FlatError { File = f.Key, Error = x.Message }); continue; }
+                catch (ModKitException x) { ix.errors.Add(new FlatError { File = f.Key, Error = x.Message }); continue; }
                 ix.Add(m);
             }
             return ix;
@@ -146,6 +194,34 @@ namespace MS2.ModKit.MapEdit
                 if (e.Name.StartsWith("flat/", StringComparison.OrdinalIgnoreCase) && e.Name.EndsWith(".flat", StringComparison.OrdinalIgnoreCase))
                     files.Add(new KeyValuePair<string, byte[]>(e.Name, arch.Read(e)));
             return FromFlats(files);
+        }
+
+        /// <summary>The flat/ entries of an archive, each read when a model of its name is first asked for. A model is
+        /// looked for only in the files of its name (case aside): in the shipped data each file is named after its
+        /// model (RealArchiveMapsTests). The archive stays open while the index is used.</summary>
+        public static FlatIndex FromArchiveOnDemand(M2dArchive arch)
+        {
+            var names = new List<string>();
+            foreach (M2dEntry e in arch.Entries) names.Add(e.Name);
+            return OnDemand(names, arch.Read);
+        }
+
+        /// <summary>names: entry names (others than flat/*.flat are passed over); read: the bytes of one.</summary>
+        public static FlatIndex OnDemand(IEnumerable<string> names, Func<string, byte[]> read)
+        {
+            var ix = new FlatIndex { read = read, files = new List<string>(), byStem = new Dictionary<string, List<string>>(StringComparer.Ordinal), parsedStems = new Dictionary<string, bool>(StringComparer.Ordinal) };
+            foreach (string n in names)
+                if (n.StartsWith("flat/", StringComparison.OrdinalIgnoreCase) && n.EndsWith(".flat", StringComparison.OrdinalIgnoreCase))
+                    ix.files.Add(n);
+            ix.files.Sort(StringComparer.Ordinal);
+            foreach (string f in ix.files)
+            {
+                string stem = StemOf(f);
+                List<string> l;
+                if (!ix.byStem.TryGetValue(stem, out l)) ix.byStem[stem] = l = new List<string>();
+                l.Add(f);
+            }
+            return ix;
         }
 
         public static FlatIndex FromDirectory(string dir)
@@ -216,7 +292,7 @@ namespace MS2.ModKit.MapEdit
             foreach (object x in (top.Get("errors") as List<object>) ?? new List<object>())
             {
                 var eo = x as JsonObj;
-                if (eo != null) ix.Errors.Add(new FlatError { File = S(eo.Get("file")), Error = S(eo.Get("error")), Other = S(eo.Get("other")) });
+                if (eo != null) ix.errors.Add(new FlatError { File = S(eo.Get("file")), Error = S(eo.Get("error")), Other = S(eo.Get("other")) });
             }
             return ix;
         }
