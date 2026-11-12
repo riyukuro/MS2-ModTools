@@ -41,6 +41,8 @@ namespace MS2.ModKit
         public long Offset;         // in the bank's data
         public long Size;           // bytes of the data
         public bool Loops;          // a loop chunk
+        /// <summary>The types of the sample's extra chunks, in their order (1 channels, 2 rate, 3 loop, ...).</summary>
+        public readonly List<int> Chunks = new List<int>();
         public double Seconds { get { return Rate > 0 ? (double)Frames / Rate : 0; } }
     }
 
@@ -79,8 +81,8 @@ namespace MS2.ModKit
             }
         }
 
-        static readonly int[] ChannelCodes = { 1, 2, 6, 8 };
-        static readonly int[] Rates = { 4000, 8000, 11000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000 };
+        internal static readonly int[] ChannelCodes = { 1, 2, 6, 8 };
+        internal static readonly int[] Rates = { 4000, 8000, 11000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000 };
 
         public static SoundBank Read(string path)
         {
@@ -134,6 +136,7 @@ namespace MS2.ModKit
                     more = (c & 1) != 0;
                     int size = (int)((c >> 1) & 0xffffff), type = (int)(c >> 25);
                     if (p + size > sh.Length) throw new ModKitException(label + ": sample " + i + ": an extra chunk runs past the sample headers");
+                    x.Chunks.Add(type);
                     if (type == 1 && size >= 1) x.Channels = sh[p];
                     else if (type == 2 && size >= 4) x.Rate = (int)U32(sh, p);
                     else if (type == 3) x.Loops = true;

@@ -1806,7 +1806,7 @@ because a map file does not hold them: add its `<row .../>` lines by hand.
 ## Sound and music
 
 The **MS2 Sound** view (menu **MS2 Mods > Sound**) shows the client's audio and edits which cue a map plays. There is
-no playback, and the banks are read-only for now. The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
+no playback. It can give a bank's sample new sound (see **Banks**). The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
 folder:
 
 - `MS2Sound.fev` is the FMOD Ex event project. The client loads it at start, and it names the banks.
@@ -1845,14 +1845,42 @@ kms client data folder of the MS2 Tables view's settings.
   plan's output is in that view's output pane).
 - **Banks** lists the bank files with their sample counts and sizes. Select a bank to see its samples: name, length
   in seconds, channels, rate, bytes and whether it loops. A bank whose header hash is not in the project is flagged,
-  because the client is not expected to load it.
+  because the client is not expected to load it. **Replace sample...** gives the selected sample new sound from an
+  `.mp3` or `.mp2` file, which goes into the mod as `files/sound/<bank>/<index>.mp3`. **Take out** drops it again.
+  A replaced sample's row is green, and the last column names the mod's file. **Plan**, **Apply**, **Revert** and
+  **Save mod** work as in **Maps**.
 
 What a mod can do with sound today:
 
 - **Point a map at another cue.** Use the **Maps** kind above. It writes a row edit to the kms client's
   `fielddata.xml` and an edit of the server's map file, which the mirror carries to the global client.
-- **Replace a track.** This means rebuilding the bank with a sample swapped and the bank's header hash kept.
-  The mod kit cannot do it yet.
+- **Replace a sample.** A mod line names the bank, the sample's index and its shipped name, and an MPEG file in the
+  mod:
+
+  ```xml
+  <sample bank="MS2Sound_BGM.fsb" index="12" name="Field_Town_A" file="files/sound/BGM/12.mp3" />
+  ```
+
+  The client finds a sample by its index, not by its name. The event project names a bank and an index for each
+  music segment. This was checked in game on a private test client: in a bank with every sample moved two places
+  on, the login screen played the sample two places on. So the plan rebuilds the bank with every index, every name
+  and the header hash kept, and changes only the named sample's data and header (rate, channels, length, loop).
+  The name is checked against the shipped bank, so a mod made for another client version stops with an error
+  instead of replacing the wrong sample. Two mods on one sample are a conflict; the later mod in the order wins.
+
+  The file must be MPEG-1 or MPEG-2 audio, layer II or III, because the banks hold MPEG. ID3 and APE tags and a
+  Xing/Info frame are left out. A file of mixed frame kinds, layer I or free format is refused.
+
+  The length stays the project's. The client goes on to the next music segment when the segment's time is up, not
+  when the sample ends: in game, a 69 s sample in a 5 s segment played for 5 s. So a new sound that is longer is
+  cut, and one that is shorter probably ends in silence. The plan warns when the lengths differ by more than 0.1 s,
+  and notes a change of rate or channels.
+
+  Where the bank goes: the workspace target writes `<workspace>/client/Sound/<bank>`. The loose target writes the
+  new bank into the game's `Data/Sound` and keeps the shipped one beside it as `<bank>.modkit-orig`. Revert puts
+  it back. A bank changed since Apply is left in place, with its record. A `.modkit-orig` that this tool did not
+  write, and a `Sound` folder reached through a link, stop the apply. Banks are large (up to about 170 MB), so an
+  apply with sample lines takes a few seconds per bank.
 - **Add a track.** This needs a new cue in the project's music data. That takes a writer for the `.fev` format, which
   the mod kit does not have.
 

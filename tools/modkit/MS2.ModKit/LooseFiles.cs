@@ -12,6 +12,11 @@
 //   - a revert deletes the files that are ours, the folders the tool made (when empty), and nothing else.
 // Only the "client" root can be served this way, and only entries that are put: an entry cannot be deleted
 // from an archive by a loose file.
+//
+// Sound banks with new samples (SoundReplace.cs) have no loose form: the client reads Data/Sound/<bank> only. The
+// apply moves the shipped bank aside as <bank>.modkit-orig and writes the new one in its place; the record names
+// both, and a revert moves the shipped bank back. A Sound folder that is a link (shared by several game folders)
+// is refused.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -39,9 +44,18 @@ namespace MS2.ModKit
         /// <summary>Folders the tool made, as paths under the game folder with '/'.</summary>
         public readonly List<string> Dirs = new List<string>();
 
+        /// <summary>Sound banks the tool put in place of the shipped ones (the shipped one is beside it as .modkit-orig).</summary>
+        public readonly List<LooseFile> Banks = new List<LooseFile>();
+
         public LooseFile Find(string path)
         {
             foreach (LooseFile f in Files) if (string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)) return f;
+            return null;
+        }
+
+        public LooseFile FindBank(string path)
+        {
+            foreach (LooseFile f in Banks) if (string.Equals(f.Path, path, StringComparison.OrdinalIgnoreCase)) return f;
             return null;
         }
     }
@@ -102,6 +116,7 @@ namespace MS2.ModKit
                 if (e.Name == "mod") s.Mods.Add(new WorkspaceMod { Id = e.Attr("id"), Path = e.Attr("path") ?? "", Version = e.Attr("version") ?? "" });
                 else if (e.Name == "file") s.Files.Add(new LooseFile { Archive = e.Attr("archive"), Entry = e.Attr("entry"), Path = e.Attr("path"), Sha1 = e.Attr("sha1") ?? "" });
                 else if (e.Name == "dir") s.Dirs.Add(e.Attr("path"));
+                else if (e.Name == "bank") s.Banks.Add(new LooseFile { Archive = e.Attr("archive"), Path = e.Attr("path"), Sha1 = e.Attr("sha1") ?? "" });
             }
             return s;
         }
@@ -118,6 +133,9 @@ namespace MS2.ModKit
             foreach (LooseFile f in s.Files)
                 sb.Append("  <file path=\"").Append(XmlDoc.EscapeAttr(f.Path, '"')).Append("\" sha1=\"").Append(f.Sha1)
                   .Append("\" archive=\"").Append(XmlDoc.EscapeAttr(f.Archive, '"')).Append("\" entry=\"").Append(XmlDoc.EscapeAttr(f.Entry, '"')).Append("\"/>\n");
+            foreach (LooseFile f in s.Banks)
+                sb.Append("  <bank path=\"").Append(XmlDoc.EscapeAttr(f.Path, '"')).Append("\" sha1=\"").Append(f.Sha1)
+                  .Append("\" archive=\"").Append(XmlDoc.EscapeAttr(f.Archive, '"')).Append("\"/>\n");
             sb.Append("</modkit-loose>\n");
             string p = System.IO.Path.Combine(GameDir, StateFile);
             File.WriteAllBytes(p + ".tmp", new UTF8Encoding(false).GetBytes(sb.ToString()));
@@ -181,7 +199,53 @@ namespace MS2.ModKit
                     }
                 }
             }
+            foreach (PlanBank pb in plan.Banks) n += CheckBank(st, plan, pb);
             return n;
+        }
+
+        /// <summary>"Data/Sound/MS2Sound_BGM.fsb".</summary>
+        public static string BankPath(PlanBank pb) { return "Data/" + pb.RelFolder + "/" + pb.Bank; }
+
+        int CheckBank(LooseState st, Plan plan, PlanBank pb)
+        {
+            string rel = BankPath(pb), full = FullPath(rel), orig = full + SoundReplace.OrigSuffix;
+            string entry = pb.Bank;
+            string link = SoundReplace.LinkOnTheWay(full, GameDir);
+            if (link != null)
+            {
+                plan.Msg(plan.Errors, null, pb.Ref, entry, link + " is a link (other game folders may share it); a new sample is not written through it (make it a folder of its own, or use the patched-archive target)");
+                return 1;
+            }
+            LooseFile rec = st == null ? null : st.FindBank(rel);
+            if (rec == null && File.Exists(orig))
+            {
+                plan.Msg(plan.Conflicts, null, pb.Ref, entry, "the file " + orig + " exists and was not written by this tool; it is not overwritten (move it away or delete it, then apply again)");
+                return 1;
+            }
+            if (rec != null && File.Exists(full) && File.Exists(orig) && SoundReplace.Sha1File(full) != rec.Sha1)
+            {
+                plan.Msg(plan.Conflicts, null, pb.Ref, entry, "the bank " + full + " was changed after this tool wrote it; it is not overwritten (put the shipped bank back, delete " + orig + " and apply again)");
+                return 1;
+            }
+            string src = rec != null && File.Exists(orig) ? orig : full;
+            if (!File.Exists(src))
+            {
+                plan.Msg(plan.Errors, null, pb.Ref, entry, "the game folder has no " + full);
+                return 1;
+            }
+            SoundBank b;
+            try { b = SoundBank.Read(src); }
+            catch (Exception x) when (x is ModKitException || x is IOException)
+            {
+                plan.Msg(plan.Errors, null, pb.Ref, entry, x.Message);
+                return 1;
+            }
+            if (SoundBank.Hex(b.Hash) != SoundBank.Hex(pb.Hash) || b.Samples.Count != pb.Count)
+            {
+                plan.Msg(plan.Errors, null, pb.Ref, entry, "the game's " + src + " is not the bank the plan was made from (" + pb.Source + ")");
+                return 1;
+            }
+            return 0;
         }
 
         // ---- apply ----
@@ -228,12 +292,35 @@ namespace MS2.ModKit
 
             // files of the earlier apply that this one does not write any more
             var stale = new List<LooseFile>();
+            var staleBanks = new List<LooseFile>();
             if (old != null)
             {
                 foreach (LooseFile f in old.Files)
                     if (todo.Find(delegate(KeyValuePair<LooseFile, byte[]> t) { return string.Equals(t.Key.Path, f.Path, StringComparison.OrdinalIgnoreCase); }).Key == null)
                         stale.Add(f);
+                foreach (LooseFile f in old.Banks)
+                    if (plan.Banks.Find(delegate(PlanBank pb) { return string.Equals(BankPath(pb), f.Path, StringComparison.OrdinalIgnoreCase); }) == null)
+                        staleBanks.Add(f);
                 state.Dirs.AddRange(old.Dirs);
+            }
+
+            // the new banks are built first, beside the bank, from the shipped one; the record then names them
+            var banks = new List<KeyValuePair<LooseFile, PlanBank>>();
+            try
+            {
+                foreach (PlanBank pb in plan.Banks)
+                {
+                    string rel = BankPath(pb), full = FullPath(rel), orig = full + SoundReplace.OrigSuffix;
+                    bool had = old != null && old.FindBank(rel) != null && File.Exists(orig);
+                    string sha = SoundReplace.Write(had ? orig : full, full + ".modkit-tmp", SoundReplace.Replaces(pb), options.Progress);
+                    banks.Add(new KeyValuePair<LooseFile, PlanBank>(new LooseFile { Archive = pb.Ref, Path = rel, Sha1 = sha }, pb));
+                    state.Banks.Add(banks[banks.Count - 1].Key);
+                }
+            }
+            catch
+            {
+                foreach (PlanBank pb in plan.Banks) { string t = FullPath(BankPath(pb)) + ".modkit-tmp"; if (File.Exists(t)) File.Delete(t); }
+                throw;
             }
 
             // the record goes first and names everything that is or will be there, so a write that is cut short
@@ -242,6 +329,7 @@ namespace MS2.ModKit
             foreach (KeyValuePair<LooseFile, byte[]> t in todo) NoteNewDirs(t.Key.Path, state.Dirs);
             var first = new LooseState { Applied = state.Applied };
             first.Mods.AddRange(state.Mods); first.Dirs.AddRange(state.Dirs); first.Files.AddRange(state.Files); first.Files.AddRange(stale);
+            first.Banks.AddRange(state.Banks); first.Banks.AddRange(staleBanks);
             WriteState(first);
 
             int n = 0;
@@ -256,9 +344,20 @@ namespace MS2.ModKit
                 if (Sha1Of(File.ReadAllBytes(full)) != t.Key.Sha1) throw new ModKitException("read-back of " + full + ": the file does not hold the planned bytes");
                 res.Written.Add(full);
             }
+            foreach (KeyValuePair<LooseFile, PlanBank> t in banks)
+            {
+                string full = FullPath(t.Key.Path), orig = full + SoundReplace.OrigSuffix;
+                // the shipped bank goes aside once; after that the bank in place is ours
+                if (!File.Exists(orig)) File.Move(full, orig);
+                else if (File.Exists(full)) File.Delete(full);
+                File.Move(full + ".modkit-tmp", full);
+                if (SoundReplace.Sha1File(full) != t.Key.Sha1) throw new ModKitException("read-back of " + full + ": the bank does not hold the planned bytes");
+                res.Written.Add(full);
+            }
             foreach (LooseFile f in stale) RemoveFile(old, f, res);
+            foreach (LooseFile f in staleBanks) if (!RestoreBank(f, res)) state.Banks.Add(f);
             RemoveEmptyDirs(state.Dirs, res);
-            if (state.Files.Count == 0 && state.Dirs.Count == 0) File.Delete(System.IO.Path.Combine(GameDir, StateFile));
+            if (state.Files.Count == 0 && state.Dirs.Count == 0 && state.Banks.Count == 0) File.Delete(System.IO.Path.Combine(GameDir, StateFile));
             else WriteState(state);
             res.Applied = true;
             return res;
@@ -283,6 +382,21 @@ namespace MS2.ModKit
             if (!File.Exists(full)) return;
             if (Ours(st, f.Path)) { File.Delete(full); res.Removed.Add(full); }
             else res.Left.Add(full);
+        }
+
+        // puts the shipped bank back in place of ours; false (and the bank in Left) when the bank was changed since
+        bool RestoreBank(LooseFile f, ApplyResult res)
+        {
+            string full = FullPath(f.Path), orig = full + SoundReplace.OrigSuffix;
+            if (!File.Exists(orig)) return true;
+            if (File.Exists(full))
+            {
+                if (SoundReplace.Sha1File(full) != f.Sha1) { res.Left.Add(full); return false; }
+                File.Delete(full);
+            }
+            File.Move(orig, full);
+            res.Removed.Add(orig);
+            return true;
         }
 
         // removes the folders the tool made that are empty now, deepest first; the others leave the list
@@ -310,8 +424,17 @@ namespace MS2.ModKit
             if (st == null) throw new ModKitException("no loose files of this tool in " + GameDir + " (no " + StateFile + ")");
             var res = new ApplyResult { Applied = true };
             foreach (LooseFile f in st.Files) RemoveFile(st, f, res);
+            var kept = new List<LooseFile>();
+            foreach (LooseFile f in st.Banks) if (!RestoreBank(f, res)) kept.Add(f);
             RemoveEmptyDirs(st.Dirs, res);
-            File.Delete(System.IO.Path.Combine(GameDir, StateFile));
+            if (kept.Count == 0) File.Delete(System.IO.Path.Combine(GameDir, StateFile));
+            else
+            {
+                // a changed bank keeps its record, so the shipped one beside it is not forgotten
+                var left = new LooseState { Applied = st.Applied };
+                left.Banks.AddRange(kept);
+                WriteState(left);
+            }
             return res;
         }
     }

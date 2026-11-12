@@ -156,6 +156,8 @@ namespace MS2.ModKit
         public readonly List<PlanMessage> Notes = new List<PlanMessage>();
         /// <summary>Touched archives by name ("client:Xml.m2d"), in the order they were first touched.</summary>
         public readonly List<PlanArchive> Archives = new List<PlanArchive>();
+        /// <summary>Banks of the Sound folder that get new samples (SoundReplace.cs), by name.</summary>
+        public readonly List<PlanBank> Banks = new List<PlanBank>();
 
         internal readonly List<NewId> NewIds = new List<NewId>();
         internal readonly List<SchemaProbe> Probes = new List<SchemaProbe>();
@@ -496,6 +498,7 @@ namespace MS2.ModKit
             FinishMirror(run);
             SyncPass(run, options);
             DoMaps(run, mods);
+            DoSamples(run, mods);
             // the plan of one mod alone is read for its conflicts only: nothing of it is written
             if (options.Alone) return plan;
 

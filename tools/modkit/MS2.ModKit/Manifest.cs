@@ -118,7 +118,7 @@ namespace MS2.ModKit
         public bool TriggerLintWarn;
 
         /// <summary>The mod changes nothing: no entry, edit, shop or drop box op.</summary>
-        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0 && Skills.Count == 0 && JobSkills.Count == 0 && Maps.Count == 0; } }
+        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0 && Skills.Count == 0 && JobSkills.Count == 0 && Maps.Count == 0 && Samples.Count == 0; } }
 
         // ---- load ----
 
@@ -291,7 +291,8 @@ namespace MS2.ModKit
                         case "effect": m.Skills.Add(ReadSkill(e, SkillKind.Effect)); break;
                         case "jobskill": m.JobSkills.Add(ReadJobSkill(e)); break;
                         case "map": m.Maps.Add(ReadMap(e)); break;
-                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox, skill, effect, jobskill, map)");
+                        case "sample": m.Samples.Add(ReadSample(e)); break;
+                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox, skill, effect, jobskill, map, sample)");
                     }
                 }
                 return m;
@@ -500,6 +501,7 @@ namespace MS2.ModKit
             WriteSkills(sb);
             Flush(sb, chunk);
             WriteMaps(sb);
+            WriteSamples(sb);
             sb.Append("</mod>\n");
             Flush(sb, chunk);
         }
@@ -538,12 +540,11 @@ namespace MS2.ModKit
             bool own = Dir != null && string.Equals(Path.GetFullPath(Dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar, full, StringComparison.OrdinalIgnoreCase);
             // saved to another folder (a new id): the files of the old folder go along
             if (Dir != null && !own)
-                foreach (ModOp o in Ops)
+                foreach (string file in NamedFiles())
                 {
-                    var en = o as EntryOp;
-                    if (en == null || en.File == null || Files.ContainsKey(en.File.Replace('\\', '/'))) continue;
-                    string old = PathIn(Dir, en.File);
-                    if (old != null && File.Exists(old)) Files[en.File.Replace('\\', '/')] = File.ReadAllBytes(old);
+                    if (Files.ContainsKey(file)) continue;
+                    string old = PathIn(Dir, file);
+                    if (old != null && File.Exists(old)) Files[file] = File.ReadAllBytes(old);
                 }
             foreach (KeyValuePair<string, byte[]> f in Files)
             {
@@ -633,16 +634,25 @@ namespace MS2.ModKit
         /// A linked folder (junction or symbolic link) under files/ is not entered, and nothing outside of the mod
         /// folder is deleted.
         /// </summary>
+        /// <summary>The files under the mod folder that its lines name (entry files, sample files), with '/'.</summary>
+        IEnumerable<string> NamedFiles()
+        {
+            foreach (ModOp o in Ops)
+            {
+                var en = o as EntryOp;
+                if (en != null && en.File != null) yield return en.File.Replace('\\', '/');
+            }
+            foreach (SampleOp s in Samples) if (s.File != null) yield return s.File.Replace('\\', '/');
+        }
+
         void RemoveOrphans(string dir)
         {
             string files = Path.Combine(dir, FilesFolder);
             if (!Directory.Exists(files) || IsLink(files)) return;
             var named = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            foreach (ModOp o in Ops)
+            foreach (string file in NamedFiles())
             {
-                var en = o as EntryOp;
-                if (en == null || en.File == null) continue;
-                string p = PathIn(dir, en.File);
+                string p = PathIn(dir, file);
                 if (p != null) named.Add(p);
             }
             string root = Path.GetFullPath(dir).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;

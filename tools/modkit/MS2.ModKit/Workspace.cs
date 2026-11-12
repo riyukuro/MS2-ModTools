@@ -59,7 +59,13 @@ namespace MS2.ModKit
     }
 
     public sealed class WorkspaceMod { public string Id, Path, Version; }
-    public sealed class WorkspaceArchive { public string Archive, File; public bool Copied; }
+    public sealed class WorkspaceArchive
+    {
+        public string Archive, File;
+        public bool Copied;
+        /// <summary>A sound bank with new samples (SoundReplace.cs), not an archive: File is the whole path under the workspace.</summary>
+        public bool Bank;
+    }
 
     public sealed class WorkspaceState
     {
@@ -121,6 +127,7 @@ namespace MS2.ModKit
             {
                 if (e.Name == "mod") s.Mods.Add(new WorkspaceMod { Id = e.Attr("id"), Path = e.Attr("path") ?? "", Version = e.Attr("version") ?? "" });
                 else if (e.Name == "archive") s.Archives.Add(new WorkspaceArchive { Archive = e.Attr("name"), File = e.Attr("file"), Copied = e.Attr("copied") == "true" });
+                else if (e.Name == "bank") s.Archives.Add(new WorkspaceArchive { Archive = e.Attr("name"), File = e.Attr("file"), Bank = true });
             }
             return s;
         }
@@ -133,7 +140,8 @@ namespace MS2.ModKit
                 sb.Append("  <mod id=\"").Append(XmlDoc.EscapeAttr(m.Id, '"')).Append("\" version=\"").Append(XmlDoc.EscapeAttr(m.Version, '"'))
                   .Append("\" path=\"").Append(XmlDoc.EscapeAttr(m.Path, '"')).Append("\"/>\n");
             foreach (WorkspaceArchive a in s.Archives)
-                sb.Append("  <archive name=\"").Append(XmlDoc.EscapeAttr(a.Archive, '"')).Append("\" file=\"").Append(XmlDoc.EscapeAttr(a.File, '"'))
+                if (a.Bank) sb.Append("  <bank name=\"").Append(XmlDoc.EscapeAttr(a.Archive, '"')).Append("\" file=\"").Append(XmlDoc.EscapeAttr(a.File, '"')).Append("\"/>\n");
+                else sb.Append("  <archive name=\"").Append(XmlDoc.EscapeAttr(a.Archive, '"')).Append("\" file=\"").Append(XmlDoc.EscapeAttr(a.File, '"'))
                   .Append("\" copied=\"").Append(a.Copied ? "true" : "false").Append("\"/>\n");
             sb.Append("</modkit-state>\n");
             Directory.CreateDirectory(Dir);
@@ -211,6 +219,22 @@ namespace MS2.ModKit
                     res.Outputs.Add(o);
                     state.Archives.Add(new WorkspaceArchive { Archive = pa.Archive, File = rel, Copied = o.Copied });
                 }
+                if (options.Roots == null || options.Roots.Contains(LooseTarget.Root))
+                    foreach (PlanBank pb in res.Plan.Banks)
+                    {
+                        var sw = Stopwatch.StartNew();
+                        string rel = LooseTarget.Root + "/" + pb.RelFolder + "/" + pb.Bank;
+                        string dst = Dir, tmp = tmpRoot;
+                        foreach (string part in rel.Split('/')) { dst = System.IO.Path.Combine(dst, part); tmp = System.IO.Path.Combine(tmp, part); }
+                        if (M2dWriter.SamePath(dst, pb.Source) || M2dWriter.SamePath(dst, System.IO.Path.Combine(pb.Folder, pb.Bank)))
+                            throw new ModKitException("refusing to write over the shipped bank " + pb.Source);
+                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(tmp));
+                        SoundReplace.Write(pb.Source, tmp, SoundReplace.Replaces(pb), options.Progress);
+                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dst));
+                        Replace(tmp, dst);
+                        res.Outputs.Add(new ApplyOutput { Archive = pb.Ref, Path = dst, Replaced = pb.Samples.Count, Kept = pb.Count - pb.Samples.Count, Milliseconds = sw.ElapsedMilliseconds });
+                        state.Archives.Add(new WorkspaceArchive { Archive = pb.Ref, File = rel, Bank = true });
+                    }
             }
             finally
             {
@@ -220,8 +244,8 @@ namespace MS2.ModKit
             if (old != null)
                 foreach (WorkspaceArchive a in old.Archives)
                 {
-                    if (state.Archives.Find(delegate(WorkspaceArchive n) { return n.Archive == a.Archive; }) != null) continue;
-                    RemoveCopy(a.Archive, res.Removed);
+                    if (state.Archives.Find(delegate(WorkspaceArchive n) { return n.Archive == a.Archive && n.Bank == a.Bank; }) != null) continue;
+                    RemoveCopy(a, res.Removed);
                 }
             if (state.Archives.Count == 0 && options.Roots != null)
             {
@@ -240,9 +264,20 @@ namespace MS2.ModKit
             File.Move(from, to);
         }
 
-        void RemoveCopy(string archive, List<string> removed)
+        void RemoveCopy(WorkspaceArchive a, List<string> removed)
         {
-            string p = PathOf(archive);
+            if (a.Bank)
+            {
+                string b = Dir;
+                foreach (string part in (a.File ?? "").Split('/'))
+                {
+                    if (part.Length == 0 || part == "." || part == "..") return;
+                    b = System.IO.Path.Combine(b, part);
+                }
+                if (File.Exists(b)) { File.Delete(b); removed.Add(b); }
+                return;
+            }
+            string p = PathOf(a.Archive);
             foreach (string f in new[] { p, M2dArchive.HeaderPathOf(p) })
                 if (File.Exists(f)) { File.Delete(f); removed.Add(f); }
         }
@@ -310,7 +345,7 @@ namespace MS2.ModKit
             if (keep.Count == 0)
             {
                 var res = new ApplyResult { Applied = true };
-                foreach (WorkspaceArchive a in st.Archives) RemoveCopy(a.Archive, res.Removed);
+                foreach (WorkspaceArchive a in st.Archives) RemoveCopy(a, res.Removed);
                 File.Delete(System.IO.Path.Combine(Dir, StateFile));
                 return res;
             }

@@ -437,7 +437,7 @@ namespace MS2.ModKit
         }
 
         static bool Holds(WorkspaceState st) { return st != null && (st.Mods.Count > 0 || st.Archives.Count > 0); }
-        static bool Holds(LooseState st) { return st != null && (st.Mods.Count > 0 || st.Files.Count > 0 || st.Dirs.Count > 0); }
+        static bool Holds(LooseState st) { return st != null && (st.Mods.Count > 0 || st.Files.Count > 0 || st.Dirs.Count > 0 || st.Banks.Count > 0); }
 
         static void Merge(ApplyResult into, ApplyResult from)
         {

@@ -22,7 +22,7 @@ namespace MS2.Tables
     {
         public const string ViewId = "MS2.Tables.SoundView";
         static readonly string[] CueHeads = { "map", "name", "plays", "param", "value", "side", "environment" };
-        static readonly string[] SampleHeads = { "#", "sample", "seconds", "ch", "rate", "bytes", "loop" };
+        static readonly string[] SampleHeads = { "#", "sample", "seconds", "ch", "rate", "bytes", "loop", "the mod's sound" };
         static readonly string[] PlaceHeads = { "side", "environment", "normal", "normal cue", "boss", "boss cue" };
         const int NormalColumn = 2, BossColumn = 4;
         const string CueKind = "cue";
@@ -59,6 +59,7 @@ namespace MS2.Tables
         readonly Label shownLabel = new Label { Dock = DockStyle.Top, Height = 20, Padding = new Padding(4, 3, 0, 0), Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold) };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
         readonly FlowLayoutPanel mapBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2), Visible = false };
+        readonly FlowLayoutPanel bankBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2), Visible = false };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 90 };
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();
@@ -91,6 +92,13 @@ namespace MS2.Tables
             mapBar.Controls.Add(Btn("Undo map", "Takes the mod's music lines of the map shown out: every side plays the shipped cues again", delegate { UndoMap(); }));
             mapBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
+            bankBar.Controls.Add(Btn("Replace sample...", "Gives the selected sample new sound from an .mp3 or .mp2 file (kept in the mod); the client finds it by its index, so its name and place stay", delegate { ReplaceSample(); }));
+            bankBar.Controls.Add(Btn("Take out", "Takes the mod's new sound of the selected sample out: the shipped sound plays again", delegate { TakeSample(); }));
+            bankBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
+            bankBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change, to every target at once", delegate { return host.DoApply(); }));
+            bankBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
+            bankBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
+
             grid.VirtualMode = true;
             grid.ReadOnly = false;
             grid.EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2;
@@ -115,6 +123,7 @@ namespace MS2.Tables
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
             right.Controls.Add(mapBar);
+            right.Controls.Add(bankBar);
             right.Controls.Add(shownLabel);
 
             Controls.Add(right);
@@ -453,7 +462,8 @@ namespace MS2.Tables
             finally { filling = false; }
             string idle = Maps
                 ? "a map's normal and boss cells set the cue it plays (F4: pick one by id or name; empty: no music); the kms client's row and the server's map file are set, the mirror writes the global client's"
-                : "read only: no playback; the maps' music is set in Maps; what else a mod would need is in the README (Sound and music)";
+                : Music ? "read only: no playback; the maps' music is set in Maps; what else a mod would need is in the README (Sound and music)"
+                : "no playback; Replace sample... gives the selected sample new sound from an .mp3 or .mp2 file (the client finds a sample by its index); the event project's segment length stays";
             OutputWrap.Set(outputBox, said.Count == 0 ? idle : string.Join("\r\n", said.ToArray()));
             Show(Selected());
         }
@@ -477,6 +487,7 @@ namespace MS2.Tables
             grid.RowCount = 0;
             grid.Columns.Clear();
             mapBar.Visible = Maps;
+            bankBar.Visible = !Maps && !Music;
             if (what == null) { shownLabel.Text = ""; return; }
             if (what is long)
             {
@@ -518,7 +529,7 @@ namespace MS2.Tables
                 shownBank = Bank(f);
                 if (shownBank == null) { shownLabel.Text = f + ": " + (bankProblems.ContainsKey(f) ? bankProblems[f] : "does not read"); return; }
                 shownLabel.Text = f + ": " + shownBank.Samples.Count + " sample(s), " + SoundBank.Codec(shownBank.Mode) + ", " + Mb(shownBank.FileSize);
-                int[] w = { 40, 220, 60, 30, 55, 80, 40 };
+                int[] w = { 40, 220, 60, 30, 55, 80, 40, 160 };
                 for (int i = 0; i < SampleHeads.Length; i++) grid.Columns.Add(Col(SampleHeads[i], w[i]));
                 grid.RowCount = shownBank.Samples.Count;
             }
@@ -545,6 +556,7 @@ namespace MS2.Tables
                     case 4: e.Value = x.Rate; break;
                     case 5: e.Value = x.Size.ToString("N0", CultureInfo.InvariantCulture); break;
                     case 6: e.Value = x.Loops ? "yes" : ""; break;
+                    case 7: SampleOp op = ModSample(x); e.Value = op == null ? "" : op.File; break;
                 }
                 return;
             }
@@ -650,6 +662,11 @@ namespace MS2.Tables
 
         void OnCellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
         {
+            if (shownBank != null)
+            {
+                if (e.RowIndex >= 0 && e.RowIndex < shownBank.Samples.Count && ModSample(shownBank.Samples[e.RowIndex]) != null) e.CellStyle.BackColor = Color.FromArgb(214, 240, 214);
+                return;
+            }
             if (shownMap < 0 || e.RowIndex < 0 || e.RowIndex >= shownPlaces.Count) return;
             MusicPlace p = shownPlaces[e.RowIndex];
             if (!p.Written) { e.CellStyle.ForeColor = SystemColors.GrayText; return; }
@@ -714,6 +731,64 @@ namespace MS2.Tables
             if (shownMap < 0) { OutputWrap.Set(outputBox, "pick a map in the list first"); return; }
             int n = Tunes().Take(shownMap);
             MapEdited(shownMap, "map " + shownMap + ": " + (n == 0 ? "the mod sets no music there" : "the mod's music lines taken out of " + n + " row(s); the shipped cues play"));
+        }
+
+        // ---- sample replace (Banks) ----
+
+        string ShownBankFile() { return shownBank == null ? null : Path.GetFileName((string)Selected()); }
+
+        SampleOp ModSample(SoundSample x)
+        {
+            Mod m = host == null ? null : host.SharedSession().Mod;
+            string f = ShownBankFile();
+            return m == null || f == null ? null : m.SampleOf(f, x.Index);
+        }
+
+        SoundSample SelectedSample()
+        {
+            if (shownBank == null) throw new ModKitException("pick a bank in the list first");
+            int r = grid.CurrentCell != null ? grid.CurrentCell.RowIndex : -1;
+            if (r < 0 || r >= shownBank.Samples.Count) throw new ModKitException("pick a sample in the grid first");
+            return shownBank.Samples[r];
+        }
+
+        void ReplaceSample()
+        {
+            if (host.Busy) { OutputWrap.Set(outputBox, "wait for the running job"); return; }
+            SoundSample x = SelectedSample();
+            Mod m = host.SharedSession().Mod;
+            if (m == null) throw new ModKitException("open or start a mod in the MS2 Tables view first");
+            string path;
+            using (var d = new OpenFileDialog { Title = "New sound for sample " + x.Index + " " + x.Name, Filter = "MPEG audio (*.mp3;*.mp2)|*.mp3;*.mp2|All files|*.*", CheckFileExists = true })
+            {
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                path = d.FileName;
+            }
+            byte[] b = File.ReadAllBytes(path);
+            string bank = ShownBankFile();
+            SampleOp op = m.SetSample(bank, x, b, Path.GetFileName(path));
+            MpegAudio a = MpegAudio.Parse(b, Path.GetFileName(path));
+            string said = bank + " sample " + x.Index + " " + x.Name + ": new sound " + op.File + " (" + a.Describe() + ")";
+            if (Math.Abs(a.Seconds - x.Seconds) > 0.1)
+                said += "; the shipped sample is " + x.Seconds.ToString("0.00", CultureInfo.InvariantCulture) + " s, and the event project keeps its music segment's length, so the new sound is cut or ends in silence";
+            SampleEdited(said);
+        }
+
+        void TakeSample()
+        {
+            SoundSample x = SelectedSample();
+            Mod m = host.SharedSession().Mod;
+            string bank = ShownBankFile();
+            bool had = m != null && m.TakeSample(bank, x.Index);
+            SampleEdited(bank + " sample " + x.Index + " " + x.Name + ": " + (had ? "the mod's sound taken out; the shipped sound plays" : "the mod gives this sample no new sound"));
+        }
+
+        void SampleEdited(string said)
+        {
+            host.EditedOutside();
+            host.SayOutside(said);
+            grid.Invalidate();
+            OutputWrap.Set(outputBox, said);
         }
 
         // after this view's own edit: only that map's rows of the lists are read again, not every map file
