@@ -27,7 +27,7 @@ namespace MS2.Tables
     {
         public const string ViewId = "MS2.Tables.ItemOptionsView";
         const string AddStatRow = "(type a stat to add)";
-        const int NamedItems = 300;
+        const int NamedItems = 60;   // each name opens the item
 
         TablesView host;
         ItemOptionEditor editor;
@@ -147,8 +147,12 @@ namespace MS2.Tables
                 e.Handled = e.SuppressKeyPress = true;
                 Guard(delegate { Find(); });
             };
-            kindBox.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { code = 0; FillSides(); Find(); }); };
-            sideBox.SelectedIndexChanged += delegate { if (!filling) { statGrid.CancelEdit(); statGrid.Invalidate(); ShowLabel(); } };
+            // a value typed into the grid is written before the kind or side changes under it (the boxes take the
+            // focus first, by mouse or by tab)
+            kindBox.Enter += delegate { Guard(delegate { EndEdits(); }); };
+            sideBox.Enter += delegate { Guard(delegate { EndEdits(); }); };
+            kindBox.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { EndEdits(); code = 0; FillSides(); Find(); }); };
+            sideBox.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { EndEdits(); statGrid.Invalidate(); ShowLabel(); }); };
         }
 
         public override void Initialize()
@@ -458,8 +462,11 @@ namespace MS2.Tables
             if (codeGrid.SelectedRows.Count == 0) return;
             int i = codeGrid.SelectedRows[0].Index;
             if (i < 0 || i >= hits.Count || hits[i].Code == code) return;
+            // the code is read before the edit is written: writing it fills the list again, in another order
+            long c = hits[i].Code;
             EndEdits();
-            ShowCode(hits[i].Code);
+            ShowCode(c);
+            for (int j = 0; j < hits.Count; j++) if (hits[j].Code == c) { SelectRow(j); break; }
         }
 
         void OnCodeValueNeeded(object sender, DataGridViewCellValueEventArgs e)
@@ -501,7 +508,12 @@ namespace MS2.Tables
         void ShowCode(long c)
         {
             statGrid.CancelEdit();
-            if (c != code) extraStats.Clear();
+            if (c != code)
+            {
+                extraStats.Clear();
+                // the parsed files of the code left are read again when needed (the 32-bit host)
+                if (editor != null) editor.DropDrafts();
+            }
             code = c;
             stats.Clear();
             grades.Clear();
