@@ -2098,6 +2098,50 @@ it), an event without play time (no `<Config>`, or 0 seconds: given at login), a
 (`tabButton` or `name` empty or missing), and an id that other rows of the file also use (the server keeps at most
 one).
 
+## Meret Market
+
+A view, **MS2 Meret Market** (menu **MS2 Mods > Meret Market**), edits the server's cash shop: the `item` rows of
+`table/Server/shop_merat_custom.xml` in the server's `Server.m2d`. Only the server reads the file, and it sends the
+shop to the client, so there is no client copy to keep in step. Each row is a sale: an item, a price in one of three
+moneys, the jobs and levels that may buy it, and its sale times. A row's `additionalQuantity` children are bundles:
+more of the same item for another price. Sales and bundles share one id space. The shop tabs are the tab ids of
+`table/na/meratmarketcategory.xml` in the server's `Xml.m2d`.
+
+| attribute | what it is |
+|---|---|
+| `id` | the sale's id. Two rows of one id (sales or bundles) stop the server's ingest |
+| `itemID`, `grade`, `quantity`, `bonusQuantity`, `durationDay` | what a purchase gives: the item, its grade (1 to 6), how many plus a bonus, and above 0 the days until it expires |
+| `tabID` | the shop tab |
+| `paymentType`, `price`, `salePrice` | 0 meso, 1 meret, 2 red meret; the price, and above 0 the sale price the purchase takes instead |
+| `saleStartTime`, `saleEndTime` | `yyyy-MM-dd-HH-mm-ss`, or empty for no limit. Outside them the server refuses the purchase. Every shipped sale ends in 2055 |
+| `jobRequire` | the job codes that may buy, a comma list (1 beginner, 10 knight .. 110 soul binder, 999 GM). Empty: nobody |
+| `minLevel`, `maxLevel`, `achieveID`, `achieveGrade` | above 0: the level range, and a trophy whose holder may not buy |
+| `saleTag`, `bannerTag`, `banner`, `promoName`, `promoSaleStartTime`, `promoSaleEndTime`, `showSaleTime`, `giftable`, `pcCafe`, `noRestock` | how the shop shows the sale |
+
+1. The list shows each sale with the mod: its item and name, tab, price, sale price, payment, end and number of
+   bundles. An edited sale is blue, a new one green, one taken off sale or whose sale has ended grey; the tooltip says
+   why.
+2. Pick a sale. The fields list shows each attribute with the mod, the shipped value and what the value means (job
+   names, payment, tag). Pick a field, type its value and **Set** (**Shipped** puts the shipped value back). Setting the
+   shipped value takes the line out of the mod. A value the server's ingest cannot read (a number out of range, a time
+   in another format, a job code it does not know) is refused. An id with more than one row is refused: edit it by hand.
+3. The bundles: type the **Bundle** id (empty: the next free one), **qty**, **bonus**, **price**, **sale** and
+   **days**, and **Add bundle**, **Set bundle** or **Remove bundle**.
+4. **New** adds a sale of the **item** in the **tab** under the **New id** (empty: the next free id): one of the item,
+   grade 1, paid in meret, for every job but GM, with no time limit; set its price after. **Copy** adds a copy of the
+   chosen sale (its attributes with the mod, without its bundles). **Off sale** takes a shipped sale out of the file (a
+   delete line). **Take sale** puts a shipped sale back as shipped and takes a new one out; **Take all** does every sale.
+   **Plan**, **Apply** and **Save mod** are the Tables view's.
+
+Plan checks the rows the mods add or change, as the file ends up with them. Errors: a value the ingest cannot read
+(it stops), two rows of one id among sales and bundles (it stops), a row without an id, an `itemID` that is not one
+of the server's items (the game server leaves the sale out), a `jobRequire` that names no job, a `paymentType` other
+than 0, 1 or 2, a price (or sale price) below 0, a `minLevel` above `maxLevel`, and an end at or before the start
+(nobody can buy it). Warnings: a `tabID` that is not a shop tab, a grade not 1 to 6, a sale that gives no item, a
+`saleTag` or `bannerTag` out of range, a sale that has ended or not started yet, and any bundle: the game server
+adds a bundle only when its sale is loaded before it, and the ingest writes the bundles first, so the shop shows the
+sale without them.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
