@@ -568,6 +568,8 @@ namespace MS2.Tables
                 if (dlg.ShowDialog(this) != DialogResult.OK) return;
                 path = dlg.FileName;
             }
+            long length = new System.IO.FileInfo(path).Length;
+            if (length > ItemIcon.MaxBytes) { host.SayOutside("item " + d.Id + ": " + System.IO.Path.GetFileName(path) + " has " + length + " bytes, more than " + ItemIcon.MaxBytes + ": not an icon"); return; }
             byte[] png = System.IO.File.ReadAllBytes(path);
             List<string> archives = ItemIcon.Set(d, png);
             string why;

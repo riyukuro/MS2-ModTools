@@ -75,7 +75,8 @@ namespace MS2.ModKit.Tests
                 foreach (string d in new[] { k, g, s }) Directory.CreateDirectory(d);
                 M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
                 {
-                    E("itemdata/012.xml", Head + "<ms2>\n" + Row(1200001, null) + Row(1200002, "77000001") + Row(1200003, "./Data/Resource/Image/item/icon/sub/reed.png") + "</ms2>\n"),
+                    E("itemdata/012.xml", Head + "<ms2>\n" + Row(1200001, null) + Row(1200002, "77000001") + Row(1200003, "./Data/Resource/Image/item/icon/sub/reed.png")
+                        + "\t<item id=\"1200004\">\n\t\t<environment>\n\t\t\t<limit level=\"1\" />\n\t\t</environment>\n\t</item>\n" + "</ms2>\n"),
                     E("string/en/itemname.xml", Head + "<ms2>\n\t<key id=\"1200001\" name=\"Tin Whistle\" />\n</ms2>\n"),
                     E("npcdata/029.xml", Head + "<ms2>\n\t<npc id=\"2900001\">\n\t\t<environment level=\"3\" portrait=\"./Data/Resource/Image/Portrait/Npc/fake_mole.png\" />\n\t</npc>\n" +
                         "\t<npc id=\"2900002\">\n\t\t<environment level=\"3\" />\n\t</npc>\n</ms2>\n"),
@@ -329,6 +330,51 @@ namespace MS2.ModKit.Tests
                 var x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(Items(f, m).Open(1200001), Png(60, 60)); });
                 StringAssert.Contains("no client data folder", x.Message);
                 CollectionAssert.IsEmpty(m.Ops);
+            }
+        }
+
+        [Test]
+        public void OwnIconLeavesNoImageWhenTheItemHasNoSlotIcon()
+        {
+            using (var f = new FakeIcons(true, true, true))
+            {
+                // item 1200004 has no property element: nothing to name the icon, so no image entry stays in the mod
+                Mod m = NewMod();
+                var x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(Items(f, m).Open(1200004), Png(60, 60)); });
+                StringAssert.Contains("has no property@slotIcon", x.Message);
+                CollectionAssert.IsEmpty(ImageOps(m));
+                CollectionAssert.IsEmpty(m.Files);
+                // a file far bigger than an icon is refused before anything is written
+                var big = new byte[ItemIcon.MaxBytes + 1];
+                Array.Copy(Png(60, 60), big, Png(60, 60).Length);
+                x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(Items(f, m).Open(1200001), big); });
+                StringAssert.Contains("more than", x.Message);
+                CollectionAssert.IsEmpty(m.Ops);
+            }
+        }
+
+        [Test]
+        public void ApplyWritesTheImageAndRevertTakesItOut()
+        {
+            using (var f = new FakeIcons(true, true))
+            {
+                Mod m = NewMod();
+                byte[] png = Png(60, 60);
+                ItemIcon.Set(Items(f, m).Open(1200001), png);
+                var ws = new Workspace(Path.Combine(f.Dir, "ws"));
+                ApplyResult r = ws.Apply(f.Data, new[] { m }, null);
+                Assert.IsTrue(r.Applied, EditorSession.Report(r));
+                string images = Path.Combine(ws.Dir, "client", "Resource", "Image.m2d");
+                Assert.IsTrue(System.IO.File.Exists(images), string.Join("\n", r.Outputs.ConvertAll(o => o.Path).ToArray()));
+                using (M2dArchive a = M2dArchive.Open(images))
+                {
+                    Assert.AreEqual(png, a.Read(a.Find("item/icon/mod/1200001.png")));
+                    Assert.AreEqual(Img("k1"), a.Read(a.Find("item/icon/1200001.png")), "the shipped icons stay");
+                }
+                using (M2dArchive shipped = M2dArchive.Open(Path.Combine(f.Dir, "kms", "Resource", "Image.m2d")))
+                    Assert.IsNull(shipped.Find("item/icon/mod/1200001.png"), "the shipped archive is only read");
+                ws.Revert(f.Data, null, null);
+                Assert.IsFalse(System.IO.File.Exists(images));
             }
         }
 

@@ -43,6 +43,10 @@ namespace MS2.ModKit
         public const int Size = 60;
         /// <summary>The folder of Resource/Image.m2d the mods' own item icons go to.</summary>
         public const string Folder = "item/icon/mod/";
+        /// <summary>The largest icon file taken (the shipped 60x60 icons have a few kilobytes).</summary>
+        public const int MaxBytes = 4 << 20;
+        /// <summary>The most pixels a view decodes for a preview (a PNG header may claim a huge size).</summary>
+        public const long MaxPixels = 4096L * 4096L;
 
         /// <summary>The image entry of the item's own icon: item/icon/mod/&lt;id&gt;.png.</summary>
         public static string EntryOf(long id) { return Folder + id.ToString(CultureInfo.InvariantCulture) + ".png"; }
@@ -97,14 +101,16 @@ namespace MS2.ModKit
         {
             string problem;
             if (PngInfo.Read(png, out problem) == null) throw new ModKitException("item " + d.Id + ": the icon is " + problem);
+            if (png.Length > MaxBytes) throw new ModKitException("item " + d.Id + ": the icon file has " + png.Length + " bytes, more than " + MaxBytes + " (the shipped icons have a few kilobytes)");
             ItemEditor ed = d.Editor;
             List<string> archives = ClientArchives(ed.Data);
             if (archives.Count == 0) throw new ModKitException("no client data folder has " + Icons.ImageArchive + ": the icon has nowhere to go");
+            // slotIcon first: when the item has none to set (or a side refuses the value) no image entry is left in the mod
+            if (d.SetBoth(Icons.ItemIconField, SlotIconOf(d.Id)) == 0)
+                throw new ModKitException("item " + d.Id + " has no " + Icons.ItemIconField + " to set");
             var trig = new TriggerEditor(ed.Data, ed.Mod);
             string entry = EntryOf(d.Id);
             foreach (string a in archives) trig.Put(a, entry, png);
-            if (d.SetBoth(Icons.ItemIconField, SlotIconOf(d.Id)) == 0)
-                throw new ModKitException("item " + d.Id + " has no " + Icons.ItemIconField + " to set");
             return archives;
         }
 

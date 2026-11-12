@@ -99,14 +99,23 @@ namespace MS2.Tables
                 img = Missing;
                 try
                 {
-                    using (var ms = new MemoryStream(bytes))
-                    using (Image decoded = Image.FromStream(ms))
-                        img = new Bitmap(decoded);
+                    if (Decodable(bytes))
+                        using (var ms = new MemoryStream(bytes))
+                        using (Image decoded = Image.FromStream(ms))
+                            img = new Bitmap(decoded);
                 }
                 catch (Exception) { img = Missing; }
                 own[bytes] = img;
                 return img == Missing ? null : img;
             }
+        }
+
+        // false for a PNG whose header claims more pixels than a preview decodes (a huge image would stall the view)
+        static bool Decodable(byte[] bytes)
+        {
+            string why;
+            PngInfo p = PngInfo.Read(bytes, out why);
+            return p == null || (long)p.Width * p.Height <= ItemIcon.MaxPixels;
         }
 
         /// <summary>True when the entry was looked for and no archive has it (or it is not an image).</summary>
@@ -126,7 +135,7 @@ namespace MS2.Tables
             try
             {
                 byte[] bytes = source.Read(entry);
-                if (bytes != null)
+                if (bytes != null && Decodable(bytes))
                     using (var ms = new MemoryStream(bytes))
                     using (Image decoded = Image.FromStream(ms))
                         img = new Bitmap(decoded);   // a copy that does not need the stream
