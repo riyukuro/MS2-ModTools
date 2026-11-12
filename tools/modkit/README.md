@@ -891,6 +891,48 @@ number (a weight of 0 never picks the line), an `isRarePickOne` that is not 0, 1
 row in the variation table (the client has no range for the line), a line whose name no shipped row uses (a warning:
 the client drops a line whose name is no stat), and a `pickCount` larger than the number of lines with a known name.
 
+## Item sets
+
+The **MS2 Item sets** view (menu **MS2 Mods > Item sets**) edits the item sets: the items of a set and the bonuses
+a character gets for wearing a number of them. Each side reads its own files:
+
+| side | file | what it holds |
+|---|---|---|
+| Korean client | `Xml.m2d`, `table/setiteminfo.xml` | `<set id itemIDs ...>` with one `<part count ...>` child per bonus: the stats and effects are attributes of the part. The client reads nothing else; it does not read `optionID`. A set it cannot read, or a set id twice, fails the whole table |
+| server (and the global client) | `Xml.m2d`, `table/setiteminfo.xml` and `table/setitemoption.xml` | the set row names its items and an `optionID`; the bonuses are the `<part>` rows of that `<option id>`. Several sets can name one option; when an id is there twice the last row counts. A set whose option is missing fails the server's data ingest |
+| names | `Xml.m2d`, `string/<lang>/setitemname.xml` | one `<key id name>` per set |
+
+1. **Find** a set id, set name or item id. The list has every set with its number of items and the counts that
+   have a bonus. A set the mod changes has `*`, a new one `(new)`.
+2. Pick a set. The left grid has the name and the set's flags, the list under it the items with their names; type an
+   item id in the last row to add one, clear a row to drop it. The bonus list has a row per count; pick one and the
+   right grid shows its stats and effects with a column per side. `≠` marks a value the sides do not agree on. An edit
+   is written to every side that has the set: to the `<part>` child on the Korean client, to the option row on the
+   server.
+3. **Add bonus** adds a bonus for the count typed next to it, **Remove bonus** drops the chosen one. **Add** makes an
+   empty set and **Clone** a copy of the chosen set, under the id in **new id** or the next free one from 99000000 to
+   99009999, on every side, with its own option row on the server. **Remove/restore** removes the set or brings a
+   removed one back, **Undo changes** drops every change the mod makes to a shipped set. **Save mod**, **Plan**,
+   **Apply** and **Revert** are the Tables view's.
+
+On the server several shipped sets can share one option. The view says which sets share the chosen set's bonuses:
+a change of a bonus changes them too. **Clone** the set to change it alone.
+
+The view warns while you edit: an `itemIDs` that is not a list of ids, a set without items, an item twice, two
+bonuses for the same count (the Korean table fails), a bonus for more items than the set has (it can never be
+active), a bonus that differs between the sides, a new id outside the range, a set without a name, and a set that is
+on some sides only.
+
+Plan checks every set the mods touch as it ends up in each target: an id that is not a number above 0, a set id
+twice in the Korean table, an `optionID` without an option row (the server's data ingest fails), an item or an effect
+the target does not have, a new set added on one side only, and a new set whose items or bonuses differ between the
+Korean client and the server.
+
+Limits: the comparison between the Korean client and the server is made for new sets only, since many shipped sets
+differ. An item can be in several shipped sets, so that is not checked. Removing a shipped set leaves its server
+option row and its name rows. A bonus the mod adds in a hand-written mirrored `<add>` is not changed by the view;
+edit that mod by hand.
+
 ## Quests
 
 The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,
