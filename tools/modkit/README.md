@@ -845,18 +845,19 @@ A recipe a hand-written mod removed on one side only is not changed by the view;
 ## Item options
 
 The **MS2 Item options** view (menu **MS2 Mods > Item options**) edits the stat lines items have fixed: the
-**constant** options (base stats) and the **static** options (fixed bonus lines), per option code and grade. Random
-(rolled) lines are not in this view yet. A code lives in different files per side:
+**constant** options (base stats), the **static** options (fixed bonus lines) and the **random** options (rolled
+bonus lines), per option code and grade. A code lives in different files per side:
 
 | side | file | what it holds |
 |---|---|---|
 | Korean client | `Xml.m2d`, `table/itemoptionconstant.xml` | `<option code>` with `<rank grade>` rows of `<v name value>`: the tooltip. A rank without a grade serves every grade, a rank serves its grade and the ones above it up to the next rank. There is no static table |
-| server (and the global client) | `Xml.m2d`, `itemoption/constant/itemoptionconstant_*.xml`, `itemoption/option/static/itemoptionstatic_*.xml` | one row per code and grade, `stat_value_base` / `stat_rate_base` attributes: what the server applies. Only the files the server ingest reads count; a code in another file gets a warning |
+| Korean client, random | `Xml.m2d`, `table/itemoptionrandom.xml` | `<option code pickCount ...>` with `<v name statID weight>` lines: the lines an item can roll and how many. `statID` names a row of `table/itemoptionvariation.xml`, which holds the range the client shows for the line (read-only here) |
+| server (and the global client) | `Xml.m2d`, `itemoption/constant/itemoptionconstant_*.xml`, `itemoption/option/static/itemoptionstatic_*.xml`, `itemoption/option/random/itemoptionrandom_*.xml` | one row per code and grade, `stat_value_base` / `stat_rate_base` attributes: what the server applies. Only the files the server ingest reads count; a code in another file gets a warning |
 
-An item names its codes itself: the client in `<option constantID>`, the server item file in `<option constant
-static>`. The two do not always name the same code.
+An item names its codes itself: the client in `<option constantID randomID>`, the server item file in `<option
+constant static random>`. The two do not always name the same code.
 
-1. Pick the kind (constant or static) and **find** an item id, item name or code. The list has every code with the
+1. Pick the kind (constant, static or random) and **find** an item id, item name or code. The list has every code with the
    number of items naming it, its grades, the sides that have it and its file. A code the mod changes has `*`, a new
    one `(new)`.
 2. Pick a code and a **side**. The grid has a row per stat and a column per grade. An orange cell differs between the
@@ -870,9 +871,20 @@ static>`. The two do not always name the same code.
    **Revert code** drops the mod's edits of the code. **Save mod**, **Plan**, **Apply** and **Revert** are the
    Tables view's.
 
+For a random code the server cells are `min,max` pairs, and a panel under the grid shows the **random detail**: the
+number of lines an item gets per grade on the server (`optionNumPick`) and on the Korean client (`pickCount`), and
+the Korean row's lines with their `statID`, `weight`, the client range and the server `min,max` of the grade column
+chosen in the grid. The boxes over the lines set `pickCount`, `isRarePickOne`, `statGroup` and `levelGroupID`; type in
+a `statID` or `weight` cell to change a line, or fill **new line**, **statID** and **weight** and press **Add**;
+**Remove** drops the chosen line. The server ignores the weights. Fork and Revert code
+work as for the other kinds and move `randomID` and `random` together.
+
 Plan checks every option the mods touch as it ends up in each target: an unknown stat, a value that is not a number,
 an `optionNumPick` that is empty (the server skips the row) or picks more lines than the row lists, a code twice in
-the Korean table, an item naming a code no server file has, and a code whose Korean tooltip and server stats differ.
+the Korean table, an item naming a code no server file has, and a code whose Korean tooltip and server stats differ. For a
+Korean random row the mods change: the row twice in the table, a `pickCount`, `statID` or `weight` that is not a
+number (a weight of 0 never picks the line), a `statID` without a row in the variation table (the client has no range
+for the line), and a `pickCount` larger than the number of lines.
 
 ## Quests
 

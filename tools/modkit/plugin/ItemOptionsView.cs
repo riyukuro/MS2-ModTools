@@ -54,6 +54,14 @@ namespace MS2.Tables
         readonly Label itemsLabel = new Label { Dock = DockStyle.Bottom, AutoSize = false, Height = 20, TextAlign = ContentAlignment.MiddleLeft };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 130 };
         readonly ComboBox targetBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 190 };
+        // screen 3, the random detail: the kms client's row of the code (its attributes and stat lines) beside what the server rolls
+        readonly Panel detail = new Panel { Dock = DockStyle.Bottom, Height = 200, Visible = false };
+        readonly Splitter detailSplit = new Splitter { Dock = DockStyle.Bottom, Height = 4, Visible = false };
+        readonly Label detailLabel = new Label { Dock = DockStyle.Top, AutoSize = false, Height = 34 };
+        readonly DataGridView lineGrid = new DataGridView { Dock = DockStyle.Fill };
+        readonly Dictionary<string, TextBox> attrBoxes = new Dictionary<string, TextBox>();
+        readonly TextBox addName = new TextBox { Width = 50 }, addId = new TextBox { Width = 62 }, addWeight = new TextBox { Width = 30 };
+        int detailGrade;
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();
         readonly BoldFont bold = new BoldFont();
@@ -68,11 +76,12 @@ namespace MS2.Tables
 
             kindBox.Items.Add("constant (fixed base stats)");
             kindBox.Items.Add("static (fixed bonus lines)");
+            kindBox.Items.Add("random (rolled bonus lines)");
             kindBox.SelectedIndex = 0;
 
             FlowLayoutPanel top = Bar();
             top.Controls.Add(kindBox);
-            tips.SetToolTip(kindBox, "The option table: constant = the item's fixed base stats; static = its fixed bonus lines (server and global client only: the kms client has no static table)");
+            tips.SetToolTip(kindBox, "The option table: constant = the item's fixed base stats; static = its fixed bonus lines (server and global client only: the kms client has no static table); random = the lines rolled when the item drops");
             top.Controls.Add(Lbl("find"));
             top.Controls.Add(searchBox);
             tips.SetToolTip(searchBox, "A part of an option code, or an item id (the codes that item names come first); empty lists every code of the table");
@@ -120,8 +129,63 @@ namespace MS2.Tables
             statGrid.CellBeginEdit += OnStatBeginEdit;
             tips.SetToolTip(itemList, "The items naming the code (shipped, and the mod's own); Fork points the ones chosen here at the new code");
 
+            SetupGrid(lineGrid);
+            lineGrid.VirtualMode = false;
+            lineGrid.Columns.Add(Col("kms line", 80, true));
+            lineGrid.Columns.Add(Col("statID", 80, false));
+            lineGrid.Columns.Add(Col("weight", 60, false));
+            lineGrid.Columns.Add(Col("client range", 110, true));
+            lineGrid.Columns.Add(Col("server min,max", 190, true));
+            lineGrid.Columns[0].ToolTipText = "The stat of the line in the kms client's table/itemoptionrandom.xml";
+            lineGrid.Columns[1].ToolTipText = "The row of table/itemoptionvariation.xml whose values are the range the client shows for the line";
+            lineGrid.Columns[2].ToolTipText = "The kms client's weight of the line (empty = 1). The server ignores weights: it picks among the stats of its own row, each as likely";
+            lineGrid.Columns[3].ToolTipText = "First..last value of the statID's row in table/itemoptionvariation.xml (read-only)";
+            lineGrid.Columns[4].ToolTipText = "What the server rolls for the stat at the grade of the grid's current column: edit it in the grid above, on the server side";
+            lineGrid.CellEndEdit += OnLineEndEdit;
+            lineGrid.CellFormatting += delegate(object sender, DataGridViewCellFormattingEventArgs e)
+            {
+                if (e.ColumnIndex == 0 || e.ColumnIndex >= 3) { e.CellStyle.BackColor = SystemColors.Control; e.CellStyle.ForeColor = e.ColumnIndex == 0 ? SystemColors.WindowText : SystemColors.GrayText; }
+            };
+            FlowLayoutPanel attrBar = Bar();
+            foreach (string a in ItemOptionRules.KmsRandomAttrs)
+            {
+                string name = a;
+                var box = new TextBox { Width = name == "isRarePickOne" ? 22 : 34 };
+                attrBoxes[name] = box;
+                attrBar.Controls.Add(Lbl(name));
+                attrBar.Controls.Add(box);
+                box.Leave += delegate { if (!filling) Guard(delegate { SetAttr(name, box); }); };
+                box.KeyDown += delegate(object sender, KeyEventArgs e)
+                {
+                    if (e.KeyCode != Keys.Enter) return;
+                    e.Handled = e.SuppressKeyPress = true;
+                    Guard(delegate { SetAttr(name, box); });
+                };
+            }
+            tips.SetToolTip(attrBoxes["pickCount"], "kms client: how many of the lines an item gets");
+            tips.SetToolTip(attrBoxes["isRarePickOne"], "kms client: 1 = a normal item gets no line, a rare one gets one, the grades above get pickCount; empty or 0 = every grade gets pickCount");
+            tips.SetToolTip(attrBoxes["statGroup"], "kms client: the stat group of the row");
+            tips.SetToolTip(attrBoxes["levelGroupID"], "kms client: the level group of the row");
+            attrBar.Controls.Add(Lbl("  new line"));
+            attrBar.Controls.Add(addName);
+            tips.SetToolTip(addName, "The stat of the new line, a name the shipped table uses (str, pen, ...)");
+            attrBar.Controls.Add(Lbl("statID"));
+            attrBar.Controls.Add(addId);
+            attrBar.Controls.Add(Lbl("weight"));
+            attrBar.Controls.Add(addWeight);
+            attrBar.Controls.Add(Btn("Add", "Adds the line to the kms client's row of the code", delegate { AddLine(); }));
+            attrBar.Controls.Add(Btn("Remove", "Removes the chosen line from the kms client's row of the code", delegate { RemoveLine(); }));
+            tips.SetToolTip(detailLabel, "The server rolls each line between the min,max of its own row and ignores the kms weights; the kms client shows the range of the line's statID");
+            detail.Controls.Add(lineGrid);
+            detail.Controls.Add(attrBar);
+            detail.Controls.Add(detailLabel);
+
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(statGrid);
+            right.Controls.Add(detailSplit);
+            right.Controls.Add(detail);
+            right.Resize += delegate { SizeDetail(right); };
+            detail.VisibleChanged += delegate { SizeDetail(right); };
             right.Controls.Add(new Splitter { Dock = DockStyle.Bottom, Height = 4 });
             right.Controls.Add(itemList);
             right.Controls.Add(itemsLabel);
@@ -153,6 +217,7 @@ namespace MS2.Tables
             sideBox.Enter += delegate { Guard(delegate { EndEdits(); }); };
             kindBox.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { EndEdits(); code = 0; FillSides(); Find(); }); };
             sideBox.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { EndEdits(); statGrid.Invalidate(); ShowLabel(); }); };
+            statGrid.CurrentCellChanged += delegate { if (!filling && detail.Visible && DetailGrade() != detailGrade) Guard(delegate { FillDetail(); }); };
         }
 
         public override void Initialize()
@@ -225,7 +290,7 @@ namespace MS2.Tables
             return b;
         }
 
-        void EndEdits() { statGrid.EndEdit(); }
+        void EndEdits() { statGrid.EndEdit(); lineGrid.EndEdit(); }
 
         protected override void OnEnter(EventArgs e)
         {
@@ -334,7 +399,7 @@ namespace MS2.Tables
             catch (System.IO.IOException ex) { ShowCode(0); OutputWrap.Set(outputBox, ex.Message); }
         }
 
-        OptionKind Kind { get { return kindBox.SelectedIndex == 1 ? OptionKind.Static : OptionKind.Constant; } }
+        OptionKind Kind { get { return kindBox.SelectedIndex == 2 ? OptionKind.Random : kindBox.SelectedIndex == 1 ? OptionKind.Static : OptionKind.Constant; } }
 
         OptionSide Side
         {
@@ -488,7 +553,7 @@ namespace MS2.Tables
             var l = new List<string>();
             foreach (string f in files)
             {
-                string s = f.Replace("itemoptionconstant_", "").Replace("itemoptionstatic_", "static_");
+                string s = f.Replace("itemoptionconstant_", "").Replace("itemoptionstatic_", "static_").Replace("itemoptionrandom_", "random_");
                 if (s.EndsWith(".xml", StringComparison.OrdinalIgnoreCase)) s = s.Substring(0, s.Length - 4);
                 l.Add(s);
             }
@@ -525,6 +590,7 @@ namespace MS2.Tables
             {
                 codeLabel.Text = "no option code chosen";
                 itemsLabel.Text = "";
+                FillDetail();
                 return;
             }
             ItemOptionEditor ed = Editor();
@@ -543,6 +609,7 @@ namespace MS2.Tables
             for (int i = 0; i < codeItems.Count; i++) if (codeItems[i] == firstItem) itemList.SetSelected(i, true);
             itemsLabel.Text = codeItems.Count == 0 ? " no item names this code" : " " + codeItems.Count + " item(s) name this code (choose some for Fork; none chosen = all)";
             ShowLabel();
+            FillDetail();
         }
 
         static string GradeName(int g)
@@ -691,6 +758,155 @@ namespace MS2.Tables
                 ShowCode(keep);
                 host.SayOutside(string.Join("\r\n", said.ToArray()));
             });
+        }
+
+        // ---- screen 3: the random detail ----
+
+        int DetailGrade()
+        {
+            int g = statGrid.CurrentCell == null ? 0 : GradeAt(statGrid.CurrentCell.ColumnIndex);
+            return g != 0 ? g : grades.Count > 0 ? grades[grades.Count - 1] : 0;
+        }
+
+        // the detail takes its share of the code's side, as the window is sized
+        void SizeDetail(Control right)
+        {
+            if (detail.Visible) detail.Height = Math.Max(150, (int)(right.Height * 0.42));
+        }
+
+        void FillDetail()
+        {
+            bool was = filling;
+            filling = true;
+            try
+            {
+                lineGrid.CancelEdit();
+                lineGrid.Rows.Clear();
+                bool on = code != 0 && editor != null && Kind == OptionKind.Random && editor.KmsRandom;
+                detail.Visible = detailSplit.Visible = on;
+                if (!on) return;
+                KmsRandomRow row = editor.KmsRandomOf(code);
+                OptionSide flat = null;
+                foreach (OptionSide s in editor.Sides(Kind)) if (!s.Kms && (flat == null || s.Title == "server")) flat = s;
+                if (flat != null && !editor.Has(flat, code)) flat = null;
+                var shown = new List<int>(grades);
+                if (shown.Count == 0) shown.AddRange(new[] { 1, 2, 3, 4 });
+                var sb = new StringBuilder(" Lines an item gets: ");
+                if (flat == null) sb.Append("the server has no row of this code");
+                else
+                {
+                    sb.Append(flat.Title).Append(" (optionNumPick min,max)");
+                    foreach (int g in shown)
+                    {
+                        string v = editor.Cell(flat, code, g, ItemOptionRules.Pick).Value;
+                        sb.Append("  ").Append(GradeName(g)).Append(' ').Append(v.Length == 0 ? "none" : v);
+                    }
+                }
+                sb.Append("\r\n ");
+                if (row == null) sb.Append("The kms client's table has no row of this code.");
+                else
+                {
+                    sb.Append("kms client (pickCount").Append(row.Attr("isRarePickOne") == "1" ? ", isRarePickOne" : "").Append(')');
+                    foreach (int g in shown) sb.Append("  ").Append(GradeName(g)).Append(' ').Append(row.PickCount(g));
+                    sb.Append(row.Edited ? "   (row edited by the mod)" : "").Append("   The server ignores the weights.");
+                }
+                detailLabel.Text = sb.ToString();
+                foreach (KeyValuePair<string, TextBox> b in attrBoxes)
+                {
+                    b.Value.Text = row == null ? "" : row.Attr(b.Key) ?? "";
+                    b.Value.Enabled = row != null;
+                }
+                detailGrade = DetailGrade();
+                lineGrid.Columns[4].HeaderText = "server min,max" + (detailGrade == 0 ? "" : " (" + detailGrade + " " + GradeName(detailGrade) + ")");
+                if (row == null) return;
+                foreach (KmsRandomLine l in row.Lines)
+                {
+                    string id = l.StatId ?? "";
+                    lineGrid.Rows.Add(l.Name, id, l.Weight ?? "", l.HasRange ? l.RangeText : id.Length == 0 ? "" : "no variation row", ServerRange(flat, l.Name));
+                }
+            }
+            finally { filling = was; }
+        }
+
+        // the server's min,max of a kms line's stat at the detail's grade ("value 3,5", "rate 0.01,0.02")
+        string ServerRange(OptionSide flat, string name)
+        {
+            if (flat == null || detailGrade == 0) return "";
+            var parts = new List<string>();
+            foreach (string kind in new[] { "value", "rate" })
+            {
+                string st = name + "_" + kind + "_base";
+                if (!stats.Contains(st)) continue;
+                string v = editor.Cell(flat, code, detailGrade, st).Value;
+                if (v.Length > 0) parts.Add(kind + " " + v);
+            }
+            return parts.Count == 0 ? "not in the server's row" : string.Join("; ", parts.ToArray());
+        }
+
+        // after an edit of the kms row: the list, the grid and the detail again
+        void AfterKms(string said)
+        {
+            host.EditedOutside();
+            long keep = code;
+            FillHits(keep);
+            ShowCode(keep);
+            host.SayOutside(said);
+        }
+
+        void SetAttr(string name, TextBox box)
+        {
+            if (code == 0 || !detail.Visible) return;
+            ItemOptionEditor ed = Editor();
+            KmsRandomRow row = ed.KmsRandomOf(code);
+            if (row == null) return;
+            string was = row.Attr(name) ?? "", v = box.Text.Trim();
+            if (v == was) return;
+            try { AfterKms(ed.SetKmsRandom(code, name, v)); }
+            catch (ModKitException) { box.Text = was; throw; }
+        }
+
+        // the write is done here; the grids are filled again after the grid has left the cell
+        void OnLineEndEdit(object sender, DataGridViewCellEventArgs e)
+        {
+            if (filling || e.RowIndex < 0 || (e.ColumnIndex != 1 && e.ColumnIndex != 2)) return;
+            int r = e.RowIndex, c = e.ColumnIndex;
+            string v = (Convert.ToString(lineGrid.Rows[r].Cells[c].Value, CultureInfo.InvariantCulture) ?? "").Trim();
+            string said = null;
+            bool changed = false;
+            Guard(delegate
+            {
+                ItemOptionEditor ed = Editor();
+                KmsRandomRow row = ed.KmsRandomOf(code);
+                if (row == null || r >= row.Lines.Count) return;
+                string old = (c == 1 ? row.Lines[r].StatId : row.Lines[r].Weight) ?? "";
+                if (v == old) return;
+                changed = true;
+                said = ed.SetKmsRandomLine(code, r, c == 1 ? "statID" : "weight", v);
+                host.EditedOutside();
+            });
+            if (!changed) return;
+            BeginInvoke((MethodInvoker)delegate
+            {
+                // a refused value: the line as it is comes back, the message stays
+                if (said == null) { Guard(delegate { FillDetail(); }); return; }
+                Guard(delegate { long keep = code; FillHits(keep); ShowCode(keep); host.SayOutside(said); });
+            });
+        }
+
+        void AddLine()
+        {
+            if (code == 0) throw new ModKitException("choose a code first");
+            EndEdits();
+            AfterKms(Editor().AddKmsRandomLine(code, addName.Text.Trim(), addId.Text.Trim(), addWeight.Text.Trim()));
+            addName.Text = addId.Text = addWeight.Text = "";
+        }
+
+        void RemoveLine()
+        {
+            if (code == 0) throw new ModKitException("choose a code first");
+            EndEdits();
+            if (lineGrid.CurrentCell == null) throw new ModKitException("choose the line to remove first");
+            AfterKms(Editor().RemoveKmsRandomLine(code, lineGrid.CurrentCell.RowIndex));
         }
 
         // ---- revert, fork ----
