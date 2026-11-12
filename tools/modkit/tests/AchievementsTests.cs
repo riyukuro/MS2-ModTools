@@ -270,6 +270,85 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        [Test]
+        public void Revert_AfterAReload_TakesEverySidesTexts()
+        {
+            using (var f = new FakeAchieves())
+            {
+                Mod m = FakeAchieves.NewMod();
+                var ed = new AchievementEditor(f.Data, m);
+                Achievement a = ed.Find(21800001);
+                ed.SetText(a, "name", "Rock Breaker");
+                string dir = Path.Combine(f.Dir, "mods", "ach.test");
+                m.Save(dir);
+                Mod back = Mod.Load(dir);
+                var ed2 = new AchievementEditor(f.Data, back);
+                Achievement a2 = ed2.Find(21800001);
+                Assert.That(ed2.Text(a2, "name"), Is.EqualTo("Rock Breaker"), "reads the first side only");
+                ed2.Revert(a2);
+                Plan p = Planner.Build(f.Data, new[] { back }, new PlanOptions());
+                Assert.That(p.Changes, Is.Empty, Dump(p));
+            }
+        }
+
+        [Test]
+        public void AnEditTheSidesCannotAllTake_LeavesEverySideAsItWas()
+        {
+            using (var f = new FakeAchieves())
+            {
+                Mod m = FakeAchieves.NewMod();
+                // the mod's server file has one grade, the clients two
+                string one = FakeAchieves.SrvBoth.Substring(0, FakeAchieves.SrvBoth.IndexOf("\t\t<grade value=\"2\">", StringComparison.Ordinal)) + "\t</achieves>\n</ms2>";
+                m.Files["srv-one.xml"] = Fake.Crlf(one);
+                m.Ops.Add(new EntryOp { Archive = S, Name = FakeAchieves.Both, File = "srv-one.xml" });
+                var ed = new AchievementEditor(f.Data, m);
+                Achievement a = ed.Find(21800001);
+                Assert.That(ed.Grades(a, Side(ed, S)).Count, Is.EqualTo(1));
+                Assert.That(ed.Grades(a, Side(ed, K)).Count, Is.EqualTo(2));
+                string before = m.ToXml();
+                Assert.Throws<ModKitException>(() => ed.SetGrade(a, 1, "condition@value", "70"));
+                Assert.Throws<ModKitException>(() => ed.RemoveGrade(a, 1));
+                Assert.That(m.ToXml(), Is.EqualTo(before), "no side is written");
+                Assert.That(ed.Grades(a, Side(ed, K))[1][3], Is.EqualTo("50"));
+                ed.SetGrade(a, 0, "condition@value", "20");
+                Assert.That(ed.Grades(a, Side(ed, K))[0][3], Is.EqualTo("20"));
+                Assert.That(ed.Grades(a, Side(ed, S))[0][3], Is.EqualTo("20"));
+            }
+        }
+
+        [Test]
+        public void RulesFollowTheClientsLoad()
+        {
+            Func<string, bool, List<string>[]> check = (grades, server) =>
+            {
+                var e = new List<string>();
+                var w = new List<string>();
+                var doc = MS2.ModKit.Xml.XmlDoc.Parse(Encoding.UTF8.GetBytes("<ms2><achieves id=\"21800001\" categoryTag=\"combat\">" + grades + "</achieves></ms2>"), "t");
+                AchieveRules.CheckFile(doc, 21800001, server, new HashSet<string> { "combat" }, e, w);
+                return new[] { e, w };
+            };
+            // the lowest grade counts, not the first in the file
+            List<string>[] r = check("<grade value=\"2\"><condition type=\"killcount\" value=\"1\" /></grade><grade value=\"1\"><condition type=\"killcount\" value=\"1\" /></grade>", false);
+            Assert.That(r[1], Has.None.Contains("lowest grade"));
+            r = check("<grade value=\"1\"><condition type=\"killcount\" value=\"1\" /></grade><grade value=\"0\"><condition type=\"killcount\" value=\"1\" /></grade>", false);
+            Assert.That(r[1], Has.Some.EqualTo("the lowest grade is 0, not 1: the client logs it"));
+            // the client knows openItemBox and openStoryBook (any case), the server does not
+            r = check("<grade value=\"1\"><condition type=\"openitembox\" value=\"1\" /></grade>", false);
+            Assert.That(r[0], Is.Empty, string.Join("\n", r[0]));
+            Assert.That(AchieveRules.KnownCondition("openStoryBook", false), Is.True);
+            Assert.That(AchieveRules.KnownCondition("openItemBox", true), Is.False);
+            // a user_find target must be a dictionary of the checker's keys
+            Assert.That(AchieveRules.ValidateCondition("user_find", "dict:{jobId:10,Level:20}"), Is.Null);
+            Assert.That(AchieveRules.ValidateCondition("killcount", ""), Is.Null);
+            Assert.That(AchieveRules.ValidateCondition("user_find", ""), Does.Contain("not a dictionary"));
+            Assert.That(AchieveRules.ValidateCondition("user_find", "10,20"), Does.Contain("not a dictionary"));
+            Assert.That(AchieveRules.ValidateCondition("user_find", "dict:{jobId:10,hat:1}"), Does.Contain("\"hat\""));
+            r = check("<grade value=\"1\"><condition type=\"user_find\" value=\"1\" target=\"dict:{hat:1}\" /></grade>", false);
+            Assert.That(r[0], Has.Some.Contains("the client drops the achievement"));
+            r = check("<grade value=\"1\"><condition type=\"user_find\" value=\"1\" target=\"dict:{hat:1}\" /></grade>", true);
+            Assert.That(r[0], Is.Empty, "the server does not run the client's check");
+        }
+
         static List<string> Lines(IEnumerable<PlanMessage> msgs) { return msgs.Select(x => x.ToString()).ToList(); }
 
         [Test]
@@ -331,8 +410,8 @@ namespace MS2.ModKit.Tests
             {
                 "id 21800009 is not the file's id 21800001: the client reads the attribute, the server the file name",
                 "categoryTag \"living\" is not of the category combat that the id's second digit 1 gives (the client counts it there)",
-                "the first grade is 2, not 1: the client logs it",
                 "grade 2: the item reward has no code",
+                "the lowest grade is 2, not 1: the client logs it",
             }));
             Assert.That(AchieveRules.KnownCondition("item_collect_script_function", false), Is.True);
             Assert.That(AchieveRules.KnownCondition("item_collect_script_function", true), Is.False);

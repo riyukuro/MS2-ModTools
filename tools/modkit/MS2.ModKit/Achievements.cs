@@ -119,13 +119,49 @@ namespace MS2.ModKit
             "wedding_propose", "wedding_propose_decline", "wedding_propose_declined", "worldchampion_damage", "worldchampion_hit", "worldchampion_reward", 
         };
 
-        /// <summary>Is the condition type one the side reads? The kms client knows item_collect_script_function too.</summary>
+        /// <summary>The condition types the kms client reads and the server does not (conditionutil.cpp AddCondition).</summary>
+        static readonly string[] ClientOnlyConditions = { "item_collect_script_function", "openItemBox", "openStoryBook" };
+
+        /// <summary>The keys a user_find condition's target dictionary may have: the client's
+        /// CQuestConditionCheckerUserFind handlers (conditionutil.cpp, its constructor), compared case-insensitively.</summary>
+        public static readonly string[] UserFindKeys =
+        {
+            "jobId", "level", "gender", "equipItemIds", "equipItemIdsAnd", "equipItemIdsOr", "titleId", "rideeId", "oppositeGender",
+        };
+
+        /// <summary>Is the condition type one the side reads? The kms client knows ClientOnlyConditions too.</summary>
         public static bool KnownCondition(string type, bool server)
         {
             if (string.IsNullOrEmpty(type)) return false;
-            if (!server && string.Equals(type, "item_collect_script_function", StringComparison.OrdinalIgnoreCase)) return true;
+            if (!server) foreach (string t in ClientOnlyConditions) if (string.Equals(t, type, StringComparison.OrdinalIgnoreCase)) return true;
             foreach (string t in ConditionTypes) if (string.Equals(t, type, StringComparison.OrdinalIgnoreCase)) return true;
             return false;
+        }
+
+        /// <summary>
+        /// The client's CConditionCommonData::Validate (conditionutil.cpp): a user_find condition's target must be a
+        /// dictionary, "dict:{key:value,...}", whose keys are UserFindKeys; when it is not the client logs it and drops
+        /// the achievement and the rest of the file. Null when the condition passes; other types always pass.
+        /// </summary>
+        public static string ValidateCondition(string type, string target)
+        {
+            if (!string.Equals(type, "user_find", StringComparison.OrdinalIgnoreCase)) return null;
+            string t = target ?? "";
+            // the client parses the target only when it is set and not "0"; an unparsed target has no dictionary
+            if (t.Length == 0 || t == "0" || !t.StartsWith("dict:", StringComparison.Ordinal))
+                return "the user_find condition's target is not a dictionary (dict:{key:value,...})";
+            string body = t.Substring(5).Trim('{', '}', ' ');
+            foreach (string part in body.Split(','))
+            {
+                if (part.Length == 0) continue;
+                int colon = part.IndexOf(':');
+                if (colon <= 0) continue;   // the client skips a part without a key
+                string key = part.Substring(0, colon).Trim();
+                bool known = false;
+                foreach (string k in UserFindKeys) if (string.Equals(k, key, StringComparison.OrdinalIgnoreCase)) { known = true; break; }
+                if (!known) return "the user_find condition's target key \"" + key + "\" is not one the client checks (" + string.Join(", ", UserFindKeys) + ")";
+            }
+            return null;
         }
 
         public static bool KnownReward(string type)
@@ -290,7 +326,7 @@ namespace MS2.ModKit
             List<XmlElem> grades = Grades(a);
             if (grades.Count == 0) { errors.Add("there is no grade"); return; }
             var seen = new HashSet<long>();
-            long last = long.MinValue;
+            long last = long.MinValue, first = long.MaxValue;
             bool rising = true;
             for (int i = 0; i < grades.Count; i++)
             {
@@ -304,7 +340,7 @@ namespace MS2.ModKit
                 }
                 if (!seen.Add(v)) (server ? errors : warnings).Add(at + " is there twice" + (server ? ": the server's data ingest fails" : ": the client keeps the later one"));
                 else if (v <= last) rising = false;
-                if (i == 0 && v != 1 && type != 9) warnings.Add("the first grade is " + v + ", not 1: the client logs it");
+                if (v < first) first = v;
                 last = Math.Max(last, v);
                 XmlElem c = Child(g, "condition");
                 if (c == null) errors.Add(at + " has no condition");
@@ -313,6 +349,11 @@ namespace MS2.ModKit
                     string ct = (c.Attr("type") ?? "").Trim();
                     if (ct.Length == 0) errors.Add(at + ": the condition has no type");
                     else if (!KnownCondition(ct, server)) errors.Add(at + ": the condition type \"" + ct + "\" is not one the " + (server ? "server reads (its data ingest fails)" : "client reads (it drops the achievement and the rest of the file)"));
+                    else if (!server)
+                    {
+                        string bad = ValidateCondition(ct, (c.Attr("target") ?? "").Trim());
+                        if (bad != null) errors.Add(at + ": " + bad + ": the client drops the achievement and the rest of the file");
+                    }
                     long cv;
                     string cvs = (c.Attr("value") ?? "").Trim();
                     if (cvs.Length > 0 && !long.TryParse(cvs, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out cv)) errors.Add(at + ": the condition value \"" + cvs + "\" is not a number");
@@ -331,6 +372,8 @@ namespace MS2.ModKit
                 if ((string.Equals(rt, "item", StringComparison.OrdinalIgnoreCase) || string.Equals(rt, "title", StringComparison.OrdinalIgnoreCase)) && Neutral("reward@code", r.Attr("code")).Length == 0)
                     warnings.Add(at + ": the " + rt + " reward has no code");
             }
+            // the client checks the lowest grade (m_nFirstGrade, achievedata.cpp Load), not the first in the file
+            if (first != long.MaxValue && first != 1 && type != 9) warnings.Add("the lowest grade is " + first + ", not 1: the client logs it");
             if (!rising) warnings.Add("the grade values do not rise in the file's order");
         }
 
@@ -587,15 +630,22 @@ namespace MS2.ModKit
             if (IsDeleted(a)) throw new ModKitException("achievement " + a.Id + " is removed; restore it first");
         }
 
-        /// <summary>Applies an edit to the side's file and stores it in the mod.</summary>
-        void Edit(Achievement a, int side, Action<XmlDoc, XmlElem, XmlEditor> edit)
+        /// <summary>Applies an edit to the file of every side that has the achievement and stores them in the mod: all
+        /// sides or none (an edit that throws on one side, a grade only one side has, say, leaves every side as it was).</summary>
+        void EditAll(Achievement a, Action<int, XmlDoc, XmlElem, XmlEditor> edit)
         {
-            XmlDoc d = Doc(a, side);
-            XmlElem top = Top(d);
-            if (top == null) throw new ModKitException(Sides[side].Archive + ": achievement " + a.Id + " has no readable <" + AchieveRules.Element + ">; it is not edited here");
-            var ed = new XmlEditor(d);
-            edit(d, top, ed);
-            store.Put(Sides[side].Archive, a.Entry, ed.ApplyBytes());
+            var made = new List<KeyValuePair<int, byte[]>>();
+            for (int i = 0; i < Sides.Count; i++)
+            {
+                if (!Has(a, i)) continue;
+                XmlDoc d = Doc(a, i);
+                XmlElem top = Top(d);
+                if (top == null) throw new ModKitException(Sides[i].Archive + ": achievement " + a.Id + " has no readable <" + AchieveRules.Element + ">; it is not edited here");
+                var ed = new XmlEditor(d);
+                edit(i, d, top, ed);
+                made.Add(new KeyValuePair<int, byte[]>(i, ed.ApplyBytes()));
+            }
+            foreach (KeyValuePair<int, byte[]> m in made) store.Put(Sides[m.Key].Archive, a.Entry, m.Value);
         }
 
         static void Write(XmlEditor ed, XmlElem e, string attr, string field, string value, bool kms)
@@ -620,12 +670,7 @@ namespace MS2.ModKit
             if (Array.IndexOf(AchieveRules.Fields, field) < 0)
                 throw new ModKitException("\"" + field + "\" is not a field of an achievement here" + (field == "id" ? "; clone it for another id" : ""));
             NotDeleted(a);
-            for (int i = 0; i < Sides.Count; i++)
-            {
-                if (!Has(a, i)) continue;
-                bool kms = Sides[i].Kms;
-                Edit(a, i, (d, top, ed) => Write(ed, top, field, field, value, kms));
-            }
+            EditAll(a, (i, d, top, ed) => Write(ed, top, field, field, value, Sides[i].Kms));
         }
 
         /// <summary>Sets a grade cell (AchieveRules.GradeFields) of the index-th grade on every side that has it. An
@@ -637,12 +682,9 @@ namespace MS2.ModKit
             NotDeleted(a);
             value = (value ?? "").Trim();
             if (col == 0 && value.Length == 0) throw new ModKitException("a grade needs a value");
-            for (int i = 0; i < Sides.Count; i++)
-            {
-                if (!Has(a, i)) continue;
-                AchieveSide side = Sides[i];
-                Edit(a, i, (d, top, ed) =>
+            EditAll(a, (i, d, top, ed) =>
                 {
+                    AchieveSide side = Sides[i];
                     List<XmlElem> grades = AchieveRules.Grades(top);
                     if (index < 0 || index >= grades.Count) throw new ModKitException(side.Archive + ": achievement " + a.Id + " has no grade " + (index + 1));
                     XmlElem g = grades[index];
@@ -677,19 +719,15 @@ namespace MS2.ModKit
                         Write(ed, e, at, AchieveRules.GradeFields[c], cells[c], side.Kms);
                     }
                 });
-            }
         }
 
         /// <summary>Adds a grade after the last one: a copy of it with the next value and no reward.</summary>
         public void AddGrade(Achievement a)
         {
             NotDeleted(a);
-            for (int i = 0; i < Sides.Count; i++)
-            {
-                if (!Has(a, i)) continue;
-                bool full = !Sides[i].Kms;
-                Edit(a, i, (d, top, ed) =>
+            EditAll(a, (i, d, top, ed) =>
                 {
+                    bool full = !Sides[i].Kms;
                     List<XmlElem> grades = AchieveRules.Grades(top);
                     if (grades.Count == 0) throw new ModKitException("achievement " + a.Id + " has no grade to copy");
                     long max = 0;
@@ -699,23 +737,19 @@ namespace MS2.ModKit
                     for (int c = 5; c <= 8; c++) cells[c] = "";
                     ed.InsertAfter(grades[grades.Count - 1], AchieveRules.GradeText(cells, full, "\n"), "");
                 });
-            }
         }
 
         /// <summary>Removes the index-th grade on every side; the last grade stays.</summary>
         public void RemoveGrade(Achievement a, int index)
         {
             NotDeleted(a);
-            for (int i = 0; i < Sides.Count; i++)
-            {
-                if (!Has(a, i)) continue;
-                Edit(a, i, (d, top, ed) =>
+            EditAll(a, (i, d, top, ed) =>
                 {
                     List<XmlElem> grades = AchieveRules.Grades(top);
                     if (grades.Count <= 1) throw new ModKitException("achievement " + a.Id + " keeps at least one grade");
-                    if (index >= 0 && index < grades.Count) ed.Delete(grades[index]);
+                    if (index < 0 || index >= grades.Count) throw new ModKitException(Sides[i].Archive + ": achievement " + a.Id + " has no grade " + (index + 1));
+                    ed.Delete(grades[index]);
                 });
-            }
         }
 
         // ---- new ids ----
@@ -867,6 +901,14 @@ namespace MS2.ModKit
             if (a.IsAdded) throw new ModKitException("achievement " + a.Id + " is new; remove it instead");
             for (int i = 0; i < Sides.Count; i++) store.Revert(Sides[i].Archive, a.Entry);
             string id = a.Id.ToString(CultureInfo.InvariantCulture);
+            // every text table of every side and language, not only the ones read so far: after a reload Text() has
+            // read only the first side that has the text, and the other sides' edits must go too
+            for (int i = 0; i < Sides.Count; i++)
+                foreach (string lang in Languages(Sides[i].Archive))
+                {
+                    Names(Sides[i].Archive, lang, AchieveRules.NameFile);
+                    Names(Sides[i].Archive, lang, AchieveRules.DescFile);
+                }
             foreach (NameTable n in names.Values)
             {
                 List<TableRow> rows;

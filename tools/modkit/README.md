@@ -1060,16 +1060,21 @@ other server tables. The name and the descriptions are rows of `string/<lang>/ac
    value, rank). The condition type and the reward type are set with the boxes above the grid; the condition code
    picks an id of the kind the type counts (… or F4, the picker of the Quests view), and the code of an `item`
    reward picks an item. **Add grade** copies the last condition with the next grade value and no reward;
-   **Remove grade** removes the selected one.
+   **Remove grade** removes the selected one. An edit is made on every side or on none: when the sides hold
+   different grades (marked ≠) and one side has no grade at that line, the edit is refused whole.
 4. **Clone** copies the achievement shown, with its texts in every language, under the id in the box or, with no id,
    the next free one of the chosen category: 21900000-21909999 combat, 22900000-22909999 adventure,
    23900000-23909999 living (the second digit of the id is the category the client counts it in). **Remove /
-   restore** deletes it on every side or brings a shipped one back; **Undo changes** makes a shipped one as shipped.
+   restore** deletes it on every side or brings a shipped one back, as shipped (the edits made before the removal
+   are gone). **Undo changes** is not a step back: it makes a shipped one as shipped, its files and its texts in
+   every language of every side.
 5. **Save mod**, then **Plan**. The plan checks every achievement the mods add or change, per target. Errors: no
    grade, a grade with no condition, a condition type the side does not read (the client drops the achievement, the
-   server's data ingest fails), a value that is not a number, a grade value twice on the server, and a reward item
+   server's data ingest fails), a `user_find` condition whose target is not a `dict:{key:value,...}` of the keys the
+   client checks (`jobId`, `level`, `gender`, `equipItemIds`, `equipItemIdsAnd`, `equipItemIdsOr`, `titleId`,
+   `rideeId`, `oppositeGender`; the client drops the achievement), a value that is not a number, a grade value twice on the server, and a reward item
    the server does not have. Warnings: a reward item the client lacks, a reward title not in
-   `table/titletag.xml`, grade values that do not rise or do not start at 1, a reward with no code, a `categoryTag`
+   `table/titletag.xml`, grade values that do not rise, a lowest grade that is not 1, a reward with no code, a `categoryTag`
    that is no category or not the id's, and an achievement that only the client or only the server has (the client
    shows one the server never grants, or the server grants one no list shows).
 

@@ -154,7 +154,7 @@ namespace MS2.ModKit
             if (shipped) return e != null;
             EntryState st = null;
             foreach (EntryState t in run.Order)
-                if (t.Archive == archive && string.Equals(t.Name, e != null ? e.Name : entry, StringComparison.OrdinalIgnoreCase)) { st = t; break; }
+                if (string.Equals(t.Archive, archive, StringComparison.OrdinalIgnoreCase) && string.Equals(t.Name, e != null ? e.Name : entry, StringComparison.OrdinalIgnoreCase)) { st = t; break; }
             if (st == null) return e != null;
             return st.DeletedBy == null && (st.Final ?? st.Base) != null;
         }
