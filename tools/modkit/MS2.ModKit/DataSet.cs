@@ -16,6 +16,64 @@ namespace MS2.ModKit
         // results of scans over the original data (used ids of a place), kept as long as the data set
         internal readonly Dictionary<string, object> Cache = new Dictionary<string, object>(StringComparer.Ordinal);
 
+        // The parsed per-id files (an item, an npc, a quest) are cached too, but not without end: a session that
+        // looks at many ids would hold every file of the data set parsed, and the Toolbench host is a 32-bit process.
+        // Their keys are in docOrder, least recently used first; DocBudget bounds the bytes of the files as read
+        // (the parsed form is several times that). The file used last always stays.
+        public long DocBudget = 12L * 1024 * 1024;
+        readonly LinkedList<string> docOrder = new LinkedList<string>();
+        readonly Dictionary<string, KeyValuePair<LinkedListNode<string>, long>> docs = new Dictionary<string, KeyValuePair<LinkedListNode<string>, long>>(StringComparer.Ordinal);
+        long docBytes;
+
+        /// <summary>The bytes (as read) of the per-id files held parsed, and how many files that is.</summary>
+        public long DocBytes { get { lock (docOrder) return docBytes; } }
+        public int DocCount { get { lock (docOrder) return docs.Count; } }
+
+        /// <summary>A parsed per-id file of the cache (false when it is not there); marks it as used.</summary>
+        internal bool DocGet(string key, out object doc)
+        {
+            lock (docOrder)
+            {
+                if (!Cache.TryGetValue(key, out doc)) { DocForget(key); return false; }
+                KeyValuePair<LinkedListNode<string>, long> at;
+                if (docs.TryGetValue(key, out at)) { docOrder.Remove(at.Key); docOrder.AddLast(at.Key); }
+                return true;
+            }
+        }
+
+        /// <summary>Like DocGet, without marking the file as used (a scan over every file must not reorder the cache).</summary>
+        internal bool DocPeek(string key, out object doc) { lock (docOrder) return Cache.TryGetValue(key, out doc); }
+
+        /// <summary>Keeps a parsed per-id file (null: the file is not there) and lets go of the least recently used ones over the budget.</summary>
+        internal void DocPut(string key, object doc, long bytes)
+        {
+            lock (docOrder)
+            {
+                DocForget(key);
+                Cache[key] = doc;
+                docs[key] = new KeyValuePair<LinkedListNode<string>, long>(docOrder.AddLast(key), bytes);
+                docBytes += bytes;
+                while (docBytes > DocBudget && docOrder.Count > 1)
+                {
+                    string old = docOrder.First.Value;
+                    Cache.Remove(old);
+                    DocForget(old);
+                }
+            }
+        }
+
+        /// <summary>Lets go of a parsed per-id file.</summary>
+        internal void DocDrop(string key) { lock (docOrder) { Cache.Remove(key); DocForget(key); } }
+
+        void DocForget(string key)
+        {
+            KeyValuePair<LinkedListNode<string>, long> at;
+            if (!docs.TryGetValue(key, out at)) return;
+            docOrder.Remove(at.Key);
+            docs.Remove(key);
+            docBytes -= at.Value;
+        }
+
         public DataSet() { }
 
         /// <summary>Client data folder (the one that holds Xml.m2d) and server data folder; either may be null.</summary>
@@ -163,6 +221,7 @@ namespace MS2.ModKit
                 if (d != null) d.Dispose();
             }
             Cache.Clear();
+            lock (docOrder) { docOrder.Clear(); docs.Clear(); docBytes = 0; }
         }
     }
 }

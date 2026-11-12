@@ -1376,7 +1376,7 @@ namespace MS2.ModKit
             string key = items.FileDocKey(id);
             bool had = key != null && Data.Cache.ContainsKey(key);
             try { act(items.Open(id)); }
-            finally { if (key != null && !had) Data.Cache.Remove(key); }
+            finally { if (key != null && !had) Data.DocDrop(key); }
         }
 
         int RevertRows(OptionKind kind, long code)

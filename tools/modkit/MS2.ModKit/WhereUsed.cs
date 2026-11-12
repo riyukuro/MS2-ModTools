@@ -621,7 +621,7 @@ namespace MS2.ModKit
         XmlElem ScanRoot(M2dArchive a, string archive, M2dEntry e, Action<string, Exception> skip)
         {
             object o;
-            if (Data.Cache.TryGetValue("entitydoc\n" + archive + "\n" + e.Name.ToLowerInvariant(), out o))
+            if (Data.DocPeek("entitydoc\n" + archive + "\n" + e.Name.ToLowerInvariant(), out o))
                 return o == null ? null : ((DocInfo)o).Doc.Root;
             return WhereUsed.Parse(a, archive, e, skip);
         }
@@ -690,7 +690,7 @@ namespace MS2.ModKit
                     M2dEntry e = a.Find(kv.Value);
                     if (e == null) continue;
                     object o;
-                    XmlElem root = Data.Cache.TryGetValue("questdoc\n" + archive + "\n" + kv.Value.ToLowerInvariant(), out o)
+                    XmlElem root = Data.DocPeek("questdoc\n" + archive + "\n" + kv.Value.ToLowerInvariant(), out o)
                         ? (o == null ? null : ((DocInfo)o).Doc.Root) : WhereUsed.Parse(a, archive, e, skip);
                     if (root == null) continue;
                     var qs = new List<KeyValuePair<XmlElem, string>>();

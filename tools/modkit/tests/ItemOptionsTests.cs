@@ -458,6 +458,11 @@ namespace MS2.ModKit.Tests
             return cache.Keys.Count(k => k.StartsWith("entitydoc\n", StringComparison.Ordinal) && k.Contains("\nitem/"));
         }
 
+        static int CacheKeys(DataSet data)
+        {
+            return ((System.Collections.Generic.Dictionary<string, object>)typeof(DataSet).GetField("Cache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).GetValue(data)).Count;
+        }
+
         static List<string> DocsCached(DataSet data)
         {
             var cache = (System.Collections.Generic.Dictionary<string, object>)typeof(DataSet).GetField("Cache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(data);
@@ -465,30 +470,51 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
-        public void LookKeepsOnlyTheLastFewFilesItRead_AndEveryFileReadBefore()
+        public void ParsedFilesStayWithinTheBudget_HoweverManyIdsAreOpened_AndPlanWorksAfter()
         {
+            long[] ids = { 99100001, 99100002, 99100003 };
             using (var f = new FakeOptions())
             {
+                // without a bound every file an Open reads stays
                 var items = new ItemEditor(f.Data, FakeOptions.ModOf(""));
-                var seen = new List<long>();
-                foreach (long id in new long[] { 99100001, 99100002, 99100003, 99100001, 99100003 })
-                {
-                    items.Look(id, d => seen.Add(d.Id));
-                    Assert.That(DocsCached(f.Data).Count, Is.LessThanOrEqualTo(4), "after item " + id);
-                }
-                Assert.That(seen, Is.EqualTo(new long[] { 99100001, 99100002, 99100003, 99100001, 99100003 }));
+                foreach (long id in ids) items.Open(id);
+                int all = DocsCached(f.Data).Count;
+                long allBytes = f.Data.DocBytes;
+                Assert.That(all, Is.GreaterThan(6));
+                Assert.That(f.Data.DocCount, Is.EqualTo(all));
+                Assert.That(allBytes, Is.GreaterThan(600));
             }
-            // what an Open read stays, however many looks follow
             using (var f = new FakeOptions())
             {
-                var items = new ItemEditor(f.Data, FakeOptions.ModOf(""));
-                items.Open(99100001);
-                List<string> opened = DocsCached(f.Data);
-                Assert.That(opened, Is.Not.Empty);
-                foreach (long id in new long[] { 99100002, 99100003, 99100002, 99100003 }) items.Look(id, d => { });
-                Assert.That(DocsCached(f.Data), Is.SupersetOf(opened));
-                Assert.That(DocsCached(f.Data).Count, Is.LessThanOrEqualTo(opened.Count + 4));
+                f.Data.DocBudget = 600;
+                Mod m = FakeOptions.ModOf("");
+                var items = new ItemEditor(f.Data, m);
+                var seen = new List<long>();
+                for (int round = 0; round < 20; round++)
+                    foreach (long id in ids)
+                    {
+                        if (round % 2 == 0) seen.Add(items.Open(id).Id); else items.Look(id, d => seen.Add(d.Id));
+                        // the file used last stays even when it alone is over the budget
+                        Assert.That(f.Data.DocBytes <= 600 || f.Data.DocCount == 1, Is.True, "after item " + id + ": " + f.Data.DocBytes + " bytes in " + f.Data.DocCount + " files");
+                        Assert.That(DocsCached(f.Data).Count, Is.EqualTo(f.Data.DocCount));
+                    }
+                Assert.That(seen.Count, Is.EqualTo(60));
+                Assert.That(items.Open(99100002).Name, Is.EqualTo(new ItemEditor(f.Data, m).Open(99100002).Name));
                 Assert.Throws<ModKitException>(() => items.Look(99199999, d => { }), "no such item");
+
+                // an edit and a plan after all that reading
+                var ed = new ItemOptionEditor(f.Data, m);
+                ed.Set(Side(ed, OptionKind.Constant, false), 800000100, 1, "mar_value_base", "5");
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Line(Fake.Text(p, S, CFile), "800000100", "1"), Does.Contain("mar_value_base=\"5\""));
+                Assert.That(f.Data.DocBytes <= 600 || f.Data.DocCount == 1, Is.True);
+
+                // plan after plan: what a plan caches replaces what the plan before cached
+                PlanOf(f, m);
+                int keys = CacheKeys(f.Data);
+                for (int i = 0; i < 5; i++) Assert.That(PlanOf(f, m).Errors, Is.Empty);
+                Assert.That(CacheKeys(f.Data), Is.EqualTo(keys));
             }
         }
 

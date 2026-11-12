@@ -877,19 +877,22 @@ namespace MS2.ModKit
         {
             string key = "questdoc\n" + archive + "\n" + entry.ToLowerInvariant();
             object o;
-            if (Data.Cache.TryGetValue(key, out o)) return (DocInfo)o;
+            if (Data.DocGet(key, out o)) return (DocInfo)o;
             DocInfo info = null;
+            long bytes = 0;
             if (Data.Exists(archive))
             {
                 M2dArchive arch = Data.Open(archive);
                 M2dEntry e = arch.Find(entry);
                 if (e != null)
                 {
-                    XmlDoc doc = XmlDoc.Parse(arch.Read(e), archive + " " + e.Name);
+                    byte[] raw = arch.Read(e);
+                    bytes = raw.Length;
+                    XmlDoc doc = XmlDoc.Parse(raw, archive + " " + e.Name);
                     if (doc.Root != null) info = new DocInfo { Doc = doc, Name = e.Name };
                 }
             }
-            Data.Cache[key] = info;
+            Data.DocPut(key, info, bytes);
             return info;
         }
 

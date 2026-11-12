@@ -276,6 +276,15 @@ namespace MS2.ModKit.Tests
                 Plan p = PlanOf(f, mod);
                 Assert.That(Dump(p), Is.Empty);
                 string k = Text(p, K, ItemSetRules.InfoEntry);
+
+                // plan after plan: the id sets a plan caches replace those of the plan before
+                var cache = (Dictionary<string, object>)typeof(DataSet).GetField("Cache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public).GetValue(f.Data);
+                int keys = cache.Count;
+                bool itemSets = false;
+                foreach (string x in cache.Keys) if (x.StartsWith("groupcheck-items\n", StringComparison.Ordinal)) itemSets = true;
+                Assert.That(itemSets, Is.True);
+                for (int i = 0; i < 4; i++) PlanOf(f, mod);
+                Assert.That(cache.Count, Is.EqualTo(keys));
                 Assert.That(k, Does.Contain("<part count=\"2\" str=\"12\" />"));
                 Assert.That(k, Does.Contain("<part count=\"3\" hp=\"100\" sgi_boss=\"30\" sgi_elite=\"15\" />"));
                 foreach (string arch in new[] { S, G })

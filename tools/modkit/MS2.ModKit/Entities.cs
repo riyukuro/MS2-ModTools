@@ -557,47 +557,32 @@ namespace MS2.ModKit
             return name == null ? null : "entitydoc\n" + FileXml + "\n" + name.ToLowerInvariant();
         }
 
-        const int LookDocs = 4;
-
         /// <summary>
-        /// Opens an id for a look (a name, an icon) and hands it over. The parsed files stay cached for every Open, and
-        /// a list that shows many ids would keep every bundle file of the data set in memory: of the files a look
-        /// reads first, only the last few stay.
+        /// Opens an id for a look (a name, an icon) and hands it over. A list can look at as many ids as it shows: the
+        /// data set holds the parsed files within its budget (DataSet.DocBudget).
         /// </summary>
-        public void Look(long id, Action<EntityDraft> act)
-        {
-            var before = new HashSet<string>();
-            foreach (string k in Data.Cache.Keys) if (k.StartsWith("entitydoc\n", StringComparison.Ordinal)) before.Add(k);
-            try { act(OpenAny(id)); }
-            finally
-            {
-                object o;
-                List<string> mine;
-                if (Data.Cache.TryGetValue("entitylook", out o)) mine = (List<string>)o;
-                else Data.Cache["entitylook"] = mine = new List<string>();
-                foreach (string k in new List<string>(Data.Cache.Keys))
-                    if (k.StartsWith("entitydoc\n", StringComparison.Ordinal) && !before.Contains(k)) mine.Add(k);
-                while (mine.Count > LookDocs) { Data.Cache.Remove(mine[0]); mine.RemoveAt(0); }
-            }
-        }
+        public void Look(long id, Action<EntityDraft> act) { act(OpenAny(id)); }
 
         DocInfo Doc(string archive, string entry)
         {
             string key = "entitydoc\n" + archive + "\n" + entry.ToLowerInvariant();
             object o;
-            if (Data.Cache.TryGetValue(key, out o)) return (DocInfo)o;
+            if (Data.DocGet(key, out o)) return (DocInfo)o;
             DocInfo info = null;
+            long bytes = 0;
             if (Data.Exists(archive))
             {
                 M2dArchive arch = Data.Open(archive);
                 M2dEntry e = arch.Find(entry);
                 if (e != null)
                 {
-                    XmlDoc doc = XmlDoc.Parse(arch.Read(e), archive + " " + e.Name);
+                    byte[] raw = arch.Read(e);
+                    bytes = raw.Length;
+                    XmlDoc doc = XmlDoc.Parse(raw, archive + " " + e.Name);
                     if (doc.Root != null) info = new DocInfo { Doc = doc, Name = e.Name };
                 }
             }
-            Data.Cache[key] = info;
+            Data.DocPut(key, info, bytes);
             return info;
         }
 

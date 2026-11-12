@@ -99,7 +99,7 @@ namespace MS2.ModKit
         {
             string key = "setcheck-effects\n" + p.Root;
             object o;
-            if (run.Data.Cache.TryGetValue(key + "\n" + run.Plan.GetHashCode(), out o)) return (HashSet<long>)o;
+            if (run.Data.Cache.TryGetValue(key, out o) && ((KeyValuePair<int, HashSet<long>>)o).Key == run.Plan.GetHashCode()) return ((KeyValuePair<int, HashSet<long>>)o).Value;
             var place = p == Profile.KmsClient
                 ? new IdPlace { Archive = p.ArchiveIn("x:Xml.m2d"), Entry = "additional/*.xml", Rows = "additional", Key = "id" }
                 : new IdPlace { Archive = p.ArchiveIn("x:Xml.m2d"), Entry = "additionaleffect/{id}.xml" };
@@ -112,7 +112,7 @@ namespace MS2.ModKit
                 long id;
                 if (IdSpaces.Match(place, n, out text) && long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out id)) set.Add(id);
             }
-            run.Data.Cache[key + "\n" + run.Plan.GetHashCode()] = set;
+            run.Data.Cache[key] = new KeyValuePair<int, HashSet<long>>(run.Plan.GetHashCode(), set);      // one per target: an earlier plan's set goes
             return set;
         }
 
