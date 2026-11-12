@@ -1,5 +1,5 @@
 // Item stat options: the constant (fixed base stats) and static (fixed bonus lines) option rows an item names, per
-// option code and grade (the item's rarity). Random lines are not edited here yet.
+// option code and grade (the item's rarity), and the random option lines (a pick of stats per grade).
 //
 // Who reads what:
 //   client:Xml.m2d  table/itemoptionconstant.xml   <option code><rank grade? createType?><v name value/></rank>
@@ -14,6 +14,16 @@
 //                   code and grade (a second row of one code and grade stops the ingest); the item names its rows by
 //                   <option constant static> in item/<a>/<bb>/<id>.xml and the server looks a row up by code and the
 //                   item's rarity, exact grade. A static row with optionNumPick empty or "0,0" is skipped.
+//
+//   client:Xml.m2d  table/itemoptionrandom.xml   <option code statGroup levelGroupID pickCount isRarePickOne?><v name statID weight?/>
+//     (kms client)  ItemOptionRandom::Load (@0x1405d3d00): no grades; a <v> whose name is no stat or special is
+//                   dropped, weight defaults to 1, statID names a row of table/itemoptionvariation.xml (the line's
+//                   range is that row's first..last <v stat>, GetVariationRange @0x1405f63e0). GetPickCount
+//                   (@0x1405d5fe0): with isRarePickOne a grade 2 item gets 1 line and a grade 1 item none, else
+//                   pickCount. An item names its row by <option randomID>.
+//   server:Xml.m2d  itemoption/option/random/itemoptionrandom_*.xml: the static layout (RandomFiles); the item names
+//                   its rows by <option random>. The server picks a count in optionNumPick (capped at the stats
+//                   listed) and takes that many of the row's stats, each as likely; it ignores the kms weights.
 //
 // The two layouts share the codes but not always the item's pointer: a kms item's constantID is often its pick id
 // (optionID on the server), so the editor keeps the items naming a code per side.
@@ -30,7 +40,7 @@ using MS2.ModKit.Xml;
 
 namespace MS2.ModKit
 {
-    public enum OptionKind { Constant, Static }
+    public enum OptionKind { Constant, Static, Random }
 
     /// <summary>The names, files and value rules of the option tables.</summary>
     public static class ItemOptionRules
@@ -38,9 +48,9 @@ namespace MS2.ModKit
         public const string Space = "itemoption";
         /// <summary>The option codes of mods: shipped codes end at 156010201.</summary>
         public const long From = 900100000, To = 900199999;
-        public const string KmsEntry = "table/itemoptionconstant.xml";
-        public const string ConstantDir = "itemoption/constant/", StaticDir = "itemoption/option/static/";
-        public const string ConstantPrefix = ConstantDir + "itemoptionconstant_", StaticPrefix = StaticDir + "itemoptionstatic_";
+        public const string KmsEntry = "table/itemoptionconstant.xml", KmsRandomEntry = "table/itemoptionrandom.xml", KmsVariationEntry = "table/itemoptionvariation.xml";
+        public const string ConstantDir = "itemoption/constant/", StaticDir = "itemoption/option/static/", RandomDir = "itemoption/option/random/";
+        public const string ConstantPrefix = ConstantDir + "itemoptionconstant_", StaticPrefix = StaticDir + "itemoptionstatic_", RandomPrefix = RandomDir + "itemoptionrandom_";
         public const string ValueSuffix = "_value_base", RateSuffix = "_rate_base", Pick = "optionNumPick";
         public const int MaxGrade = 6;
 
@@ -53,9 +63,83 @@ namespace MS2.ModKit
             "50", "51", "52", "53", "54", "armormanual", "mergematerial", "petequipment",
         };
 
-        public static string Dir(OptionKind k) { return k == OptionKind.Constant ? ConstantDir : StaticDir; }
+        /// <summary>The random files the server reads (ItemOptionParser); itemoptionstatic_mergematerial.xml in the folder is not read.</summary>
+        public static readonly string[] RandomFiles =
+        {
+            "12", "13", "14", "15", "16", "17", "18", "19", "20", "21", "22", "30", "31", "32", "33", "34", "40", "41",
+            "50", "51", "52", "53", "54", "54_pvp", "55", "56", "accmanual", "armormanual", "pet_60", "weaponmanual",
+        };
 
-        public static string KindName(OptionKind k) { return k == OptionKind.Constant ? "constant" : "static"; }
+        public static readonly OptionKind[] Kinds = { OptionKind.Constant, OptionKind.Static, OptionKind.Random };
+
+        public static string Dir(OptionKind k) { return k == OptionKind.Constant ? ConstantDir : k == OptionKind.Static ? StaticDir : RandomDir; }
+
+        public static string KindName(OptionKind k) { return k == OptionKind.Constant ? "constant" : k == OptionKind.Static ? "static" : "random"; }
+
+        /// <summary>The kms table of a kind; null for static (the kms client has none).</summary>
+        public static string KmsEntryOf(OptionKind k) { return k == OptionKind.Constant ? KmsEntry : k == OptionKind.Random ? KmsRandomEntry : null; }
+
+        /// <summary>True for a kms option table, with its kind.</summary>
+        public static bool IsKmsEntry(string entry, out OptionKind kind)
+        {
+            string e = entry.Replace('\\', '/').ToLowerInvariant();
+            kind = e == KmsRandomEntry ? OptionKind.Random : OptionKind.Constant;
+            return e == KmsEntry || e == KmsRandomEntry;
+        }
+
+        /// <summary>The flat stats a kms random name stands for: X_value_base and X_rate_base.</summary>
+        public static bool IsFlatOf(string kmsName, string flatName)
+        {
+            return string.Equals(flatName, kmsName + ValueSuffix, StringComparison.OrdinalIgnoreCase) || string.Equals(flatName, kmsName + RateSuffix, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>The kms name of a flat stat of either suffix ("nddincrease_rate_base" -> "nddincrease"); null for another name.</summary>
+        public static string BaseName(string flatName)
+        {
+            string k = KmsName(flatName);
+            if (k != null) return k;
+            if (flatName == null || !flatName.EndsWith(RateSuffix, StringComparison.Ordinal) || flatName.Length == RateSuffix.Length) return null;
+            return flatName.Substring(0, flatName.Length - RateSuffix.Length);
+        }
+
+        /// <summary>The lines a kms random row gives an item of a grade (GetPickCount): with isRarePickOne 1 at grade 2 and 0 at grade 1, else pickCount.</summary>
+        public static int KmsPickCount(string pickCount, string rarePickOne, int grade)
+        {
+            if (Flag(rarePickOne))
+            {
+                if (grade == 2) return 1;
+                if (grade == 1) return 0;
+            }
+            uint n;
+            return uint.TryParse((pickCount ?? "").Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n) && n <= int.MaxValue ? (int)n : 0;
+        }
+
+        // TinyXml's bool: "1" or "true" (any case)
+        static bool Flag(string v) { v = (v ?? "").Trim(); return v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase); }
+
+        /// <summary>The attributes of a kms random row the editor sets, and of its &lt;v&gt; lines.</summary>
+        public static readonly string[] KmsRandomAttrs = { "pickCount", "isRarePickOne", "statGroup", "levelGroupID" };
+
+        /// <summary>Why a value does not fit an attribute of a kms random row or line; null when it does ("" removes it).</summary>
+        public static string CheckKmsRandom(string attr, string value)
+        {
+            if (string.IsNullOrEmpty(value) || value.Trim().Length == 0) return null;
+            string v = value.Trim();
+            uint n;
+            switch (attr)
+            {
+                case "isRarePickOne":
+                    return v == "0" || v == "1" ? null : attr + ": \"" + value + "\" is not 0 or 1";
+                case "levelGroupID":
+                    return IsInt(v) ? null : attr + ": \"" + value + "\" is no whole number";
+                case "pickCount": case "statGroup": case "statID": case "weight": case "probVer":
+                    if (!uint.TryParse(v, NumberStyles.None, CultureInfo.InvariantCulture, out n)) return attr + ": \"" + value + "\" is no whole number of 0 or more (the client reads an unsigned int)";
+                    if (attr == "weight" && n == 0) return "weight: 0 never picks the line (leave it empty for 1)";
+                    return null;
+                default:
+                    return null;
+            }
+        }
 
         /// <summary>The kind of a flat option file, by its folder; false for another entry.</summary>
         public static bool IsFlatEntry(string entry, out OptionKind kind)
@@ -64,6 +148,8 @@ namespace MS2.ModKit
             kind = OptionKind.Constant;
             if (!e.EndsWith(".xml", StringComparison.Ordinal)) return false;
             if (e.StartsWith(ConstantDir, StringComparison.Ordinal) && e.IndexOf('/', ConstantDir.Length) < 0) return true;
+            kind = OptionKind.Random;
+            if (e.StartsWith(RandomDir, StringComparison.Ordinal) && e.IndexOf('/', RandomDir.Length) < 0) return true;
             kind = OptionKind.Static;
             return e.StartsWith(StaticDir, StringComparison.Ordinal) && e.IndexOf('/', StaticDir.Length) < 0;
         }
@@ -72,8 +158,8 @@ namespace MS2.ModKit
         public static bool ServerReads(OptionKind kind, string entry)
         {
             string e = entry.Replace('\\', '/').ToLowerInvariant();
-            string prefix = kind == OptionKind.Constant ? ConstantPrefix : StaticPrefix;
-            foreach (string f in kind == OptionKind.Constant ? ConstantFiles : StaticFiles)
+            string prefix = kind == OptionKind.Constant ? ConstantPrefix : kind == OptionKind.Static ? StaticPrefix : RandomPrefix;
+            foreach (string f in kind == OptionKind.Constant ? ConstantFiles : kind == OptionKind.Static ? StaticFiles : RandomFiles)
                 if (e == prefix + f + ".xml") return true;
             return false;
         }
@@ -125,7 +211,7 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Why a value does not fit a cell; null when it does. An empty value removes the stat and always fits.
-        /// kms: an int. Flat constant: X_value_base an int, X_rate_base a number. Flat static: "v" or "min,max" (ints for
+        /// kms: an int. Flat constant: X_value_base an int, X_rate_base a number. Flat static and random: "v" or "min,max" (ints for
         /// a value, numbers for a rate). optionNumPick: "min,max", ints, 0 &lt;= min &lt;= max. Other attributes are text.
         /// </summary>
         public static string CheckValue(OptionKind kind, bool kms, string stat, string value)
