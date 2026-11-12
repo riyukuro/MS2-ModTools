@@ -1886,12 +1886,20 @@ What a mod can do with sound today:
   it back. A bank changed since Apply is left in place, with its record. A `.modkit-orig` that this tool did not
   write, and a `Sound` folder reached through a link, stop the apply. Banks are large (up to about 170 MB), so an
   apply with sample lines takes a few seconds per bank.
-- **Add a track.** This needs a new cue in the project's music data. That takes a writer for the `.fev` format, which
-  the mod kit does not have.
+- **Add a track: library only, not tried in game yet.** `MusicGraph` (MusicGraph.cs) reads the project's music
+  data: cue → theme → start segment → the next segment by its link. Each segment names a bank and a sample index,
+  and a loop is a segment linked to itself. For example, the login cue plays one 5 s segment and then a looping
+  one. `AddCue` adds a cue with one new theme, an optional intro segment and a looping segment, and their links.
+  It copies the settings from a cue you name, and the new ids come after the highest ones. The writer changes only
+  the music chunk and the lengths of the RIFF chunks around it. Read back with nothing added, the shipped project
+  gives the same bytes. Still to do: a mod.xml line and a plan step for it, adding the source file name list
+  (`smpf`, which only names the designer's files), adding a new sample to a bank rather than reusing an index, and
+  one run in game with a map's bgm id set to the new cue.
 
 Game audio never goes into a mod's repository or into these tests. The tests build made-up banks and projects byte
 by byte. `MS2_SOUND_DATA=<your Sound folder> dotnet test --filter Name=RealSoundFolder` checks that every bank in your
-folder reads and that its hash is in the project.
+folder reads and that its hash is in the project; `--filter Name=RealProject_ReadsAndWritesTheSameBytes` checks that
+your project's music reads and writes back byte for byte, and that a cue can be added to it.
 
 ## One mod, both sides
 
