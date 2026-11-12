@@ -36,6 +36,8 @@ namespace MS2.ModKit
             internal XmlElem Elem;              // null for an entity a mod adds
             internal string Id, Model;
             internal long Portal = -1, Spawn = -1, Trigger = -1, ToMap = -1, ToPortal = -1;
+            // the number is only the model's default (the entity does not write one): not a number it holds
+            internal bool PortalDefault, SpawnDefault, TriggerDefault;
             internal Mod AddedBy, Touched;
             internal bool Removed;
             internal XEntity New;
@@ -54,6 +56,7 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, MapEnt> ById = new Dictionary<string, MapEnt>(StringComparer.OrdinalIgnoreCase);
             internal readonly List<MapEnt> Shipped = new List<MapEnt>();
             internal readonly List<MapEnt> Added = new List<MapEnt>();
+            internal readonly Dictionary<string, string> Kinds = new Dictionary<string, string>(StringComparer.Ordinal);
         }
 
         sealed class MapRun
@@ -205,6 +208,9 @@ namespace MS2.ModKit
             me.Portal = Number(portal, flat, me.Model, "PortalID");
             me.Spawn = Number(spawn, flat, me.Model, "SpawnPointID");
             me.Trigger = Number(trigger, flat, me.Model, "TriggerObjectID");
+            me.PortalDefault = portal == null;
+            me.SpawnDefault = spawn == null;
+            me.TriggerDefault = trigger == null;
             if (me.Portal >= 0)
             {
                 me.ToMap = Number(toMap, flat, me.Model, "TargetFieldSN");
@@ -313,16 +319,39 @@ namespace MS2.ModKit
             return what == "PortalID" ? e.Portal : what == "SpawnPointID" ? e.Spawn : e.Trigger;
         }
 
+        static bool IsDefault(MapEnt e, string what)
+        {
+            return what == "PortalID" ? e.PortalDefault : what == "SpawnPointID" ? e.SpawnDefault : e.TriggerDefault;
+        }
+
+        /// <summary>The object kind of a model (TriggerXBlocks.KindOf), from the map's model listing; null for none or no listing.</summary>
+        static string KindOf(MapState ms, string model)
+        {
+            if (ms.Flat == null || model == null) return null;
+            string k;
+            if (!ms.Kinds.TryGetValue(model, out k)) ms.Kinds[model] = k = TriggerXBlocks.KindOf(ms.Flat.Get, model);
+            return k;
+        }
+
+        /// <summary>
+        /// Whether no other entity of the map has the number: the game keys them per object kind (a box and a mesh, a PC
+        /// and an NPC spawn point may share one), so entities of another known kind are not compared, and an entity
+        /// whose number is only its model's default holds none.
+        /// </summary>
         static bool NumberFree(Run run, Mod mod, MapState ms, MapEnt self, string what, long n, int line)
         {
             Plan plan = run.Plan;
+            string kind = KindOf(ms, self.Model);
             foreach (MapEnt o in AllEnts(ms))
             {
-                if (o == self || o.Removed || NumberOf(o, what) != n) continue;
+                if (o == self || o.Removed || NumberOf(o, what) != n || IsDefault(o, what)) continue;
+                string ok = KindOf(ms, o.Model);
+                if (kind != null && ok != null && ok != kind) continue;
                 if (o.AddedBy != null && o.AddedBy != mod)
                     plan.Conflict(mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is also brought by mod " + o.AddedBy.Id + " (mod.xml line " + line + ")", o.AddedBy);
                 else
-                    plan.Msg(plan.Errors, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is already used in this map by entity " + o.Id + "; nothing is added (mod.xml line " + line + ")");
+                    plan.Msg(plan.Errors, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is already used in this map by entity " + o.Id
+                        + (self.Elem != null ? "; the change is not made" : "; nothing is added") + " (mod.xml line " + line + ")");
                 return false;
             }
             long from, to;
@@ -448,7 +477,8 @@ namespace MS2.ModKit
             {
                 if (s.Index != null || (s.Name != "PortalID" && s.Name != "SpawnPointID" && s.Name != "TriggerObjectID")) continue;
                 long n = Number(s.Value, ms.Flat, me.Model, s.Name);
-                if (n >= 0 && n != NumberOf(me, s.Name) && !NumberFree(run, mod, ms, me, s.Name, n, op.Line)) return;
+                // an unset gives the entity the model's default back: that holds no number
+                if (s.Value != null && n >= 0 && (n != NumberOf(me, s.Name) || IsDefault(me, s.Name)) && !NumberFree(run, mod, ms, me, s.Name, n, op.Line)) return;
                 if (s.Name == "PortalID") portal = n; else if (s.Name == "SpawnPointID") spawn = n; else trigger = n;
             }
 
@@ -514,6 +544,13 @@ namespace MS2.ModKit
                 else st.Ed.Append(me.Elem, text, Indent(ms, 3));
             }
             ModelChecks(run, mr, mod, ms, me.Model, check, MapOpKind.Change, op.Line);
+            foreach (MapSet s in op.Sets)
+                if (s.Index == null)
+                {
+                    if (s.Name == "PortalID") me.PortalDefault = s.Value == null;
+                    else if (s.Name == "SpawnPointID") me.SpawnDefault = s.Value == null;
+                    else if (s.Name == "TriggerObjectID") me.TriggerDefault = s.Value == null;
+                }
             me.Touched = mod; me.Portal = portal; me.Spawn = spawn; me.Trigger = trigger;
             foreach (MapSet s in op.Sets)
             {

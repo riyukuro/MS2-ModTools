@@ -218,7 +218,7 @@ namespace MS2.ModKit.Tests
             using (var f = new FakeMaps())
             {
                 var ed = new MapEditor(f.Data, null);
-                XEntity crate = ed.Shipped(FakeMaps.MapUpper).Single();
+                XEntity crate = ed.Shipped(FakeMaps.MapUpper).Single(e => e.Model == "Crate_A");
                 Assert.That(crate.Id, Is.EqualTo(FakeMaps.Crate2.ToUpperInvariant()));
                 Mod mod = f.Mod("up", "");
                 MapEditor.Set(mod, FakeMaps.MapUpper, crate, "Position", null, "7, 7, 7");
@@ -242,6 +242,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }));
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "spawnpoint"), Is.EqualTo(new[] { "SpawnPointNPC", "SpawnPointNPC_A", "SpawnPoint_A" }));
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "portal"), Is.Empty, "named like one but without the property");
+                Assert.That(ed.SpawnModels(FakeMaps.MapUpper), Is.EqualTo(new[] { "SpawnPoint_A" }), "Add spawn point leaves the NPC spawn models out");
             }
         }
 
@@ -519,6 +520,11 @@ namespace MS2.ModKit.Tests
                 Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "x", "TriggerBox_A", null, "1, 2"), "three sizes");
                 Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "x", "TriggerBox_A", null, "1, 0, 2"), "above 0");
                 Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "gate", "TriggerBox_A", null, null), "a name is used once");
+                foreach (string d in new[] { "0.00001, 1, 1", "1, 2, 3, 4", "-1, 2, 3", "1,5, 2, 3", "1e7, 1, 1" })
+                    Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "x", "TriggerBox_A", null, d), d);
+                Assert.Throws<ModKitException>(() => ed.AddSpawn(mod, 90000001, X, "x", "SpawnPointNPC_A", null), "an NPC spawn point is added as one");
+                Assert.That(new[] { ed.NewLabel(npc), ed.NewLabel(sp), ed.NewLabel(io), ed.NewLabel(box) },
+                    Is.EqualTo(new[] { "NPC spawn point 140000", "spawn point 140001", "interact object", "trigger box 170000" }));
                 Assert.That(MapEditor.NewOps(mod, X).Count, Is.EqualTo(5));
 
                 List<MapPropRow> rows = ed.RowsOfNew(npc);
@@ -533,7 +539,23 @@ namespace MS2.ModKit.Tests
                 Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, box, "TriggerObjectID", null, "x"));
                 Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, npc, "SpawnPointID", "0", "1"));
                 ed.SetNew(mod, X, npc, "NpcList", "21000002", "1");
+                Assert.That(ed.RowsOfNew(npc).Single(r => r.Name == "NpcCount").Current, Is.EqualTo("3"), "NpcCount follows the NpcList sum");
                 ed.SetNew(mod, X, io, "interactID", null, "10000124");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, io, "interactID", null, null), "an interact object keeps its interactID");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, io, "interactID", null, "0"));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, io, "interactID", null, "x"));
+                // sizes as typed: an exponent is read, the number written without one
+                ed.SetNew(mod, X, box2, "ShapeDimensions", null, "1e2, 0.5, 2");
+                Assert.That(ed.RowsOfNew(box2).Single(r => r.Name == "ShapeDimensions").Current, Is.EqualTo("100, 0.5, 2"));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, box2, "ShapeDimensions", null, "1, 2"));
+                // a position is three numbers
+                foreach (string bad in new[] { "1, 2", "1, 2, 3, 4", "a, 2, 3", "1, 2, " })
+                {
+                    Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, box2, "Position", null, bad), bad);
+                    Assert.Throws<ModKitException>(() => ed.AddSpawn(mod, 90000001, X, "p", "SpawnPoint_A", bad), bad);
+                }
+                ed.SetNew(mod, X, box2, "Position", null, "-1.5, 2e1,0");
+                Assert.That(ed.RowsOfNew(box2).Single(r => r.Name == "Position").Current, Is.EqualTo("-1.5, 20, 0"));
 
                 Plan p = f.Plan(mod);
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
@@ -566,6 +588,47 @@ namespace MS2.ModKit.Tests
 
                 MapEditor.RemoveNew(mod, X, box);
                 Assert.That(ed.NextNumber(mod, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom), "a removed one frees its number");
+            }
+        }
+
+        [Test]
+        public void TriggerObjectNumbersArePerKindAndAModelDefaultHoldsNone()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                const string X = FakeMaps.MapUpper;
+                const long Id = 90000006;
+                XEntity mesh1 = ed.Shipped(X).Single(e => e.Name == "Mesh_1"), mesh2 = ed.Shipped(X).Single(e => e.Name == "Mesh_2");
+                Assert.That(ed.ObjectKind("TriggerMesh_A"), Is.EqualTo("mesh"));
+                Assert.That(ed.ObjectKind("TriggerBox_A"), Is.EqualTo("box"));
+
+                // a box may have the number a shipped mesh has: the game keys the numbers per kind
+                Mod mod = f.Mod("kind", "");
+                MapEntityOp box = ed.AddTriggerBox(mod, Id, X, "gate", "TriggerBox_A", null, null);
+                ed.SetNew(mod, X, box, "TriggerObjectID", null, "170000");
+                Plan p = f.Plan(mod);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+
+                // a hand-written mesh with the shipped mesh's number is caught
+                Mod hand = f.Mod("hand", "<map xblock=\"" + X + "\"><add name=\"m\" model=\"TriggerMesh_A\" entity-name=\"M_9\">"
+                    + "<property name=\"TriggerObjectID\" value=\"170000\" /></add></map>");
+                p = f.Plan(hand);
+                Assert.That(p.Errors.Select(x => x.ToString()).Count(x => x.Contains("TriggerObjectID 170000 is already used in this map")), Is.EqualTo(3), Fake.Dump(p));
+
+                // a <change> that gives one mesh the other's number fails; one that unsets it (back to the default) plans
+                Mod change = f.Mod("change", "");
+                MapEditor.Set(change, X, mesh1, "TriggerObjectID", null, "170000");
+                p = f.Plan(change);
+                Assert.That(p.Errors.Select(x => x.ToString()).Count(x => x.Contains("TriggerObjectID 170000 is already used in this map")), Is.EqualTo(3), Fake.Dump(p));
+                Mod unset = f.Mod("unset", "");
+                MapEditor.Set(unset, X, mesh2, "TriggerObjectID", null, null);
+                p = f.Plan(unset);
+                Assert.That(p.Errors, Is.Empty, "Mesh_1 sits on the model's default too; a default holds no number: " + Fake.Dump(p));
+                // and the freed 170000 can then go to the other mesh
+                MapEditor.Set(unset, X, mesh1, "TriggerObjectID", null, "170000");
+                p = f.Plan(unset);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
             }
         }
 

@@ -324,6 +324,27 @@ namespace MS2.ModKit
             foreach (FlatMixin x in m.Mixins) Closure(raw, (x.Name ?? "").ToLowerInvariant(), seen);
         }
 
+        /// <summary>
+        /// The object kind of a model (interact, portal, pc_spawn, npc_spawn, box, mesh, ...; null for none), its mixins
+        /// read through <paramref name="get"/>. The game keys the per-map numbers per kind: a box and a mesh, or a PC
+        /// and an NPC spawn point, can have the same number.
+        /// </summary>
+        public static string KindOf(Func<string, FlatModel> get, string model)
+        {
+            if (model == null) return null;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var todo = new Stack<string>();
+            todo.Push(model);
+            while (todo.Count > 0)
+            {
+                string n = todo.Pop();
+                if (n == null || !seen.Add(n.ToLowerInvariant())) continue;
+                FlatModel m = get(n);
+                if (m != null) foreach (FlatMixin x in m.Mixins) todo.Push(x.Name);
+            }
+            return Classify(seen);
+        }
+
         /// <summary>The object kind of a model whose mixins (lower case, the model itself included) are these.</summary>
         static string Classify(HashSet<string> m)
         {

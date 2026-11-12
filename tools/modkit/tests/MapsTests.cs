@@ -15,7 +15,8 @@ namespace MS2.ModKit.Tests
     public sealed class FakeMaps : IDisposable
     {
         public const string Crate1 = "10000000000000000000000000000001", Spawn1 = "20000000000000000000000000000002",
-            Portal1 = "30000000000000000000000000000003", Crate2 = "f000000000000000000000000000000f";
+            Portal1 = "30000000000000000000000000000003", Crate2 = "f000000000000000000000000000000f",
+            Mesh1 = "40000000000000000000000000000004", Mesh2 = "50000000000000000000000000000005";
         public const string MapA = "90000001_ab", MapB = "90000002_ab";
         // MapLoose: a map file no row of the map table names. MapTwo: one of the two map files of map 90000005.
         public const string MapLoose = "90000004_ab", MapTwo = "90000005_ab";
@@ -91,6 +92,9 @@ namespace MS2.ModKit.Tests
             E("flat/b/ms2triggerobject.flat", Flat("MS2TriggerObject", 8, "Position", "Point3", "0, 0, 0", "TriggerObjectID", "SInt32", "0")),
             E("flat/b/ms2triggerbox.flat", FlatMix("MS2TriggerBox", 9, new[] { "MS2TriggerObject" }, "ShapeDimensions", "Point3", "100, 100, 100")),
             E("flat/b/triggerbox_a.flat", FlatMix("TriggerBox_A", 10, new[] { "MS2TriggerBox" })),
+            // a trigger mesh: another kind of trigger object, its numbers a space of their own
+            E("flat/b/ms2triggermesh.flat", FlatMix("MS2TriggerMesh", 11, new[] { "MS2TriggerObject" })),
+            E("flat/b/triggermesh_a.flat", FlatMix("TriggerMesh_A", 12, new[] { "MS2TriggerMesh" })),
         };
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
@@ -105,7 +109,10 @@ namespace MS2.ModKit.Tests
             list.Add(E("xblock/" + MapLoose + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/" + MapTwo + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/90000005_cd.xblock", XBlock.Bytes(B(), XDialect.Tab)));
-            list.Add(E("xblock/" + MapUpper + ".xblock", XBlock.Bytes(new List<XEntity> { Ent(Crate2.ToUpperInvariant(), "Crate_A", "Crate_U_1", "Position", "0, 0, 150") }, XDialect.Tab)));
+            // MapUpper also has two trigger meshes: one on the model's default number, one with 170000
+            list.Add(E("xblock/" + MapUpper + ".xblock", XBlock.Bytes(new List<XEntity> { Ent(Crate2.ToUpperInvariant(), "Crate_A", "Crate_U_1", "Position", "0, 0, 150"),
+                Ent(Mesh1, "TriggerMesh_A", "Mesh_1", "Position", "600, 0, 150"),
+                Ent(Mesh2, "TriggerMesh_A", "Mesh_2", "Position", "750, 0, 150", "TriggerObjectID", "170000") }, XDialect.Tab)));
             list.Add(E("texture/made_up.bin", new byte[] { 1, 2, 3, 4, 5, 6, 7, 8 }));
             M2dWriter.Create(Path.Combine(Path.Combine(dir, "Resource"), "Exported.m2d"), gms ? PackVersion.MS2F : PackVersion.NS2F, M2dFlag.AesZlib, list);
         }
@@ -224,7 +231,7 @@ namespace MS2.ModKit.Tests
         public void MapToEditorFileAndBack(XDialect dialect)
         {
             FlatIndex ix = FlatIndex.FromFlats(FakeMaps.Flats);
-            Assert.That(ix.Count, Is.EqualTo(10));
+            Assert.That(ix.Count, Is.EqualTo(12));
             byte[] shipped = XBlock.Bytes(FakeMaps.A(false), dialect);
             Assert.That(XBlock.DetectDialect(shipped), Is.EqualTo(dialect));
             string dir = Path.Combine(Path.GetTempPath(), "modkit-mapconv-" + Guid.NewGuid().ToString("N"));
@@ -991,7 +998,7 @@ namespace MS2.ModKit.Tests
                             else if (e.Name == FakeMaps.EntryB) Assert.That(made.Read(e.Name), Is.Not.EqualTo(orig.Read(e)));
                             else { Assert.That(made.ReadRaw(made.Find(e.Name)), Is.EqualTo(orig.ReadRaw(e)), e.Name); same++; }
                         }
-                        Assert.That(same, Is.EqualTo(15));      // ten models, four maps no mod names, the other file: stored bytes untouched
+                        Assert.That(same, Is.EqualTo(17));      // twelve models, four maps no mod names, the other file: stored bytes untouched
                     }
 
                 // a second apply of the same mod writes the same files

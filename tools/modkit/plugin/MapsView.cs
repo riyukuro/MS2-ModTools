@@ -509,7 +509,7 @@ namespace MS2.Tables
                     {
                         added++;
                         string kind = op.Kind == MapOpKind.Spawn ? "spawn point " : op.Kind == MapOpKind.Portal ? "portal " : "";
-                        string idText = op.Kind == MapOpKind.Add ? "(new)" : "(new " + kind + op.Number.ToString(CultureInfo.InvariantCulture) + ")";
+                        string idText = "(new " + Editor().NewLabel(op) + ")";
                         if (find.Length > 0 && !Has(op.Name, find) && !Has(op.Model, find) && !Has(idText, find) && !Has(op.NewId, find)) continue;
                         matched++;
                         shown++;
@@ -583,8 +583,7 @@ namespace MS2.Tables
                 List<MapPropRow> rows;
                 if (newOp != null)
                 {
-                    entityLabel.Text = newOp.Name + " (new " + (newOp.Kind == MapOpKind.Spawn ? "spawn point " : newOp.Kind == MapOpKind.Portal ? "portal " : "entity ")
-                        + (newOp.Kind == MapOpKind.Add ? "" : newOp.Number.ToString(CultureInfo.InvariantCulture)) + ")";
+                    entityLabel.Text = newOp.Name + " (new " + Editor().NewLabel(newOp) + ")";
                     rows = Editor().RowsOfNew(newOp);
                     if (newOp.Kind == MapOpKind.Spawn)
                         rows.Add(new MapPropRow { Name = MapEditor.ServerRow, Index = newOp.Rows.Count.ToString(CultureInfo.InvariantCulture), Type = "server" });   // the next row to add
@@ -713,7 +712,7 @@ namespace MS2.Tables
             long number = 0;
             host.RunOutside("reading the models of " + file, delegate
             {
-                models = portal ? ed.ModelsWith(file, "PortalID", "portal") : ed.ModelsWith(file, "SpawnPointID", "spawnpoint");
+                models = portal ? ed.ModelsWith(file, "PortalID", "portal") : ed.SpawnModels(file);
                 number = ed.NextNumber(mod, file, portal);
             }, delegate
             {
@@ -775,7 +774,7 @@ namespace MS2.Tables
                 if (kind == MapEditor.NpcSpawn)
                 {
                     row("NPC id", aBox, "The id of the NPC that spawns there (a row of the NPC table): NpcList [NPC id]");
-                    row("Count", bBox, "How many of the NPC spawn there: the NpcList value and NpcCount");
+                    row("Count", bBox, "How many of the NPC spawn there: the NpcList value; NpcCount follows the sum of the NpcList values");
                 }
                 else if (kind == MapEditor.Interact)
                     row("interactID", aBox, "The id of the object's row in the interact object table (several entities may share it)");
@@ -819,7 +818,7 @@ namespace MS2.Tables
                 if (dlg.ShowDialog(this) != DialogResult.OK || made == null) return;
                 entity = null;
                 newOp = made;
-                Edited("added " + kind.Label + " " + made.Name + (number >= 0 ? " (" + kind.Number + " " + number.ToString(CultureInfo.InvariantCulture) + ")" : "") + " to " + file);
+                Edited("added " + made.Name + " (" + ed.NewLabel(made) + ") to " + file);
             }
         }
 

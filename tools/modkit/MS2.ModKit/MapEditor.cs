@@ -371,6 +371,16 @@ namespace MS2.ModKit
         /// The models of the map file's shipped entities whose model has the property (most used first). When none has it and a
         /// hint is given: the models of the listing whose file name holds the hint and that have the property (at most 40).
         /// </summary>
+        /// <summary>The models Add spawn point offers: those with SpawnPointID that are not an NPC or player spawn point.</summary>
+        public List<string> SpawnModels(string xblock)
+        {
+            List<string> res = ModelsWith(xblock, "SpawnPointID", "spawnpoint");
+            res.RemoveAll(IsNpcOrPcSpawn);
+            return res;
+        }
+
+        bool IsNpcOrPcSpawn(string model) { return HasMixin(model, NpcSpawn.Mixin) || HasMixin(model, "SpawnPointPC"); }
+
         public List<string> ModelsWith(string xblock, string prop, string hint = null)
         {
             var count = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -444,14 +454,35 @@ namespace MS2.ModKit
         /// </summary>
         HashSet<long> UsedNumbers(Mod mod, string xblock, string prop, MapEntityOp except)
         {
+            // the game keys the numbers per object kind: for one entity's number only the same kind counts (as at Plan)
+            string kind = except == null ? null : ObjectKind(except.Model);
+            Predicate<string> other = delegate (string model)
+            {
+                string k = kind == null ? null : ObjectKind(model);
+                return k != null && k != kind;
+            };
             var used = new HashSet<long>();
             List<XEntity> l = Shipped(xblock);
-            if (l != null) foreach (XEntity e in l) { long v = Scalar(e, prop); if (v >= 0) used.Add(v); }
+            if (l != null) foreach (XEntity e in l) { long v = Scalar(e, prop); if (v >= 0 && !other(e.Model)) used.Add(v); }
             MapOp m = mod == null ? null : MapOf(mod, xblock);
             if (m == null) return used;
+            Dictionary<string, XEntity> byId = null;
             foreach (MapEntityOp op in m.Ops)
             {
                 if (op == except) continue;
+                string model = op.Model;
+                if (!IsNew(op) && kind != null)
+                {
+                    // a <change> or <remove> of a shipped entity: the shipped one's model
+                    if (byId == null)
+                    {
+                        byId = new Dictionary<string, XEntity>(StringComparer.OrdinalIgnoreCase);
+                        if (l != null) foreach (XEntity e in l) if (e.Id != null) byId[e.Id] = e;
+                    }
+                    XEntity se;
+                    if (op.Id != null && byId.TryGetValue(op.Id, out se)) model = se.Model;
+                }
+                if (other(model)) continue;
                 long v;
                 if (IsNew(op))
                 {
@@ -498,7 +529,24 @@ namespace MS2.ModKit
         /// <summary>Whether the model is the mixin or has it among its mixins, at any depth.</summary>
         public bool HasMixin(string model, string mixin)
         {
-            return HasMixin(model, mixin, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            if (model == null || mixin == null) return false;
+            bool r;
+            string key = model + "|" + mixin.ToLowerInvariant();
+            if (!mixins.TryGetValue(key, out r)) mixins[key] = r = HasMixin(model, mixin, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            return r;
+        }
+
+        readonly Dictionary<string, bool> mixins = new Dictionary<string, bool>(StringComparer.Ordinal);
+        readonly Dictionary<string, string> kinds = new Dictionary<string, string>(StringComparer.Ordinal);
+
+        /// <summary>The object kind of a model (TriggerXBlocks.KindOf: npc_spawn, box, mesh, ...); null for none.</summary>
+        public string ObjectKind(string model)
+        {
+            if (model == null) return null;
+            string k;
+            if (!kinds.TryGetValue(model, out k))
+                kinds[model] = k = TriggerXBlocks.KindOf(delegate (string n) { return ReadModel(n) ?? ReadModelAnyCase(n); }, model);
+            return k;
         }
 
         bool HasMixin(string model, string mixin, HashSet<string> seen)
@@ -516,6 +564,17 @@ namespace MS2.ModKit
             ListFlats();
             M2dEntry f;
             return flats.TryGetValue(name, out f) ? ParseFlat(f) : null;
+        }
+
+        /// <summary>What a new entity is, with its number: "spawn point 140000", "NPC spawn point 140001", "interact object", "entity".</summary>
+        public string NewLabel(MapEntityOp op)
+        {
+            if (op.Kind == MapOpKind.Spawn) return "spawn point " + D(op.Number);
+            if (op.Kind == MapOpKind.Portal) return "portal " + D(op.Number);
+            AddKind k = KindOf(op);
+            if (k == null) return "entity";
+            XProp p = k.Number == null ? null : op.Props.Find(delegate (XProp x) { return x.Name == k.Number; });
+            return k.Label + (p != null && p.Scalar ? " " + p.Items[0].Value : "");
         }
 
         /// <summary>The kind a new entity's model is of (null: none of AddKinds).</summary>
@@ -612,6 +671,22 @@ namespace MS2.ModKit
 
         static string D(long v) { return v.ToString(CultureInfo.InvariantCulture); }
 
+        /// <summary>A position "x, y, z": three numbers, written without an exponent.</summary>
+        static string Point3(string s)
+        {
+            string[] parts = s.Split(',');
+            var o = new List<string>();
+            foreach (string part in parts)
+            {
+                double v;
+                if (!double.TryParse(part.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v) || !(Math.Abs(v) <= 10000000))
+                { o = null; break; }
+                o.Add(v.ToString("0.######", CultureInfo.InvariantCulture));
+            }
+            if (o == null || o.Count != 3) throw new ModKitException("Position takes three numbers split by commas (as 150, -300, 0), not \"" + s + "\"");
+            return string.Join(", ", o.ToArray());
+        }
+
         /// <summary>"x, y, z": three numbers above 0, written as the shipped maps write them.</summary>
         static string Dimensions(string s)
         {
@@ -620,17 +695,19 @@ namespace MS2.ModKit
             foreach (string part in parts)
             {
                 double v;
-                if (!double.TryParse(part.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v) || !(v > 0) || double.IsInfinity(v))
+                if (!double.TryParse(part.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v) || !(v >= 0.001) || !(v <= 1000000))
                 { o = null; break; }
-                o.Add(v.ToString("R", CultureInfo.InvariantCulture));
+                o.Add(v.ToString("0.######", CultureInfo.InvariantCulture));      // never the exponent form
             }
-            if (o == null || o.Count != 3) throw new ModKitException("ShapeDimensions takes three sizes above 0 split by commas (as 300, 300, 200), not \"" + s + "\"");
+            if (o == null || o.Count != 3) throw new ModKitException("ShapeDimensions takes three sizes from 0.001 to 1000000 split by commas (as 300, 300, 200), not \"" + s + "\"");
             return string.Join(", ", o.ToArray());
         }
 
         /// <summary>A new spawn point: a &lt;spawn&gt; op with the next free SpawnPointID; it has no server row yet.</summary>
         public MapEntityOp AddSpawn(Mod mod, long mapId, string xblock, string name, string model, string position)
         {
+            if (model != null && IsNpcOrPcSpawn(model))
+                throw new ModKitException("the model " + model + " is an NPC or player spawn point, which takes no spawn rows; use Add other... > NPC spawn point for an NPC");
             long n = NextNumber(mod, xblock, false);
             MapEntityOp op = NewOp(mod, mapId, xblock, MapOpKind.Spawn, name, model, "SpawnPointID", position);
             op.Number = n;
@@ -662,7 +739,7 @@ namespace MS2.ModKit
             if (of != null && !HasMixin(model, of.Mixin)) throw new ModKitException("the model " + model + " is not a " + of.Label + " model (it has no mixin " + of.Mixin + ")");
             if (needs != null && fm.Prop(needs) == null) throw new ModKitException("the model " + model + " has no property " + needs + "; pick a " + (kind == MapOpKind.Spawn ? "spawn point" : "portal") + " model");
             var op = new MapEntityOp { Kind = kind, Name = name, Model = model, EntityName = name };
-            if (!string.IsNullOrEmpty(position)) op.Props.Add(new XProp("Position", position.Trim()));
+            if (!string.IsNullOrEmpty(position)) op.Props.Add(new XProp("Position", Point3(position)));
             MapOp m = MapOf(mod, xblock);
             // the server rows of a spawn need the map id; a <map> that names one (or has spawns already) keeps it
             if (m != null && mapId > 0 && m.EffectiveMapId >= 0 && m.EffectiveMapId != mapId
@@ -828,6 +905,20 @@ namespace MS2.ModKit
                 RefuseUsed(mod, xblock, op, name, n);
                 value = D(n);
             }
+            if (op.Kind == MapOpKind.Add && p != null && name == "interactID" && HasMixin(op.Model, Interact.Mixin))
+            {
+                // the interact object row of an added interact object: another row, never none
+                if (index != null) throw new ModKitException("the property interactID is a plain value; leave the index out");
+                if (value == null) throw new ModKitException("the new interact object needs its interactID; set another one, it cannot be unset");
+                long n = Number(name, value);
+                if (n == 0) throw new ModKitException("give the interactID of the object (a row of the interact object table)");
+                value = D(n);
+            }
+            // the position of a new entity: three numbers, as the add buttons take it
+            if (name == "Position" && index == null && value != null) value = Point3(value);
+            // the size of an added trigger box: checked and written the way Add trigger box does
+            if (op.Kind == MapOpKind.Add && name == "ShapeDimensions" && index == null && value != null && HasMixin(op.Model, TriggerBox.Mixin))
+                value = Dimensions(value);
             if (p == null && value != null)
             {
                 // a property the entity does not have yet: the model must have it, with an index only on a list
@@ -848,6 +939,7 @@ namespace MS2.ModKit
                 if (p == null) return;
                 p.Items.RemoveAll(delegate (XSet s) { return s.Index == index; });
                 if (p.Items.Count == 0) { op.Props.Remove(p); if (op.Order != null) op.Order.Remove(name); }
+                if (name == "NpcList") NpcCountInStep(op);
                 return;
             }
             if (p == null)
@@ -857,6 +949,23 @@ namespace MS2.ModKit
             }
             int at = p.Items.FindIndex(delegate (XSet s) { return s.Index == index; });
             if (at >= 0) p.Items[at] = new XSet(index, value); else p.Items.Add(new XSet(index, value));
+            if (name == "NpcList") NpcCountInStep(op);
+        }
+
+        /// <summary>NpcCount of an added NPC spawn point is the sum of its NpcList counts (when it has one and they are numbers).</summary>
+        static void NpcCountInStep(MapEntityOp op)
+        {
+            XProp list = op.Props.Find(delegate (XProp x) { return x.Name == "NpcList"; });
+            int at = op.Props.FindIndex(delegate (XProp x) { return x.Name == "NpcCount"; });
+            if (op.Kind != MapOpKind.Add || list == null || at < 0 || !op.Props[at].Scalar) return;
+            long sum = 0, v;
+            foreach (XSet s in list.Items)
+            {
+                if (!long.TryParse(s.Value, NumberStyles.None, CultureInfo.InvariantCulture, out v)) return;
+                sum += v;
+            }
+            if (sum > int.MaxValue) return;
+            op.Props[at] = new XProp("NpcCount", D(sum));
         }
 
         /// <summary>The per-map numbers: an added entity that has one keeps it (it can be changed, not unset).</summary>

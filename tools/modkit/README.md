@@ -1225,14 +1225,16 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   entity's `<change>`; **Restore entity** takes every edit of the entity out of the mod.
 - **Add spawn point** and **Add portal** ask for a name (the op's name, unique in the map file), a model, a position
   and, for a portal, the map and the portal it leads to. The models offered are the spawn or portal models of the
-  map file's entities, most used first; on a file without one, the models of the listing named like one. The
+  map file's entities, most used first; on a file without one, the models of the listing named like one (NPC and
+  player spawn models are not offered: an NPC spawn point is added with **Add other...**). The
   position starts as the chosen entity's. The number (`point` or `id`) is the next free one of the mod range (see
   [Reserved numbers](#reserved-numbers)). The new entity is written as a `<spawn>` or `<portal>` and listed as
   `new`; choosing it lists the values it writes (the number, for a portal `TargetFieldSN` and `TargetPortalID`,
   the properties) and, for a spawn point, its server rows. Set and Unset edit them the same way as on a shipped
   entity, but on the mod's own values: there is no shipped value and no `old`. A property the entity does not have
-  yet must be one of its model's (an index only on a list); a name with a comma is refused. The numbers can be set
-  to another one, not unset, and not to one a shipped entity or another edit of the mod already uses in the file.
+  yet must be one of its model's (an index only on a list); a name with a comma is refused. A position is three
+  numbers. The numbers can be set to another one, not unset, and not to one a shipped entity or another edit of the
+  mod already uses in the file for the same kind of object.
   **Remove entity** takes the new entity out of the mod again; Restore entity has nothing to undo on it.
   Hand-written `<add>` entities of the mod are listed and edited the same way, with the same checks. A new
   entity's row also shows when the filter text is in its id column (`new spawn point 140000`).
@@ -1243,7 +1245,9 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   an interact object, the size (`ShapeDimensions`, empty: the model's) for a trigger box. An NPC spawn point takes
   the next free `SpawnPointID` and a trigger box the next free `TriggerObjectID` of the mod range (see
   [Reserved numbers](#reserved-numbers)). The model must have the kind's mixin. The entity is written as a plain
-  `<add>`, listed as `new` and edited, removed and planned like the added spawn points and portals.
+  `<add>`, listed as `new` and edited, removed and planned like the added spawn points and portals. On an NPC
+  spawn point `NpcCount` follows the sum of the `NpcList` values when they change; an interact object's
+  `interactID` can be changed but not unset; a trigger box's size is three numbers from 0.001 to 1000000.
 - A spawn place spawns nothing without a server row. The property `(server row)` holds them: index 0 is the first
   row, the value is the row's attributes as `key=value` pairs (`tag=wolf population=3 coolTime=20`); a value with
   spaces goes in double quotes (`note="two words"`), and the quotes are not part of it. A key must be an XML
@@ -1281,8 +1285,10 @@ Numbers inside a map must not collide with the game's own or with another mod's.
 
 The spawn range is shared: an added NPC spawn point's `SpawnPointID` is taken from it too.
 
-Both are read by the client as whole numbers of 32 bits, so the ranges fit. A number outside the range is allowed
-and gives a warning. A number that is already used on the map is an error.
+All are read by the client as whole numbers of 32 bits, so the ranges fit. A number outside the range is allowed
+and gives a warning. A number that is already used on the map by an object of the same kind is an error: the game
+keeps the numbers of each kind apart (a trigger box and a trigger mesh, or a player and an NPC spawn point, may have
+the same one). A number that is only the model's default (an entity that stores none) holds no number.
 
 ### Applying: each client and the server
 
