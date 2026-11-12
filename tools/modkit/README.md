@@ -1006,6 +1006,40 @@ shows the rows of one map as a grid.
 A row is only half of a spawn: the map needs a spawn point with the same number (add it in the Maps view), and the
 server must ingest again before it uses the row.
 
+## Global drops
+
+The **MS2 Global drops** view (menu **MS2 Mods > Global drops**) edits the server's global drop tables, so a mod can
+add an item to what monsters drop. There are two tables in the server's archive: a **global drop box**
+(`table/Server/globalDropItemBox_Final.xml`) is what an NPC names in `globalDropBoxId` of its `dropiteminfo` (set it
+in the NPCs view), and each of its lines draws from one **item group** (`table/Server/globalDropItemSet_Final.xml`),
+a list of items. The drop boxes an item or a quest opens (individual drop boxes) are edited in the Shops and Drops
+view.
+
+1. Choose **drop boxes** or **item groups**, and **Find** by a part of the id, of the comment or of an item id (a
+   box is found through the items of its groups); an empty box lists all. What the mod changes comes first.
+2. A drop box shows one line per item group: `minLevel` and `maxLevel` (the monster levels the line is for),
+   `dropCount` (how many items, a list such as `0,1`) and `dropCountProbability` (the chance of each count in
+   1/10000, such as `9000,1000`), and the map conditions. The last column says what the group holds; **Open group**
+   shows it.
+3. An item group shows one line per item, with its name: `minLevel` and `maxLevel`, `minCount` and `maxCount` (the
+   count range), `weight` (how often the item is drawn against the others of the group), `grade` (the rarity, 1 to
+   6) and the conditions. A changed cell is bold.
+4. **Add line** adds the item whose id is in the box to the group shown, or a line for the item group with that id
+   to the drop box shown. **Clone line** copies the selected line, **Remove / restore line** deletes it or brings a
+   shipped one back, **Undo changes** makes a shipped line as shipped.
+5. **New** adds an empty drop box or item group and **Copy** one with the lines of the one shown, under the id and
+   comment in the boxes (no id = the next free one). **Remove / restore** deletes the whole box or group, or brings
+   a shipped one back.
+6. **Save mod**, then **Plan**. The plan checks every box and group the mods add or change. Errors: an id the table
+   ends up with twice, an item the server does not have, and a line of a drop box for an item group that the final
+   table lacks. Warnings: a field that is not a whole number, a `grade` outside 1 to 6, a `minCount` above
+   `maxCount` or a `minLevel` above `maxLevel`, a count list and a chance list of different lengths, a group whose
+   weights are all 0, an empty box or group, and a new group that no drop box names.
+
+For example, to make the monsters of drop box 9300001 drop item 50100001: open the box, **Open group** on one of
+its lines (or **New** group 9400009 and **Add line** 9400009 to the box), type 50100001, **Add line**, set `weight`
+and `grade`, **Save mod**, **Plan**, **Apply**. The server must ingest again before it uses the tables.
+
 ## Quests
 
 The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,

@@ -138,6 +138,11 @@
           class="MS2.Tables.SpawnsView"
           default-dock="Document"
           default-visible="true"/>
+    <view id="MS2.Tables.GlobalDropsView"
+          name="MS2 Global drops"
+          class="MS2.Tables.GlobalDropsView"
+          default-dock="Document"
+          default-visible="true"/>
     <view id="MS2.Tables.ItemOptionsView"
           name="MS2 Item options"
           class="MS2.Tables.ItemOptionsView"
@@ -182,6 +187,7 @@
       <menuitem id="MS2.Tables.Menu.ShowItemSets" action="MS2.Tables.ShowItemSetsAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowDungeons" action="MS2.Tables.ShowDungeonsAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowSpawns" action="MS2.Tables.ShowSpawnsAction" path="MS2 Mods" priority="18"/>
+      <menuitem id="MS2.Tables.Menu.ShowGlobalDrops" action="MS2.Tables.ShowGlobalDropsAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowRecipes" action="MS2.Tables.ShowRecipesAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowQuests" action="MS2.Tables.ShowQuestsAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowDialogue" action="MS2.Tables.ShowDialogueAction" path="MS2 Mods" priority="18"/>
@@ -203,6 +209,7 @@
       <action label="Item sets" tooltip="Shows the MS2 Item sets view: the item sets with their items and set bonuses on the kms client and the server, with add and clone under reserved ids" handler="MS2.Tables.ShowItemSetsAction" id="MS2.Tables.ShowItemSetsAction"/>
       <action label="Dungeons" tooltip="Shows the MS2 Dungeons view: the dungeon rooms with their maps, limits and rewards on the kms client and the server, with add and clone under reserved ids" handler="MS2.Tables.ShowDungeonsAction" id="MS2.Tables.ShowDungeonsAction"/>
       <action label="Spawns" tooltip="Shows the MS2 Spawns view: what spawns at the spawn points of a map (tag, population, cool time), on the server and the kms client, with add, clone and remove" handler="MS2.Tables.ShowSpawnsAction" id="MS2.Tables.ShowSpawnsAction"/>
+      <action label="Global drops" tooltip="Shows the MS2 Global drops view: the server's global drop boxes and their item groups (item, levels, count range, weight, rarity), with add, clone and remove" handler="MS2.Tables.ShowGlobalDropsAction" id="MS2.Tables.ShowGlobalDropsAction"/>
       <action label="Quests" tooltip="Shows the MS2 Quests view: one quest on every target, with its level, NPCs, rewards, condition counts and texts, and clone to a new id" handler="MS2.Tables.ShowQuestsAction" id="MS2.Tables.ShowQuestsAction"/>
       <action label="Dialogue" tooltip="Shows the MS2 Dialogue view: the talk of an NPC step by step on every target, with its pages, choices and jumps, the flow and the problems, and the quest talk of the quests it starts or completes" handler="MS2.Tables.ShowDialogueAction" id="MS2.Tables.ShowDialogueAction"/>
       <action label="Triggers" tooltip="Shows the MS2 Triggers view: the trigger scripts of a map, each as a tree of its states with their conditions, actions and the states they go to" handler="MS2.Tables.ShowTriggersAction" id="MS2.Tables.ShowTriggersAction"/>
@@ -236,6 +243,7 @@
       <view id="MS2.Tables.ItemSetsView"/>
       <view id="MS2.Tables.DungeonsView"/>
       <view id="MS2.Tables.SpawnsView"/>
+      <view id="MS2.Tables.GlobalDropsView"/>
       <view id="MS2.Tables.QuestsView"/>
       <view id="MS2.Tables.DialogueView"/>
       <view id="MS2.Tables.TriggersView"/>

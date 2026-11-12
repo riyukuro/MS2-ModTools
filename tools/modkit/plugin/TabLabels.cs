@@ -34,6 +34,7 @@ namespace MS2.Tables
                 case "Text import": brief = "Text"; break;
                 case "Field rows": brief = "Fields"; break;
                 case "Dungeons": brief = "Dungeon"; break;
+                case "Global drops": brief = "Drops"; break;
             }
             return brief == plain ? new[] { name, plain } : new[] { name, plain, brief };
         }
