@@ -152,6 +152,9 @@ the rows inside one.
 - an added id outside the reserved range is a warning;
 - two mods whose ranges of one space overlap are a conflict;
 - an id added in some of the places and not in others is a warning (often right, sometimes a forgotten side).
+  Places with the same `any="group"` on their `<where>` are alternatives: an id in one of them is enough (an
+  option code is a constant code, a static code or both);
+- a row the mod deletes and adds again (a whole row written anew) keeps its id: it is not a new one.
 
 `modkit next-id <mod> <space> [count]` prints free ids of the range.
 
@@ -421,7 +424,7 @@ An item is not one row. The view collects the pieces and shows them as sections 
 | name | client, `string/<language>/itemname.xml` | the name, once per language folder |
 | plural | client, `string/<language>/itemnameplural.xml` | the plural name, where the language has one |
 | description | client, `string/<language>/koritemdescription.xml` | the tooltip text and a second line |
-| stat row | client, `table/itemoptionconstant.xml` | the fixed stats the item names by a code. **Shared**: many items name the same row |
+| stat row | client, `table/itemoptionconstant.xml` | the fixed stats the item names by a code. **Shared**: many items name the same row; edit it in [Item options](#item-options) |
 | server item | server `Xml.m2d`, `item/<d>/<dd>/<id>.xml` | the server's own file for the item, in its own format |
 
 A section that the data does not have for an item is simply not there. Without a server data folder the server
@@ -838,6 +841,38 @@ as it ends up in each target:
 | `no picture: ...` | the mastery window shows `MasteryReceipe/<id>.png` from `Image.m2d`; add one with an `<entry>` |
 
 A recipe a hand-written mod removed on one side only is not changed by the view; edit that mod by hand.
+
+## Item options
+
+The **MS2 Item options** view (menu **MS2 Mods > Item options**) edits the stat lines items have fixed: the
+**constant** options (base stats) and the **static** options (fixed bonus lines), per option code and grade. Random
+(rolled) lines are not in this view yet. A code lives in different files per side:
+
+| side | file | what it holds |
+|---|---|---|
+| Korean client | `Xml.m2d`, `table/itemoptionconstant.xml` | `<option code>` with `<rank grade>` rows of `<v name value>`: the tooltip. A rank without a grade serves every grade, a rank serves its grade and the ones above it up to the next rank. There is no static table |
+| server (and the global client) | `Xml.m2d`, `itemoption/constant/itemoptionconstant_*.xml`, `itemoption/option/static/itemoptionstatic_*.xml` | one row per code and grade, `stat_value_base` / `stat_rate_base` attributes: what the server applies. Only the files the server ingest reads count; a code in another file gets a warning |
+
+An item names its codes itself: the client in `<option constantID>`, the server item file in `<option constant
+static>`. The two do not always name the same code.
+
+1. Pick the kind (constant or static) and **find** an item id, item name or code. The list has every code with the
+   number of items naming it, its grades, the sides that have it and its file. A code the mod changes has `*`, a new
+   one `(new)`.
+2. Pick a code and a **side**. The grid has a row per stat and a column per grade. An orange cell differs between the
+   sides; a grey one is read-only (a Korean grade another rank serves, or a Lua-valued rank). Type a value to edit
+   it, or a stat name in the last row to add one. An edit on one side is written on the other side too when that
+   side had the same value at that grade; otherwise the sides now differ, and Plan says so.
+3. A code is shared: changing it changes every item that names it. To change some items only, choose them in the
+   list under the grid and press **Fork**: the code is copied to a new code (900100000 and up, or the one in **new
+   code**) on every side that has it, and the chosen items (all of them when none is chosen) point at the copy, after
+   a confirm that says how many items change. The pointers are set on each side as that side names them.
+   **Revert code** drops the mod's edits of the code. **Save mod**, **Plan**, **Apply** and **Revert** are the
+   Tables view's.
+
+Plan checks every option the mods touch as it ends up in each target: an unknown stat, a value that is not a number,
+an `optionNumPick` that is empty (the server skips the row) or picks more lines than the row lists, a code twice in
+the Korean table, an item naming a code no server file has, and a code whose Korean tooltip and server stats differ.
 
 ## Quests
 
