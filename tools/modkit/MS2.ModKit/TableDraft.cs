@@ -218,18 +218,19 @@ namespace MS2.ModKit
             return made;
         }
 
-        /// <summary>A new row from its element text ("&lt;pet id=\"1\" /&gt;"), added at the end of the parent.</summary>
+        /// <summary>A new row from its element text ("&lt;pet id=\"1\" /&gt;"), added at the end of the parent
+        /// (&lt;add in="..."&gt; when the parent is not the root element).</summary>
         public TableRow AddRow(string xml) { return AddRow(xml, null, false); }
 
         /// <summary>A new row from its element text, added right after (or before) a row of the entry; at the end when the anchor is null.</summary>
         public TableRow AddRow(string xml, TableRow anchor, bool before)
         {
-            if (Parent != Doc.Root) throw new ModKitException("a new row from text goes in the root element; copy a row of " + ParentSelector + " instead");
             if (anchor != null && (anchor.IsAdded || anchor.Selector == null)) throw new ModKitException("a new row goes beside a row of the entry, not beside an added one");
             XmlDoc f = XmlDoc.ParseFragment(xml.Trim(), "the new row");
             if (f.Top.Count != 1) throw new ModKitException("a new row is one element, the text holds " + f.Top.Count);
             var op = new RowOp { Kind = RowOpKind.Add, Xml = xml.Trim() };
             if (anchor != null) { if (before) op.Before = anchor.Selector; else op.After = anchor.Selector; }
+            else if (Parent != Doc.Root) op.In = ParentSelector;     // the end of the draft's parent, not of the root element
             Edit(true).Rows.Add(op);
             var made = new TableRow { Add = op, Base = f.Root };
             Rows.Add(made);

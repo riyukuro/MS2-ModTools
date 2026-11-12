@@ -167,6 +167,9 @@ namespace MS2.ModKit
         static void Loose(SyncRun sr, PlanChange ch)
         {
             Run run = sr.Run;
+            // the bonuses of a set are rows of the kms set table alone; the other sides have them in table/setitemoption.xml
+            // in another notation (ItemSets.cs), and the plan compares the two (PlannerItemSets.cs)
+            if (ch.Row.IndexOf('/') >= 0 && string.Equals(ch.Entry.Replace('\\', '/'), ItemSetRules.InfoEntry, StringComparison.OrdinalIgnoreCase)) return;
             string root = DataSet.RootOf(ch.Archive), path = DataSet.PathOf(ch.Archive);
             Profile from = Profile.Find(root);
             foreach (string r in run.Data.Roots)

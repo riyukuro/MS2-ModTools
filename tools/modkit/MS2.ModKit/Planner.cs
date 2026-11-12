@@ -530,6 +530,7 @@ namespace MS2.ModKit
             GroupChecks(run);
             RecipeChecks(run);
             ItemOptionChecks(run);
+            ItemSetChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 
