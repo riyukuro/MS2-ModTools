@@ -65,13 +65,16 @@ namespace MS2.ModKit
                     shippedCount[k] = n + 1;
                 }
                 var count = new Dictionary<string, int>();
+                var idCount = new Dictionary<string, int>();
                 foreach (XmlElem e in doc.Root.Children)
                 {
                     if (e.Name != SpawnRules.Row) continue;
-                    string k = SpawnRules.Key(e.Attr);
+                    string k = SpawnRules.Key(e.Attr), id = SpawnRules.Id(e.Attr);
                     int n;
                     count.TryGetValue(k, out n);
                     count[k] = n + 1;
+                    idCount.TryGetValue(id, out n);
+                    idCount[id] = n + 1;
                 }
                 Dictionary<long, bool> maps = IdsOf(run, p, "map/", "table/fielddata.xml", "<fieldData id=\"");
                 var twice = new HashSet<string>();
@@ -92,7 +95,9 @@ namespace MS2.ModKit
                     if (asShipped) continue;
                     foreach (string problem in SpawnRules.CheckRow(e.Attr))
                         Say(plan, said, plan.Warnings, mod, archive, entry.Name, what + ": " + problem);
-                    if (isNew && map > 0 && maps != null && !maps.ContainsKey(map))
+                    // a row the mod adds next to shipped ones of its point (another difficulty range) is an added row too
+                    bool added = isNew || idCount[SpawnRules.Id(e.Attr)] > was.Count;
+                    if (added && map > 0 && maps != null && !maps.ContainsKey(map))
                         Say(plan, said, plan.Warnings, mod, archive, entry.Name, what + ": this target has no map " + map);
                 }
             }

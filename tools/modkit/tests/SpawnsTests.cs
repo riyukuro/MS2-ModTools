@@ -426,5 +426,105 @@ namespace MS2.ModKit.Tests
                 Assert.That(Lines(PlanOf(f, mod).Errors), Has.Some.Contains("map 7100001 point 10: the table ends up with 2 rows"));
             }
         }
+
+        [Test]
+        public void RowsOfOnePointArePairedByTheirDifficultyRange()
+        {
+            // the server ships point 10 for two difficulty ranges, the Korean client only the second
+            string srv = Table(FakeSpawns.Row("07100001", "10", "moss", "3", "", "1"), FakeSpawns.Row("07100001", "10", "reed", "7", "", "4"));
+            string kms = Table(FakeSpawns.Row("07100001", "10", "reed", "7", "", "4"));
+            using (var f = new FakeSpawns(true, kms, srv))
+            {
+                var mod = Empty();
+                var ed = new SpawnEditor(f.Data, mod);
+                List<SpawnRow> rows = ed.Of(7100001);
+                Assert.That(rows.Count, Is.EqualTo(2));
+                Assert.That(ed.Get(rows[0], SpawnRules.Difficulty), Is.EqualTo("1"));
+                Assert.That(ed.MissingOn(rows[0]), Is.EqualTo(new[] { K }));
+                Assert.That(ed.MissingOn(rows[1]), Is.Empty);
+                ed.Set(rows[0], SpawnRules.Tag, "moss,reed");
+                ed.Set(rows[0], SpawnRules.Population, "5");
+                Assert.That(Body(mod), Does.Not.Contain(K));
+                Assert.That(ed.Get(rows[1], 1, SpawnRules.Tag), Is.EqualTo("reed"));
+                Assert.That(ed.Get(rows[1], 1, SpawnRules.Population), Is.EqualTo("7"));
+            }
+            // the copies list the two ranges in a different order
+            string swapped = Table(FakeSpawns.Row("07100001", "10", "reed", "7", "", "4"), FakeSpawns.Row("07100001", "10", "moss", "3", "", "1"));
+            using (var f = new FakeSpawns(true, swapped, srv))
+            {
+                var mod = Empty();
+                var ed = new SpawnEditor(f.Data, mod);
+                List<SpawnRow> rows = ed.Of(7100001);
+                Assert.That(rows.Count, Is.EqualTo(2));
+                foreach (SpawnRow r in rows)
+                {
+                    Assert.That(ed.MissingOn(r), Is.Empty);
+                    Assert.That(ed.Get(r, 0, SpawnRules.Difficulty), Is.EqualTo(ed.Get(r, 1, SpawnRules.Difficulty)));
+                    Assert.That(ed.Differs(r, SpawnRules.Tag), Is.False);
+                }
+                ed.Set(rows[0], SpawnRules.Population, "5");
+                // a difficulty edit keeps the pairing by the shipped range after a reload
+                ed.Set(rows[0], SpawnRules.Difficulty, "2");
+                var again = new SpawnEditor(f.Data, Reload(mod));
+                rows = again.Of(7100001);
+                Assert.That(rows.Count, Is.EqualTo(2));
+                for (int side = 0; side < 2; side++)
+                {
+                    Assert.That(again.Get(rows[0], side, SpawnRules.Tag), Is.EqualTo("moss"));
+                    Assert.That(again.Get(rows[0], side, SpawnRules.Population), Is.EqualTo("5"));
+                    Assert.That(again.Get(rows[0], side, SpawnRules.Difficulty), Is.EqualTo("2"));
+                    Assert.That(again.Get(rows[1], side, SpawnRules.Tag), Is.EqualTo("reed"));
+                    Assert.That(again.Get(rows[1], side, SpawnRules.Population), Is.EqualTo("7"));
+                }
+            }
+        }
+
+        [Test]
+        public void PlanNamesAMissingMapForARowAddedAtAShippedPoint()
+        {
+            // the tables ship a row for a map the targets do not have; the mod adds another difficulty range there
+            string t = Table(FakeSpawns.Row("07100055", "10", "moss", "3", "", "1"));
+            using (var f = new FakeSpawns(true, t, t))
+            {
+                var mod = Empty();
+                var ed = new SpawnEditor(f.Data, mod);
+                SpawnRow made = ed.Add(7100055, 10, "moss", 2, 0, 4, 4);
+                Assert.That(made, Is.Not.Null);
+                Plan p = PlanOf(f, mod);
+                Assert.That(Lines(p.Warnings), Has.Some.Contains("this target has no map 7100055"), Fake.Dump(p));
+
+                // a change of the shipped row alone says nothing about the map
+                var mod2 = Empty();
+                var ed2 = new SpawnEditor(f.Data, mod2);
+                ed2.Set(ed2.Of(7100055)[0], SpawnRules.Population, "4");
+                Plan p2 = PlanOf(f, mod2);
+                Assert.That(Lines(p2.Warnings), Has.None.Contains("has no map"), Fake.Dump(p2));
+            }
+        }
+
+        [Test]
+        public void RowsWithoutAMapIdCanBeCopiedAndAdded()
+        {
+            string odd = Table(FakeSpawns.Row("07100001", "10", "moss", "3"), FakeSpawns.Row("abc", "4", "moss", "1"));
+            using (var f = new FakeSpawns(true, odd, odd))
+            {
+                var mod = Empty();
+                var ed = new SpawnEditor(f.Data, mod);
+                SpawnRow copy = ed.Clone(ed.Of(SpawnRules.NoMap)[0], 6);
+                Assert.That(ed.Get(copy, 0, SpawnRules.Map), Is.EqualTo("abc"));
+                Assert.That(ed.Get(copy, 1, SpawnRules.Map), Is.EqualTo("abc"));
+                Assert.Throws<ModKitException>(() => ed.Clone(ed.Of(SpawnRules.NoMap)[0], 6));
+                SpawnRow made = ed.Add(SpawnRules.NoMap, 8, "moss", 1, 0, 1, 1);
+                Assert.That(ed.Get(made, SpawnRules.Map), Is.EqualTo("00000000"));
+                Assert.That(ed.Of(SpawnRules.NoMap).Count, Is.EqualTo(3));
+                Assert.That(ed.Check(made), Has.Exactly(1).Contains("is not a map id"));
+
+                var again = new SpawnEditor(f.Data, Reload(mod));
+                List<SpawnRow> rows = again.Of(SpawnRules.NoMap);
+                Assert.That(rows.Count, Is.EqualTo(3));
+                foreach (SpawnRow r in rows) Assert.That(again.MissingOn(r), Is.Empty);
+                Assert.That(again.Of(7100001).Count, Is.EqualTo(1));
+            }
+        }
     }
 }

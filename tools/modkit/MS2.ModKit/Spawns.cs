@@ -5,8 +5,8 @@
 // `petSpawnProbability` the catchable pets. The server decides the spawns from its copy; the Korean client and the
 // global client ship a copy too (the same attributes; the server's rows may also carry `locale`).
 //
-// The editor shows the rows of one map, paired between the copies by map, point, feature and locale (the n-th row
-// of such a key with the n-th of the other copy), and
+// The editor shows the rows of one map, paired between the copies by map, point, feature, locale and the difficulty
+// range they ship with (the n-th row of such a key with the n-th of the other copy), and
 // writes a change to every copy that has the row (the plan mirrors the server's lines to the global client). The rows
 // of a spawn point the mod adds with <spawn> in a map file are that op's own <row> children and are not shown here.
 using System;
@@ -249,12 +249,12 @@ namespace MS2.ModKit
         string KeyOf(int side, TableRow r)
         {
             TableDraft t = Sides[side].Table;
-            return SpawnRules.Id(a => r.IsAdded ? t.Get(r, a) : t.GetOriginal(r, a));
+            return SpawnRules.Key(a => r.IsAdded ? t.Get(r, a) : t.GetOriginal(r, a));
         }
 
         static long ListedUnder(long map) { return map > 0 ? map : SpawnRules.NoMap; }
 
-        // the n-th row of an id in one copy is the n-th row of that id in the others
+        // the n-th row of a key (id and shipped difficulty range) in one copy is the n-th row of that key in the others
         void Pair()
         {
             var at = new Dictionary<string, List<SpawnRow>>(StringComparer.Ordinal);
@@ -450,10 +450,11 @@ namespace MS2.ModKit
 
         static string Esc(string v) { return XmlDoc.EscapeAttr(v, '"'); }
 
-        /// <summary>A new row on every copy, after the map's last shipped row there (at the end when the map has none).</summary>
+        /// <summary>A new row on every copy, after the map's last shipped row there (at the end when the map has none).
+        /// Map 0 (SpawnRules.NoMap) is taken as written: the row is listed with the ones that have no map id.</summary>
         public SpawnRow Add(long map, long point, string tag, long population, long coolTime, long difficulty, long difficultyMin)
         {
-            if (map <= 0) throw new ModKitException("a spawn row needs a map id");
+            if (map < 0) throw new ModKitException("a spawn row needs a map id");
             if (point < 0) throw new ModKitException("a spawn row needs the number of a spawn point of the map");
             string code = SpawnRules.Code(map);
             string xml = "<region " + SpawnRules.Map + "=\"" + code + "\" " + SpawnRules.Point + "=\"" + point.ToString(CultureInfo.InvariantCulture) + "\" "
@@ -489,8 +490,9 @@ namespace MS2.ModKit
         {
             if (source.IsDeleted) throw new ModKitException("the row is removed; restore it before copying");
             if (point < 0) throw new ModKitException("a spawn row needs the number of a spawn point of the map");
-            long map = SpawnRules.MapOf(Get(source, SpawnRules.Map));
-            if (map <= 0) throw new ModKitException("a spawn row needs a map id");
+            // a row whose mapCode is no map id is copied as it is, into the same entry of the list
+            long map = ListedUnder(SpawnRules.MapOf(Get(source, SpawnRules.Map)));
+            string mapText = map > 0 ? "map " + map : "mapCode \"" + Get(source, SpawnRules.Map) + "\"";
             string to = point.ToString(CultureInfo.InvariantCulture);
             var xml = new string[Sides.Count];
             for (int i = 0; i < Sides.Count; i++)
@@ -512,7 +514,7 @@ namespace MS2.ModKit
                 string key = SpawnRules.Key(made1.Attr);
                 foreach (TableRow o in t.Rows)
                     if (!o.IsDeleted && o.Base != null && o.Base.Name == SpawnRules.Row && SpawnRules.Key(a => t.Get(o, a)) == key)
-                        throw new ModKitException("map " + map + " already has a row for point " + point + " at difficulty " + made1.Attr(SpawnRules.DifficultyMin) + "-" + made1.Attr(SpawnRules.Difficulty) + " in " + Sides[i].Archive);
+                        throw new ModKitException(mapText + " already has a row for point " + point + " at difficulty " + made1.Attr(SpawnRules.DifficultyMin) + "-" + made1.Attr(SpawnRules.Difficulty) + " in " + Sides[i].Archive);
             }
             var made = new SpawnRow(Sides.Count);
             for (int i = 0; i < Sides.Count; i++)
