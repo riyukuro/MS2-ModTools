@@ -1970,6 +1970,37 @@ by byte. `MS2_SOUND_DATA=<your Sound folder> dotnet test --filter Name=RealSound
 folder reads and that its hash is in the project; `--filter Name=RealProject_ReadsAndWritesTheSameBytes` checks that
 your project's music reads and writes back byte for byte, and that a cue can be added to it.
 
+## Levels and experience
+
+A view, **MS2 Levels** (menu **MS2 Mods > Levels**), edits the two tables a level-up depends on:
+
+| table | entry | sides | fields |
+|---|---|---|---|
+| nextexp | `table/nextexp.xml` | the Korean client, the global client and the server's `Xml.m2d` | `value`: the experience from the level to the next one |
+| monster exp | `table/Server/monsterExpTable.xml` | the server's `Server.m2d` | the experience a monster of the level gives: `common`, `elite`, `boss`, `dungeonElite`, `dungeonBoss` |
+
+The server decides when a character levels up; the client draws the experience bar from its own copy of nextexp,
+and reads only the levels 1..99. So an edit of nextexp goes to every side that has the table, as one edit per side
+(no field map is needed). Monster experience is the server's only.
+
+1. Pick the **table**. The list shows each level with the values the mod gives it (with nextexp: the shipped value
+   and the change in percent beside it). A level the mod changes is blue, a level whose sides differ is orange (the
+   tooltip gives each side's value), a level the client does not read is grey. The curve below draws the chosen
+   field by level, with the mod in blue over the shipped values in grey.
+2. Pick a level (or type it), the field and the value, then **Set** (or Enter): a whole number of 0 or more. Setting
+   the shipped value takes the level's line out of the mod.
+3. **Scale levels** *from* **to** *to* sets the values of those levels to the shipped values times the percentage,
+   rounded (50: half the experience, 200: twice; 100 puts the shipped values back), for one field or `(all)`.
+4. **Take level** and **Take all** put the shipped values back. **Plan**, **Apply** and **Save mod** are the Tables
+   view's.
+
+Plan checks the level tables on every side the mods change, as the side ends up with it. An error: a changed value
+that is not a whole number of 0 or more. Warnings, nextexp: a level outside 1..99 on a client (the client skips the
+row), a value of 0 (the level is passed at once), a value below the level before it, a shipped level the mods leave
+without a row (the client's bar never fills there; on the server a character cannot level up past it), and a level
+the sides shipped alike that now differs between them (the client's experience bar and the server's level-up
+disagree, or the two clients' bars do). A level whose sides shipped different values raises nothing.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
