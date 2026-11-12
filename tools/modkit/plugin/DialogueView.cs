@@ -110,11 +110,11 @@ namespace MS2.Tables
             applyBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
 
             SetupGrid(npcGrid);
-            npcGrid.Columns.Add(Col("id", 65));
-            npcGrid.Columns.Add(Col("name", 100));
-            npcGrid.Columns.Add(Col("steps", 40));
-            npcGrid.Columns.Add(Col("targets", 60));
-            npcGrid.Columns.Add(Col("problems", 50));
+            npcGrid.Columns.Add(Col("id", 60));
+            npcGrid.Columns.Add(Col("name", 80));
+            npcGrid.Columns.Add(Col("steps", 35));
+            npcGrid.Columns.Add(Col("targets", 55));
+            npcGrid.Columns.Add(Col("problems", 45));
             npcGrid.ReadOnly = true;
             npcGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             npcGrid.CellValueNeeded += OnNpcValueNeeded;
@@ -215,7 +215,7 @@ namespace MS2.Tables
             ViewLayout.KeepHeightShare(problemList, right, 0.16, 3 * Font.Height + 8);
             ViewLayout.KeepHeightShare(questList, right, 0.14, 3 * Font.Height + 8);
             ViewLayout.KeepHeightShare(flowTree, stepPane, 0.45, 4 * Font.Height + 8);
-            KeepWidthShare(npcGrid, this, 0.28, 320);
+            KeepWidthShare(npcGrid, this, 0.30, 320);
             KeepWidthShare(stepPane, right, 0.30, 240);
             ViewLayout.CentreOnFirstShow(this);
             Resize += delegate { FitListColumns(); };
