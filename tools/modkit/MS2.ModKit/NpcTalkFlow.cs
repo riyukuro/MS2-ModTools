@@ -7,6 +7,7 @@
 // again without its jumps; a jump to an id no step has is dangling; the scripts no jump names and that are no random
 // pick come last, unreachable.
 using System;
+using System.Globalization;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using MS2.ModKit.Xml;
@@ -34,6 +35,38 @@ namespace MS2.ModKit
 
     public static class TalkFlow
     {
+        /// <summary>
+        /// The button set the client's talk window shows for a page (a &lt;content&gt; of a step of an NPC talk file),
+        /// as the number and why. The client's rule is GetTalkButtonSet (src/ms2/commonfiles/talkscript.cpp, @0x140857990)
+        /// with the flags UITalkManager::FindTalkScript opens the step with: a select step with 8 (always 5, its buttonSet
+        /// is not read), a job step with 1, a script step by its id. A monologue's pages are balloons (no window, 0). Where
+        /// the NPC's type group (its data, not the talk) decides, the text says so. Null for an element that is no page.
+        /// </summary>
+        public static string Buttons(XmlElem page)
+        {
+            XmlElem step = page == null ? null : page.Parent;
+            if (step == null || page.Name != "content" || !TalkEditor.IsStep(step)) return null;
+            if (step.Name == "select") return "5 (select step)";
+            if (step.Name == "monologue") return "0 (balloon)";
+            int set;
+            if (int.TryParse(page.Attr("buttonSet") ?? "", NumberStyles.Integer, CultureInfo.InvariantCulture, out set) && set != 0)
+                return set.ToString(CultureInfo.InvariantCulture) + " (buttonSet)";
+            bool choices = false;
+            foreach (XmlElem c in page.Children) if (c.Name == "distractor") { choices = true; break; }
+            XmlElem last = null;
+            foreach (XmlElem c in step.Children) if (c.Name == "content") last = c;
+            bool isLast = page == last;
+            if (step.Name == "job")
+            {
+                string rest = isLast ? "the NPC's type group (last page)" : "4 (not the last page)";
+                return choices ? "9 (choices) if the NPC's type group is 3, else " + rest : rest;
+            }
+            // a script: gotoConditionTalkID makes no page the last
+            if (isLast && (step.Attr("gotoConditionTalkID") ?? "").Length > 0) isLast = false;
+            if (choices) return "9 (choices)";
+            return isLast ? "3 (last page)" : "4 (not the last page)";
+        }
+
         /// <summary>The flow of the steps under root (an &lt;npc&gt; or a talk file's root).</summary>
         public static List<TalkFlowLine> Of(XmlElem root)
         {

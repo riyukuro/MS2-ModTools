@@ -120,5 +120,31 @@ namespace MS2.ModKit.Tests
             Assert.That(TalkEditor.SameStep(c, a), Is.False);
             Assert.That(TalkEditor.SameStep(a, d), Is.False, "another text");
         }
+
+        [Test]
+        public void Buttons_FollowTheClientsRule()
+        {
+            string xml = "<npc id=\"90000009\">" +
+                "<select id=\"0\"><content text=\"a\" buttonSet=\"2\" /></select>" +
+                "<script id=\"10\"><content text=\"b\"><distractor text=\"c\" goto=\"11\" /></content><content text=\"d\" /><content text=\"e\" /></script>" +
+                "<script id=\"11\" gotoConditionTalkID=\"12\"><content text=\"f\" /></script>" +
+                "<script id=\"12\"><content text=\"g\" buttonSet=\"7\" /></script>" +
+                "<job id=\"20\"><content text=\"h\"><distractor text=\"i\" goto=\"10\" /></content><content text=\"j\" /></job>" +
+                "<monologue id=\"30\"><content text=\"k\" /></monologue></npc>";
+            XmlElem root = XmlDoc.Parse(Encoding.UTF8.GetBytes(xml), "t").Root;
+            var got = new List<string>();
+            foreach (XmlElem st in root.Children) foreach (XmlElem c in st.Children) got.Add(TalkFlow.Buttons(c));
+            Assert.That(got, Is.EqualTo(new[]
+            {
+                "5 (select step)",
+                "9 (choices)", "4 (not the last page)", "3 (last page)",
+                "4 (not the last page)",
+                "7 (buttonSet)",
+                "9 (choices) if the NPC's type group is 3, else 4 (not the last page)", "the NPC's type group (last page)",
+                "0 (balloon)",
+            }));
+            Assert.That(TalkFlow.Buttons(root.Children[1].Children[0].Children[0]), Is.Null, "a choice is no page");
+            Assert.That(TalkFlow.Buttons(root.Children[1]), Is.Null, "nor is a step");
+        }
     }
 }

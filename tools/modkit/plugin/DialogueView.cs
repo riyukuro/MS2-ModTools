@@ -27,7 +27,7 @@ namespace MS2.Tables
 
         // the attribute columns of the line grid after line, text and text id; "more" holds the rest
         static readonly string[] AttrColumns = { "buttonSet", "voiceID", "illust", "goto", "gotoFail" };
-        const int TextCol = 1, FirstAttrCol = 3, MoreCol = FirstAttrCol + 5;
+        const int TextCol = 1, FirstAttrCol = 3, MoreCol = FirstAttrCol + 5, ButtonsCol = MoreCol + 1;
 
         sealed class NpcInfo
         {
@@ -168,6 +168,9 @@ namespace MS2.Tables
             lineGrid.Columns.Add(Col("text id", 75));
             foreach (string a in AttrColumns) lineGrid.Columns.Add(Col(a, a == "voiceID" ? 55 : a == "gotoFail" ? 50 : a == "goto" ? 40 : 45));
             lineGrid.Columns.Add(Col("more attributes", 60));
+            lineGrid.Columns.Add(Col("buttons", 60));
+            lineGrid.Columns[ButtonsCol].ReadOnly = true;
+            lineGrid.Columns[ButtonsCol].ToolTipText = "The button set the client shows for the page (GetTalkButtonSet), read-only: a buttonSet attribute, else what the step kind, the choices and the last page make";
             lineGrid.Columns[0].ReadOnly = true;
             lineGrid.Columns[2].ReadOnly = true;
             lineGrid.CellValueNeeded += OnLineValueNeeded;
@@ -792,6 +795,7 @@ namespace MS2.Tables
                 }
                 else if (e.ColumnIndex >= FirstAttrCol && e.ColumnIndex < MoreCol) e.Value = x.Attr(AttrColumns[e.ColumnIndex - FirstAttrCol]) ?? "";
                 else if (e.ColumnIndex == MoreCol) e.Value = More(x, step);
+                else if (e.ColumnIndex == ButtonsCol) e.Value = TalkFlow.Buttons(x) ?? "";
             }
             catch (ModKitException ex) { e.Value = "(" + ex.Message + ")"; }
         }
