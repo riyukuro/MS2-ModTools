@@ -107,11 +107,11 @@ namespace MS2.Tables
             dates.Controls.Add(Lbl("to"));
             dates.Controls.Add(endBox);
             Row(fields, 1, "Dates", dates, "yyyy-MM-dd-HH-mm, as the server reads them; the server leaves out an event whose end has passed (every shipped event has ended)");
-            Row(fields, 2, "Name", nameBox, "The event's name the client shows (value2's string name; the shipped rows have tabButton, which the server does not read: setting the name sets both)");
+            Row(fields, 2, "Name", nameBox, "The event's tab name the client shows (value2's string tabButton, which the server reads first, else name: setting it writes tabButton, and name too where the row has it)");
             Row(fields, 3, "Mail title", titleBox, "The title of the mail that brings a day's item");
             Row(fields, 4, "Mail text", textBox, "The text of the mail that brings a day's item");
             Row(fields, 5, "Event page", urlBox, "The link of the event's page (empty: none)");
-            Row(fields, 6, "Play seconds", playBox, "The play time in a day before the day's item can be had, in seconds (0: none)");
+            Row(fields, 6, "Play seconds", playBox, "The play time in a day before the day's item can be had, in seconds (0 or none: given at login, once a day)");
             fields.Controls.Add(infoLabel, 1, 7);
             var setBar = new FlowLayoutPanel { AutoSize = true, WrapContents = true, Margin = new Padding(0) };
             setBar.Controls.Add(Btn("Set event", "Writes the dates, the texts and the play time into the mod (the shipped values take their lines out)", delegate { SetEvent(); }));
@@ -330,7 +330,7 @@ namespace MS2.Tables
                     else live++;
                     if (ev.IsAdded) added++;
                     if (ev.Rows > 1) tip.Add(ev.Rows + " rows of the id in the file: edit them by hand");
-                    if (play == null && !ag.HasPay(ev)) tip.Add("no play time (Config): the server leaves it out");
+                    if (play == null) tip.Add("no play time (Config): given at login");
                     string req = ag.Requirement(ev);
                     if (req.Length > 0) tip.Add("requires " + req);
                     if (ev.IsAdded) it.ForeColor = Color.DarkGreen;
@@ -382,9 +382,9 @@ namespace MS2.Tables
                 playBox.Text = ag.PlaySeconds(ev) ?? "";
                 var info = new List<string>();
                 if (Ended(ag.End(ev))) info.Add("ended: the server leaves it out");
-                if (!ag.HasName(ev)) info.Add("no name the server reads (set one)");
-                if (ag.PlaySeconds(ev) == null) info.Add(ag.HasPay(ev) ? "paid catch-up, no play time" : "no play time: the server leaves it out");
-                else if (ag.HasPay(ev)) info.Add("with paid catch-up of missed days");
+                if (ag.Text(ev, "name").Length == 0) info.Add("no tab name (set one)");
+                if (ag.PlaySeconds(ev) == null) info.Add("no play time: the day's item is given at login");
+                if (ag.HasPay(ev)) info.Add("with paid catch-up of missed days");
                 string req = ag.Requirement(ev);
                 if (req.Length > 0) info.Add("requires " + req);
                 infoLabel.Text = string.Join("; ", info.ToArray());

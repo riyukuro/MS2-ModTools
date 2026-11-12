@@ -1,11 +1,11 @@
 // The plan's checks of the attendance calendar (AttendGift rows of the server's table/Server/NA/GameEvent.xml, see
 // AttendGifts.cs), on the rows as the mods leave them: the rows the mods add and the rows whose text they change.
 // Errors: text the server's ingest stops on (value1, value2 or value3 that is not XML, two events of one id that
-// have not ended), an event the ingest leaves out (value2 without <string>, or without <Config> and <payAttend>),
-// and a day that gives nothing (an item id that is not a number or not in the server's items, a count or grade
-// that is not a whole number). Warnings: an event that has ended or whose dates do not read, an event with no
-// days, an eventType spelled otherwise than the server's, a requirement the server never meets, a <string> with
-// tabButton but no name.
+// have not ended), an event the ingest leaves out (value2 without <string>), and a day that gives nothing (an item
+// id that is not a number or not in the server's items, a count or grade that is not a whole number). Warnings: an
+// event that has ended or whose dates do not read, an event with no days, an eventType spelled otherwise than the
+// server's, a requirement the server never meets, an event without play time (no <Config>, or 0 seconds: given at
+// login), a <string> with no tab name (tabButton, else name).
 using System;
 using System.Collections.Generic;
 using MS2.ModKit.Xml;

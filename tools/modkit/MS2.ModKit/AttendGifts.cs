@@ -12,10 +12,11 @@
 //   the client shows no calendar. Every shipped event has ended.
 // - value1: the days, as XML text: <items><v itemID count grade /> ...</items>, one v per day. A count or grade that
 //   is not a whole number is read as 1 and -1.
-// - value2: the texts and the play time, as XML text: <ms2><string name mailTitle mailContents detailUrl />
-//   <Config requirePlaySeconds /></ms2>. The server reads name (the shipped rows have tabButton instead, which
-//   nothing reads), the mail's title and text, and the event page link. Without Config (and without payAttend, the
-//   paid catch-up of missed days) the event is left out.
+// - value2: the texts and the play time, as XML text: <ms2><string tabButton mailTitle mailContents detailUrl />
+//   <Config requirePlaySeconds /></ms2>. The server reads the tab name from tabButton, else name (AttendanceRules.
+//   TabName; every shipped row has tabButton), the mail's title and text, and the event page link. Without Config
+//   (or with 0 seconds) the event asks no play time: the client shows no countdown for it, and the server gives the
+//   day's item at game start (login), once a day.
 // - value3: a requirement, optional: <ms2><require type value1 value2 /></ms2>. Shown, not edited here.
 //
 // value1, value2 and value3 must parse as XML: text that does not stops the ingest. The server sends the items to
@@ -301,21 +302,20 @@ namespace MS2.ModKit
             return d == null || d.Root == null || d.Root.Name != "ms2" ? null : Child(d.Root, name);
         }
 
-        /// <summary>A text of value2's string element; name falls back to tabButton (what the shipped rows have).</summary>
+        /// <summary>A text of value2's string element; name is the tab name the server reads: tabButton, else name.</summary>
         public string Text(AttendEvent ev, string field)
         {
             XmlElem s = Value2Child(ev, "string");
             if (s == null) return "";
-            string v = s.Attr(field);
-            if (v == null && field == "name") v = s.Attr("tabButton");
+            string v = field == "name" ? s.Attr("tabButton") ?? s.Attr("name") : s.Attr(field);
             return v ?? "";
         }
 
-        /// <summary>Whether value2 names the server's name text (not only tabButton).</summary>
+        /// <summary>Whether value2 names the tab (tabButton or name), even with an empty text.</summary>
         public bool HasName(AttendEvent ev)
         {
             XmlElem s = Value2Child(ev, "string");
-            return s != null && s.Attr("name") != null;
+            return s != null && (s.Attr("tabButton") != null || s.Attr("name") != null);
         }
 
         /// <summary>The play time asked for, in seconds, as written (null: no Config element).</summary>
@@ -350,8 +350,8 @@ namespace MS2.ModKit
         static string Inline(string s) { return s.Replace("\r", "").Replace("\n", "").Replace("\t", ""); }
 
         /// <summary>
-        /// Sets a text of value2 (name, mailTitle, mailContents, detailUrl). Setting name also sets tabButton when the
-        /// row has it, so the row reads the same to a reader of either.
+        /// Sets a text of value2 (name, mailTitle, mailContents, detailUrl). Setting name writes tabButton, which the
+        /// server reads first, and name too where the row has it, so the row reads the same to a reader of either.
         /// </summary>
         public bool SetText(AttendEvent ev, string field, string value)
         {
@@ -359,7 +359,7 @@ namespace MS2.ModKit
             value = value ?? "";
             Single(ev);
             if (Text(ev, field) == value && (field != "name" || HasName(ev))) return false;
-            return SetAttr(ev, "value2", EditValue2(ev, "string", field, value, field == "name" ? "tabButton" : null));
+            return SetAttr(ev, "value2", EditValue2(ev, "string", field == "name" ? "tabButton" : field, value, field == "name" ? "name" : null));
         }
 
         /// <summary>Sets the play time asked for (whole seconds, 0 or more); adds a Config element when there is none.</summary>
@@ -470,7 +470,7 @@ namespace MS2.ModKit
                 new KeyValuePair<string, string>("eventStart", start.Trim()),
                 new KeyValuePair<string, string>("eventEnd", end.Trim()),
                 new KeyValuePair<string, string>("value1", "<items></items>"),
-                new KeyValuePair<string, string>("value2", "<ms2><string name=\"\" mailTitle=\"\" mailContents=\"\" detailUrl=\"\" /><Config requirePlaySeconds=\"0\" /></ms2>"),
+                new KeyValuePair<string, string>("value2", "<ms2><string tabButton=\"\" mailTitle=\"\" mailContents=\"\" detailUrl=\"\" /><Config requirePlaySeconds=\"0\" /></ms2>"),
             };
             return AddRow(id, attrs);
         }
@@ -587,12 +587,14 @@ namespace MS2.ModKit
                 {
                     System.Xml.XmlNode str = root.SelectSingleNode("string"), cfg = root.SelectSingleNode("Config"), pay = root.SelectSingleNode("payAttend");
                     if (str == null) errors.Add("value2 has no <string> element: the server leaves the event out");
-                    if (cfg == null && pay == null) errors.Add("value2 has neither <Config> nor <payAttend>: the server leaves the event out");
                     string secs = cfg == null ? null : AttrOf(cfg, "requirePlaySeconds");
                     int s;
-                    if (secs != null && !int.TryParse(secs, out s)) errors.Add("requirePlaySeconds \"" + secs + "\" is not a whole number: the server asks for no play time");
-                    if (str != null && AttrOf(str, "name") == null && AttrOf(str, "tabButton") != null)
-                        warnings.Add("value2's <string> has tabButton but no name: the server reads name, so the event shows no name");
+                    bool readable = secs == null || int.TryParse(secs, out s);
+                    if (!readable) errors.Add("requirePlaySeconds \"" + secs + "\" is not a whole number: the server reads 0 and gives the day's item at login");
+                    else if (!int.TryParse(secs, out s) || s <= 0)
+                        warnings.Add((cfg == null ? "value2 has no <Config>" : secs == null ? "<Config> has no requirePlaySeconds" : "requirePlaySeconds is " + secs) + ": no play time, the day's item is given at login (game start), once a day; the client shows no countdown for it");
+                    if (str != null && (AttrOf(str, "tabButton") ?? AttrOf(str, "name") ?? "").Length == 0)
+                        warnings.Add("value2's <string> has no tabButton or name text: the event's tab shows no title");
                 }
             }
             string start = attr("eventStart"), end = attr("eventEnd");

@@ -74,7 +74,7 @@ namespace MS2.ModKit.Tests
                 AttendEvent one = a.Find(1);
                 Assert.That(a.Start(one), Is.EqualTo("2001-01-01-00-00"));
                 Assert.That(a.Text(one, "name"), Is.EqualTo("Test Days"));
-                Assert.That(a.HasName(one), Is.False);
+                Assert.That(a.HasName(one), Is.True);
                 Assert.That(a.Text(one, "mailTitle"), Is.EqualTo("Day gift"));
                 Assert.That(a.PlaySeconds(one), Is.EqualTo("600"));
                 List<AttendDay> days = a.Days(one);
@@ -108,6 +108,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(back.End(b), Is.EqualTo("2099-12-31-23-59"));
                 Assert.That(back.Text(b, "name"), Is.EqualTo("Spring Days"));
                 Assert.That(back.HasName(b), Is.True);
+                Assert.That(back.Get(b, "value2"), Does.Contain("tabButton=\"Spring Days\"").And.Not.Contain(" name="));
                 Assert.That(back.Text(b, "mailTitle"), Is.EqualTo("Day gift"));
                 Assert.That(back.PlaySeconds(b), Is.EqualTo("1200"));
                 Assert.That(back.Days(b).Select(d => d.ItemId), Is.EqualTo(new[] { "39000003", "39000001" }));
@@ -167,6 +168,8 @@ namespace MS2.ModKit.Tests
                 Plan p = f.Plan(m);
                 Assert.That(Texts(p.Errors, "attendance event 7"), Is.Empty);
                 Assert.That(Texts(p.Warnings, "attendance event 7: the event has no days"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "attendance event 7: value2's <string> has no tabButton or name text"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "attendance event 7: requirePlaySeconds is 0: no play time, the day's item is given at login"), Has.Count.EqualTo(1));
 
                 a.SetDays(n, D("39000001", "39000002"));
                 a.SetText(n, "name", "New <one> & \"two\"");
@@ -185,7 +188,7 @@ namespace MS2.ModKit.Tests
                 p = f.Plan(m);
                 Assert.That(Texts(p.Errors, "attendance"), Is.Empty);
                 Assert.That(Texts(p.Warnings, "attendance event 7"), Is.Empty);
-                Assert.That(Texts(p.Warnings, "attendance event 8: value2's <string> has tabButton but no name"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "attendance event 8"), Is.Empty);
 
                 Assert.That(a.Take(a.Find(8)), Is.True);
                 Assert.That(a.Find(8), Is.Null);
@@ -208,7 +211,9 @@ namespace MS2.ModKit.Tests
                     "</edit></mod>", "hand mod");
                 Plan p = f.Plan(m);
                 Assert.That(Texts(p.Errors, "attendance event 1: value1 is not XML text"), Has.Count.EqualTo(1));
-                Assert.That(Texts(p.Errors, "attendance event 4: value2 has neither <Config> nor <payAttend>"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "attendance event 4"), Is.Empty);
+                Assert.That(Texts(p.Warnings, "attendance event 4: value2 has no <Config>: no play time, the day's item is given at login"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "attendance event 9: <Config> has no requirePlaySeconds: no play time"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Errors, "attendance event 3: the file has 2 events of id 3 that have not ended"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Errors, "attendance event 3: day 1 item 39000009 is not in the server's items"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Errors, "attendance event 3: day 1 count \"x\""), Has.Count.EqualTo(1));
