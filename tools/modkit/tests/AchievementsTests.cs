@@ -342,6 +342,9 @@ namespace MS2.ModKit.Tests
             Assert.That(AchieveRules.ValidateCondition("killcount", ""), Is.Null);
             Assert.That(AchieveRules.ValidateCondition("user_find", ""), Does.Contain("not a dictionary"));
             Assert.That(AchieveRules.ValidateCondition("user_find", "10,20"), Does.Contain("not a dictionary"));
+            Assert.That(AchieveRules.ValidateCondition("user_find", " dict:{jobId:10}"), Does.Contain("not a dictionary"), "the client reads the attribute as it is");
+            r = check("<grade value=\"1\"><condition type=\"user_find\" value=\"1\" target=\" dict:{jobId:10}\" /></grade>", false);
+            Assert.That(r[0], Has.Some.Contains("not a dictionary"), "no trim before the check");
             Assert.That(AchieveRules.ValidateCondition("user_find", "dict:{jobId:10,hat:1}"), Does.Contain("\"hat\""));
             r = check("<grade value=\"1\"><condition type=\"user_find\" value=\"1\" target=\"dict:{hat:1}\" /></grade>", false);
             Assert.That(r[0], Has.Some.Contains("the client drops the achievement"));
@@ -390,6 +393,11 @@ namespace MS2.ModKit.Tests
                 Assert.That(Lines(p.Warnings), Has.Some.Contains("achievement 21800001 is in the").And.Contains("but not on the server: the client shows it, the server never grants it"), Dump(p));
                 one.Ops.Clear();
                 one.Ops.Add(new EntryOp { Archive = K, Name = FakeAchieves.Both, Delete = true });
+                p = Planner.Build(f.Data, new[] { one }, new PlanOptions());
+                Assert.That(Lines(p.Warnings), Has.Some.Contains("achievement 21800001 is on the server but not in the").And.Contains("the client never shows it"), Dump(p));
+                // the archive as the mod spells it
+                one.Ops.Clear();
+                one.Ops.Add(new EntryOp { Archive = K.ToUpperInvariant(), Name = FakeAchieves.Both, Delete = true });
                 p = Planner.Build(f.Data, new[] { one }, new PlanOptions());
                 Assert.That(Lines(p.Warnings), Has.Some.Contains("achievement 21800001 is on the server but not in the").And.Contains("the client never shows it"), Dump(p));
 

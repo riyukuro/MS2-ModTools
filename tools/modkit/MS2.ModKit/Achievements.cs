@@ -351,7 +351,7 @@ namespace MS2.ModKit
                     else if (!KnownCondition(ct, server)) errors.Add(at + ": the condition type \"" + ct + "\" is not one the " + (server ? "server reads (its data ingest fails)" : "client reads (it drops the achievement and the rest of the file)"));
                     else if (!server)
                     {
-                        string bad = ValidateCondition(ct, (c.Attr("target") ?? "").Trim());
+                        string bad = ValidateCondition(ct, c.Attr("target") ?? "");
                         if (bad != null) errors.Add(at + ": " + bad + ": the client drops the achievement and the rest of the file");
                     }
                     long cv;
