@@ -148,15 +148,33 @@ namespace MS2.ModKit
             importers = tg;
         }
 
+        static readonly byte[] ImportTag = Encoding.ASCII.GetBytes("<import");
+
+        static bool Has(byte[] b, byte[] tag)
+        {
+            for (int i = 0; i + tag.Length <= b.Length; i++)
+            {
+                if (b[i] != tag[0]) continue;
+                int k = 1;
+                while (k < tag.Length && b[i + k] == tag[k]) k++;
+                if (k == tag.Length) return true;
+            }
+            return false;
+        }
+
         Dictionary<string, List<string>> ScanImports(IEnumerable<string> which)
         {
             var tg = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+            long read = 0;
             foreach (string n in which)
             {
                 byte[] b = Read(n);
                 if (b == null) continue;
+                // thousands of scripts are read in a row: in the 32-bit Toolbench the buffers piled up by about
+                // 600 MB before a collection, close to the end of its address space
+                if ((read += b.Length) > 32L * 1024 * 1024) { read = 0; GC.Collect(); }
+                if (!Has(b, ImportTag)) continue;
                 string text = Encoding.UTF8.GetString(b);
-                if (text.IndexOf("<import", StringComparison.Ordinal) < 0) continue;
                 text = CommentRe.Replace(text, "");
                 foreach (Match m in ImportRe.Matches(text))
                 {
