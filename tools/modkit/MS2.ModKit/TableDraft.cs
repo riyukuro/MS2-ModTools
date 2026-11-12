@@ -166,6 +166,20 @@ namespace MS2.ModKit
             return made;
         }
 
+        /// <summary>A new row from its element text ("&lt;pet id=\"1\" /&gt;"), added at the end of the parent.</summary>
+        public TableRow AddRow(string xml)
+        {
+            if (Parent != Doc.Root) throw new ModKitException("a new row from text goes in the root element; copy a row of " + ParentSelector + " instead");
+            XmlDoc f = XmlDoc.ParseFragment(xml.Trim(), "the new row");
+            if (f.Top.Count != 1) throw new ModKitException("a new row is one element, the text holds " + f.Top.Count);
+            var op = new RowOp { Kind = RowOpKind.Add, Xml = xml.Trim() };
+            Edit(true).Rows.Add(op);
+            var made = new TableRow { Add = op, Base = f.Root };
+            Rows.Add(made);
+            foreach (XmlAttr a in f.Root.Attrs) AddColumn(a.Name);
+            return made;
+        }
+
         /// <summary>Deletes a row. An added row goes away; an original row gets a delete operation and its pending changes are dropped.</summary>
         public void Delete(TableRow row)
         {

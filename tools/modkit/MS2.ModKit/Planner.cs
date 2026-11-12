@@ -528,6 +528,7 @@ namespace MS2.ModKit
 
             LintTriggers(run);
             GroupChecks(run);
+            RecipeChecks(run);
             TalkNameCheck(run);
 
             // a fixed order of the outputs, whatever the order of the ops

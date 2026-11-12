@@ -234,6 +234,11 @@ namespace MS2.ModKit
                 foreach (string a in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
                     l.Add(new IdPlace { Archive = a, Entry = sk ? "skill/*/{id}.xml" : "additionaleffect/{id}.xml" });
             }
+            else if (space == RecipeRules.Space)
+            {
+                foreach (string a in new[] { "client:Xml.m2d", "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    l.Add(new IdPlace { Archive = a, Entry = RecipeRules.Entry, Rows = RecipeRules.Rows, Key = "id" });
+            }
             else throw new ModKitException("no default places for the id space \"" + space + "\"");
             return l;
         }
@@ -245,6 +250,7 @@ namespace MS2.ModKit
             else if (space == DropBoxSpace) { from = DropBoxFrom; to = DropBoxTo; }
             else if (space == SkillSpace) { from = SkillFrom; to = SkillTo; }
             else if (space == EffectSpace) { from = EffectFrom; to = EffectTo; }
+            else if (space == RecipeRules.Space) { from = RecipeRules.From; to = RecipeRules.To; }
             else throw new ModKitException("no reserved range for the id space \"" + space + "\"");
         }
 
@@ -300,7 +306,7 @@ namespace MS2.ModKit
             foreach (Mod m in mods)
             {
                 foreach (GroupOp g in m.Groups)
-                    if ((g.New || g.IsClone) && (space == ShopSpace) == (g.Kind == GroupKind.Shop)) busy.Add(g.Id);
+                    if ((g.New || g.IsClone) && (space == ShopSpace || space == DropBoxSpace) && (space == ShopSpace) == (g.Kind == GroupKind.Shop)) busy.Add(g.Id);
                 foreach (IdRange r in m.Ids)
                     if (r.Space == space) for (long i = Math.Max(r.From, from); i <= Math.Min(r.To, to); i++) busy.Add(i);
             }
