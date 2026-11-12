@@ -20,6 +20,34 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ShippedTablesAreReadOnce_AndStayWithinTheBudget()
+        {
+            using (var f = new FakeGroups())
+            {
+                var ed = new GroupEditor(f.Data, Empty());
+                GroupView v = ed.Open(GroupKind.Shop, 9001);
+                int files = f.Data.DocCount;
+                long bytes = f.Data.DocBytes;
+                Assert.That(files, Is.GreaterThan(0));
+                // the same and another shop, an edit in between: the tables are the ones already held
+                for (int i = 0; i < 20; i++) { ed.Open(GroupKind.Shop, 9001); ed.Open(GroupKind.Shop, 9002); }
+                ed.SetRowField(v, v.Sides[0], v.Sides[0].Rows[0], "price", "778");
+                Assert.That(ed.Open(GroupKind.Shop, 9001).Sides[0].Rows[0].Get("price"), Is.EqualTo("778"));
+                Assert.That(new GroupEditor(f.Data, Empty()).Open(GroupKind.Shop, 9001).Sides[0].Rows[0].Get("price"), Is.Not.EqualTo("778"), "the shipped table is not changed");
+                Assert.That(f.Data.DocCount, Is.EqualTo(files));
+                Assert.That(f.Data.DocBytes, Is.EqualTo(bytes));
+
+                // a small budget: tables are let go and read again, with the same result
+                f.Data.DocBudget = 1;
+                for (int i = 0; i < 5; i++)
+                {
+                    Assert.That(ed.Open(GroupKind.Shop, 9002).Sides.Count, Is.EqualTo(1));
+                    Assert.That(f.Data.DocCount, Is.LessThanOrEqualTo(2));
+                }
+            }
+        }
+
+        [Test]
         public void ShopViewAfterTheModAndEdits()
         {
             using (var f = new FakeGroups())

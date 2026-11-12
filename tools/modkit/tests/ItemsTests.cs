@@ -15,6 +15,8 @@ namespace MS2.ModKit.Tests
         public readonly string Dir;
         public readonly DataSet Data;
         public readonly Mod Mod;
+        /// <summary>When not negative: the size from which the data sets made here hold a table of rows as rows (DataSet.RowsFrom).</summary>
+        public static long RowsFrom = -1;
 
         const string Head = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
 
@@ -151,6 +153,7 @@ namespace MS2.ModKit.Tests
                 M2dWriter.Create(Path.Combine(s, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, srv);
             }
             Data = new DataSet(c, server ? s : null);
+            if (RowsFrom >= 0) Data.RowsFrom = RowsFrom;
             Mod = Mod.Parse("<mod id=\"items.test\" name=\"t\" version=\"1\"/>", "test mod");
         }
 
@@ -436,6 +439,44 @@ namespace MS2.ModKit.Tests
                 string bucket = Fake.Text(p, C, "itemdata/012.xml");
                 Assert.That(bucket, Does.Contain("<option constantID=\"900\" optionLevel=\"2\" />"));
                 Assert.That(bucket, Does.Contain("<option constantID=\"77\" optionLevel=\"1\" />"));
+            }
+        }
+    }
+    /// <summary>
+    /// The same tests with every table of rows held as rows and parsed row by row (what the editor does for the
+    /// string files of real data, which are too big to hold parsed): the results must not differ.
+    /// </summary>
+    [TestFixture]
+    public class ItemsAsRowsTests : ItemsTests
+    {
+        [SetUp] public void AsRows() { FakeItems.RowsFrom = 0; }
+        [TearDown] public void AsDocuments() { FakeItems.RowsFrom = -1; }
+
+        [Test]
+        public void RowsAreHeldAsBytes_AndOpeningAgainReadsNothingNew()
+        {
+            long asDocs, asRows;
+            FakeItems.RowsFrom = -1;
+            using (var f = new FakeItems(true)) { f.Editor().Open(1200001); asDocs = f.Data.DocBytes; }
+            FakeItems.RowsFrom = 0;
+            using (var f = new FakeItems(true))
+            {
+                ItemEditor ed = f.Editor();
+                ItemDraft d = ed.Open(1200001);
+                asRows = f.Data.DocBytes;
+                // the string tables count a twelfth of their bytes; the item files, which are no tables of rows, count whole
+                Assert.That(asRows, Is.LessThan(asDocs));
+                int files = f.Data.DocCount;
+                for (int i = 0; i < 50; i++)
+                    foreach (long id in new long[] { 1200001, 1200002, 1200003 })
+                        ed.Look(id, x => Assert.That(x.Id, Is.EqualTo(id)));
+                Assert.That(f.Data.DocBytes, Is.LessThanOrEqualTo(f.Data.DocBudget));
+                Assert.That(ed.Open(1200001).Name, Is.EqualTo(d.Name));
+                Assert.That(ed.Open(1200001).Tooltip, Is.EqualTo("A shrill little whistle."));
+                Assert.That(f.Data.DocCount, Is.GreaterThanOrEqualTo(files));
+                // a row with a leading zero, an entity and a quote in its values is found and read the same way
+                Assert.That(ed.Find("kite", 9)[0].Id, Is.EqualTo(3300009));
+                Assert.That(ed.Find("", 50).Count, Is.EqualTo(f.Editor().Find("", 50).Count));
             }
         }
     }

@@ -414,13 +414,40 @@ namespace MS2.ModKit
 
         sealed class DocInfo
         {
-            internal XmlDoc Doc;
+            // a large string table is held as its rows (Sparse) and parsed row by row; any other file as a document
+            internal XmlRows Sparse;
+            XmlDoc doc;
+            internal XmlDoc Doc { get { return doc ?? Sparse.Full(); } set { doc = value; } }
             internal string Name;
-            internal readonly Dictionary<string, Dictionary<string, List<XmlElem>>> Index = new Dictionary<string, Dictionary<string, List<XmlElem>>>();
-            internal readonly Dictionary<string, Dictionary<long, List<XmlElem>>> Numbers = new Dictionary<string, Dictionary<long, List<XmlElem>>>();
+            readonly Dictionary<string, Dictionary<string, List<XmlElem>>> Index = new Dictionary<string, Dictionary<string, List<XmlElem>>>();
+            readonly Dictionary<string, Dictionary<long, List<XmlElem>>> Numbers = new Dictionary<string, Dictionary<long, List<XmlElem>>>();
+            long[] sparseIds;
+            int[] sparseRows;
+            readonly Dictionary<long, List<XmlElem>> sparseHits = new Dictionary<long, List<XmlElem>>();
+
+            /// <summary>The id and the name of every row, in the order of the file.</summary>
+            internal IEnumerable<KeyValuePair<string, string>> IdNames()
+            {
+                if (Sparse != null)
+                    for (int i = 0; i < Sparse.Count; i++) yield return new KeyValuePair<string, string>(Sparse.Attr(i, "id"), Sparse.Attr(i, "name"));
+                else
+                    foreach (XmlElem k in doc.Root.Children) yield return new KeyValuePair<string, string>(k.Attr("id"), k.Attr("name"));
+            }
 
             internal List<XmlElem> Rows(string key, string value)
             {
+                if (Sparse != null)
+                {
+                    var l = new List<XmlElem>();
+                    long n;
+                    if (key == "id" && TryId(value, out n))
+                    {
+                        foreach (XmlElem c in RowsOf(key, n)) if (c.Attr(key) == value) l.Add(c);
+                    }
+                    else
+                        foreach (XmlElem c in Doc.Root.Children) if (c.Attr(key) == value) l.Add(c);
+                    return l;
+                }
                 Dictionary<string, List<XmlElem>> ix;
                 if (!Index.TryGetValue(key, out ix))
                 {
@@ -441,6 +468,48 @@ namespace MS2.ModKit
             // the rows whose key is the number (string files write "02900001" for npc 2900001)
             internal List<XmlElem> RowsOf(string key, long id)
             {
+                if (Sparse != null)
+                {
+                    List<XmlElem> got;
+                    if (key != "id")
+                    {
+                        got = new List<XmlElem>();
+                        long n;
+                        foreach (XmlElem c in Doc.Root.Children) if (TryId(c.Attr(key), out n) && n == id) got.Add(c);
+                        return got;
+                    }
+                    // every row of the id is parsed together: a selector of one of them (RowPath.Canonical tests the
+                    // id first) is then the selector the whole file gives
+                    if (sparseIds == null)
+                    {
+                        // two arrays sorted by id, not a list per id: a file has a hundred thousand rows
+                        var ids = new List<long>();
+                        var at = new List<int>();
+                        for (int i = 0; i < Sparse.Count; i++)
+                        {
+                            long v;
+                            if (!TryId(Sparse.Attr(i, "id"), out v)) continue;
+                            ids.Add(v); at.Add(i);
+                        }
+                        long[] k = ids.ToArray();
+                        int[] r = at.ToArray();
+                        Array.Sort(k, r);
+                        sparseIds = k; sparseRows = r;
+                    }
+                    if (sparseHits.TryGetValue(id, out got)) return got;
+                    int lo = Array.BinarySearch(sparseIds, id);
+                    var mine = new List<int>();
+                    if (lo >= 0)
+                    {
+                        while (lo > 0 && sparseIds[lo - 1] == id) lo--;
+                        for (; lo < sparseIds.Length && sparseIds[lo] == id; lo++) mine.Add(sparseRows[lo]);
+                        mine.Sort();
+                    }
+                    got = mine.Count > 0 ? Sparse.Parse(mine) : new List<XmlElem>();
+                    if (sparseHits.Count >= 512) sparseHits.Clear();
+                    sparseHits[id] = got;
+                    return got;
+                }
                 Dictionary<long, List<XmlElem>> ix;
                 if (!Numbers.TryGetValue(key, out ix))
                 {
@@ -578,8 +647,18 @@ namespace MS2.ModKit
                 {
                     byte[] raw = arch.Read(e);
                     bytes = raw.Length;
-                    XmlDoc doc = XmlDoc.Parse(raw, archive + " " + e.Name);
-                    if (doc.Root != null) info = new DocInfo { Doc = doc, Name = e.Name };
+                    // a table of rows is held as its bytes: about a twelfth of what the parsed file takes
+                    XmlRows rows = raw.Length >= Data.RowsFrom ? XmlRows.TryScan(raw, archive + " " + e.Name) : null;
+                    if (rows != null)
+                    {
+                        info = new DocInfo { Sparse = rows, Name = e.Name };
+                        bytes = Math.Max(1, rows.Cost / 12);
+                    }
+                    else
+                    {
+                        XmlDoc doc = XmlDoc.Parse(raw, archive + " " + e.Name);
+                        if (doc.Root != null) info = new DocInfo { Doc = doc, Name = e.Name };
+                    }
                 }
             }
             Data.DocPut(key, info, bytes);
@@ -775,10 +854,10 @@ namespace MS2.ModKit
             }
             DocInfo names = Language == null ? null : Doc(NameXml, StringEntry(Language, StringFiles[0]));
             if (names != null)
-                foreach (XmlElem k in names.Doc.Root.Children)
+                foreach (KeyValuePair<string, string> k in names.IdNames())
                 {
                     if (hits.Count >= max) break;
-                    string ids = k.Attr("id"), name = k.Attr("name") ?? "";
+                    string ids = k.Key, name = k.Value ?? "";
                     long id;
                     if (!TryId(ids, out id) || seen.Contains(id)) continue;
                     if (text.Length > 0 && !(number && S(id).StartsWith(text, StringComparison.Ordinal)) && name.IndexOf(text, StringComparison.OrdinalIgnoreCase) < 0) continue;

@@ -213,10 +213,26 @@ namespace MS2.ModKit
                         if (string.Equals(kv.Key, entry, StringComparison.OrdinalIgnoreCase)) return ReadBytes(kv.Value, archive + " " + entry);
                 }
             }
-            if (!Data.Exists(archive)) return null;
-            M2dArchive arch = Data.Open(archive);
-            M2dEntry e = arch.Find(entry);
-            return e == null ? null : ReadBytes(arch.Read(e), archive + " " + entry);
+            // the shipped table stays parsed within the data set's budget: a view reads it several times for each
+            // group it shows, and a table is megabytes (nothing here changes a document that was read)
+            string key = "groupdoc\n" + archive + "\n" + entry.ToLowerInvariant();
+            object o;
+            if (Data.DocGet(key, out o)) return (XmlDoc)o;
+            XmlDoc doc = null;
+            long bytes = 0;
+            if (Data.Exists(archive))
+            {
+                M2dArchive arch = Data.Open(archive);
+                M2dEntry e = arch.Find(entry);
+                if (e != null)
+                {
+                    byte[] raw = arch.Read(e);
+                    bytes = raw.Length;
+                    doc = ReadBytes(raw, archive + " " + entry);
+                }
+            }
+            Data.DocPut(key, doc, bytes);
+            return doc;
         }
 
         /// <summary>The plan of the mod's op of this group alone (null when the mod does not touch the group).</summary>

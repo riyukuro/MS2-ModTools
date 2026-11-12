@@ -20,7 +20,11 @@ namespace MS2.ModKit
         // looks at many ids would hold every file of the data set parsed, and the Toolbench host is a 32-bit process.
         // Their keys are in docOrder, least recently used first; DocBudget bounds the bytes of the files as read
         // (the parsed form is several times that). The file used last always stays.
-        public long DocBudget = 12L * 1024 * 1024;
+        // A big table of rows (a string file of 10 MB, one per language and target) is not parsed whole: from
+        // RowsFrom bytes on it is held as its bytes and counts a twelfth of them, so the string files of an entity
+        // fit the budget together with the tables a shop or drop box view keeps parsed, and an Open reads none again.
+        public long DocBudget = 48L * 1024 * 1024;
+        public long RowsFrom = 1024 * 1024;
         readonly LinkedList<string> docOrder = new LinkedList<string>();
         readonly Dictionary<string, KeyValuePair<LinkedListNode<string>, long>> docs = new Dictionary<string, KeyValuePair<LinkedListNode<string>, long>>(StringComparer.Ordinal);
         long docBytes;
