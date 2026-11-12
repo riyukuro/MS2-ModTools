@@ -68,6 +68,9 @@ namespace MS2.ModKit
         public override int GetHashCode() { return (Key.GetHashCode() * 31 + Locale.GetHashCode()) * 31 + Feature.GetHashCode(); }
 
         public static ConstId Of(XmlElem e) { return new ConstId(e.Attr("key"), e.Attr("locale"), e.Attr("feature")); }
+
+        /// <summary>The id as the server ingest tells ids apart: the key trimmed and in upper case, locale, feature.</summary>
+        public string Folded { get { return Key.Trim().ToUpperInvariant() + "\n" + Locale + "\n" + Feature; } }
     }
 
     public sealed class Constants
@@ -75,6 +78,11 @@ namespace MS2.ModKit
         public readonly DataSet Data;
         public readonly Mod Mod;
         readonly Dictionary<ConstSide, Dictionary<ConstId, string>> rows = new Dictionary<ConstSide, Dictionary<ConstId, string>>();
+        readonly Dictionary<ConstSide, Dictionary<ConstId, int>> counts = new Dictionary<ConstSide, Dictionary<ConstId, int>>();
+        // the mod's whole-entry line each copy was read with (Shipped), to tell when another view replaced it
+        readonly Dictionary<ConstSide, EntryOp> readWith = new Dictionary<ConstSide, EntryOp>();
+        // the mod's row lines by copy and id, built on first use and dropped on every change (Forget)
+        readonly Dictionary<ConstSide, Dictionary<ConstId, RowOp>> opIndex = new Dictionary<ConstSide, Dictionary<ConstId, RowOp>>();
         List<ConstId> ids;
 
         public Constants(DataSet data, Mod mod) { Data = data; Mod = mod; }
@@ -87,24 +95,45 @@ namespace MS2.ModKit
             return l;
         }
 
-        /// <summary>The shipped values of one copy by id (empty when the copy is not there).</summary>
+        /// <summary>
+        /// The shipped values of one copy by id (empty when the copy is not there). Of an id with more than one row
+        /// the last row's value: the server ingest reads the rows in order and keeps the last.
+        /// </summary>
         public Dictionary<ConstId, string> Rows(ConstSide side)
         {
             Dictionary<ConstId, string> d;
             if (rows.TryGetValue(side, out d)) return d;
             d = new Dictionary<ConstId, string>();
+            var c = new Dictionary<ConstId, int>();
             rows[side] = d;
+            counts[side] = c;
             byte[] b = Data.Exists(side.Archive) ? Shipped(side) : null;
             if (b == null) return d;
             XmlDoc doc = XmlDoc.Parse(b, side.ToString());
             if (doc.Root == null) return d;
+            var same = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (XmlElem e in doc.Root.Children)
             {
                 if (e.Name != "v" || string.IsNullOrEmpty(e.Attr("key"))) continue;
                 ConstId id = ConstId.Of(e);
-                if (!d.ContainsKey(id)) d[id] = e.Attr("value") ?? "";
+                d[id] = e.Attr("value") ?? "";
+                int n;
+                string k = id.Folded;
+                same[k] = same.TryGetValue(k, out n) ? n + 1 : 1;
             }
+            foreach (ConstId id in d.Keys) c[id] = same[id.Folded];
             return d;
+        }
+
+        /// <summary>
+        /// How many rows of one copy the server takes for the id: the rows of the id and of the ids whose key
+        /// differs only by case or spaces (the ingest matches keys that way). 0: the copy has no row.
+        /// </summary>
+        public int RowCount(ConstSide side, ConstId id)
+        {
+            Rows(side);
+            int n;
+            return counts[side].TryGetValue(id, out n) ? n : 0;
         }
 
         /// <summary>Every id of every copy, by key.</summary>
@@ -122,11 +151,28 @@ namespace MS2.ModKit
         {
             var trig = new TriggerEditor(Data, Mod);
             EntryOp op = trig.OpOf(side.Archive, side.Entry);
+            readWith[side] = op;
             if (op != null) return trig.ModBytes(op);
             M2dArchive a = Data.Open(side.Archive);
             M2dEntry e = a.Find(side.Entry);
             return e == null ? null : a.Read(e);
         }
+
+        /// <summary>
+        /// True when the mod now adds or replaces a copy's entry otherwise than when the copy was read (another view
+        /// changed it): the shipped values are out of date and a new Constants should read them.
+        /// </summary>
+        public bool Stale()
+        {
+            if (Mod == null) return false;
+            var trig = new TriggerEditor(Data, Mod);
+            foreach (KeyValuePair<ConstSide, EntryOp> kv in readWith)
+                if (!ReferenceEquals(trig.OpOf(kv.Key.Archive, kv.Key.Entry), kv.Value)) return true;
+            return false;
+        }
+
+        /// <summary>Drops what is known of the mod's row lines: call it when the mod may have changed elsewhere.</summary>
+        public void Forget() { opIndex.Clear(); }
 
         // ---- values ----
 
@@ -192,7 +238,7 @@ namespace MS2.ModKit
             {
                 string v = Get(s, id);
                 if (first == null) first = v;
-                else if (!Alike(first, v)) return true;
+                else if (!Alike(id, first, v)) return true;
             }
             return false;
         }
@@ -205,16 +251,17 @@ namespace MS2.ModKit
             {
                 string v = GetShipped(s, id);
                 if (first == null) first = v;
-                else if (!Alike(first, v)) return true;
+                else if (!Alike(id, first, v)) return true;
             }
             return false;
         }
 
         // ---- kinds ----
 
-        static readonly Regex IntRx = new Regex(@"^\s*-?\d+\s*$"), FloatRx = new Regex(@"^\s*-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?\s*$");
+        static readonly Regex IntRx = new Regex(@"^\s*-?\d+\s*$"), FloatRx = new Regex(@"^\s*-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?[fF]?\s*$");
+        static Dictionary<string, string> serverKinds;
 
-        /// <summary>What a value is: int, float, bool, list (has a comma) or text.</summary>
+        /// <summary>What a value looks like: int, float, bool, list (has a comma) or text.</summary>
         public static string KindOf(string v)
         {
             v = v ?? "";
@@ -226,30 +273,125 @@ namespace MS2.ModKit
             return "text";
         }
 
+        /// <summary>
+        /// The type the server ingest reads a key as: int, long, byte, float or bool; null when it reads the key as
+        /// text, a time or a vector, or does not read it. Keys match trimmed and without regard to case, as there.
+        /// </summary>
+        public static string ServerKind(string key)
+        {
+            if (serverKinds == null)
+            {
+                var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (string list in ConstantKinds.Lists)
+                {
+                    string kind = list[0] == 'i' ? "int" : list[0] == 'l' ? "long" : list[0] == 'b' ? "byte" : list[0] == 'f' ? "float" : "bool";
+                    foreach (string k in list.Substring(2).Split(',')) if (k.Length > 0) d[k] = kind;
+                }
+                serverKinds = d;
+            }
+            string s;
+            return serverKinds.TryGetValue((key ?? "").Trim(), out s) ? s : null;
+        }
+
+        /// <summary>
+        /// The kind the readers take a constant as: the server ingest's type when it reads the key, else what the
+        /// shipped value looks like (int, float, bool, list or text).
+        /// </summary>
+        public static string KindOf(ConstId id, string shipped)
+        {
+            return ServerKind(id.Key) ?? KindOf(shipped);
+        }
+
+        static bool Truth(string v, out bool b)
+        {
+            string t = (v ?? "").Trim();
+            if (t == "1" || string.Equals(t, "true", StringComparison.OrdinalIgnoreCase)) { b = true; return true; }
+            if (t == "0" || string.Equals(t, "false", StringComparison.OrdinalIgnoreCase)) { b = false; return true; }
+            b = false;
+            return false;
+        }
+
+        static bool Number(string v, out double d)
+        {
+            d = 0;
+            string t = (v ?? "").Trim();
+            if (!FloatRx.IsMatch(t)) return false;
+            return double.TryParse(t.TrimEnd('f', 'F'), NumberStyles.Float, CultureInfo.InvariantCulture, out d);
+        }
+
         /// <summary>Two values the game reads alike: the same number, the same truth value, or the same text.</summary>
         public static bool Alike(string a, string b)
         {
             if (a == b) return true;
             if (a == null || b == null) return false;
             double x, y;
-            if (double.TryParse(a.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out x) && double.TryParse(b.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out y)) return x == y;
+            if (Number(a, out x) && Number(b, out y)) return x == y;
             string ka = KindOf(a);
             if (ka == "bool" && KindOf(b) == "bool") return string.Equals(a.Trim(), b.Trim(), StringComparison.OrdinalIgnoreCase);
             return false;
         }
 
-        /// <summary>Why a value is refused for a row that shipped a value (null: it is of the shipped kind).</summary>
+        /// <summary>Two values of a constant the game reads alike, by the constant's kind (a truth value: 1 is true).</summary>
+        public static bool Alike(ConstId id, string a, string b)
+        {
+            if (a == b) return true;
+            if (a == null || b == null) return false;
+            bool x, y;
+            if (ServerKind(id.Key) == "bool" && Truth(a, out x) && Truth(b, out y)) return x == y;
+            return Alike(a, b);
+        }
+
+        /// <summary>
+        /// Why a value is refused for a row that shipped a value (null: the readers take it). A key the server
+        /// ingest reads is checked against the ingest's type; another key against what its shipped value looks like.
+        /// </summary>
         public static string Problem(ConstId id, string shipped, string value)
         {
-            string want = KindOf(shipped), got = KindOf(value);
             string v = "constant " + id + " \"" + (value ?? "").Trim() + "\"";
+            string t = (value ?? "").Trim();
+            double d;
+            bool b;
+            string server = ServerKind(id.Key);
+            if (server != null)
+            {
+                switch (server)
+                {
+                    case "int":
+                    case "long":
+                    case "byte":
+                        long n;
+                        if (!IntRx.IsMatch(t) || !long.TryParse(t, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n))
+                            return v + " is not a whole number: the server reads the key as one (" + server + ") and takes 0 for anything else";
+                        long lo = server == "byte" ? 0 : server == "int" ? int.MinValue : long.MinValue, hi = server == "byte" ? 255 : server == "int" ? int.MaxValue : long.MaxValue;
+                        if (n < lo || n > hi) return v + " is out of range: the server reads the key as " + server + " (" + lo + " to " + hi + ")";
+                        return null;
+                    case "float":
+                        return Number(t, out d) ? null : v + " is not a number: the server reads the key as one and takes 0 for anything else";
+                    default:
+                        return Truth(t, out b) ? null : v + " is not a truth value: the server reads the key as true, false, 1 or 0 and takes false for anything else";
+                }
+            }
+            string want = KindOf(shipped), got = KindOf(value);
             switch (want)
             {
-                case "int": return got == "int" ? null : v + " is not a whole number (the shipped value " + shipped + " is)";
-                case "float": return got == "int" || got == "float" ? null : v + " is not a number (the shipped value is " + shipped + ")";
+                case "int":
+                case "float": return Number(t, out d) ? null : v + " is not a number (the shipped value is " + shipped + ")";
                 case "bool": return got == "bool" ? null : v + " is not true or false (the shipped value is " + shipped + ")";
                 default: return null;
             }
+        }
+
+        /// <summary>
+        /// A value the readers may take otherwise than meant (null: none): a fraction for a key the server does not
+        /// read whose shipped value is a whole number (the client may read it as one).
+        /// </summary>
+        public static string Doubt(ConstId id, string shipped, string value)
+        {
+            if (ServerKind(id.Key) != null || KindOf(shipped) != "int") return null;
+            string t = (value ?? "").Trim();
+            double d;
+            if (IntRx.IsMatch(t) || !Number(t, out d)) return null;
+            return "constant " + id + " \"" + t + "\" is a fraction and the shipped value " + shipped.Trim() + " is whole; the server does not read the key, so check the client takes a fraction there";
         }
 
         // ---- edits ----
@@ -262,14 +404,18 @@ namespace MS2.ModKit
         {
             if (Mod == null) throw new ModKitException("no mod is being edited");
             value = value ?? "";
-            string kind = KindOf(GetShipped(id));
-            if (kind == "int" || kind == "float" || kind == "bool") value = value.Trim();
+            string kind = KindOf(id, GetShipped(id));
+            if (kind == "int" || kind == "long" || kind == "byte" || kind == "float" || kind == "bool") value = value.Trim();
             List<ConstSide> sides = side == null ? SidesOf(id) : new List<ConstSide> { side };
             int n = 0, had = 0;
             foreach (ConstSide s in sides)
             {
                 string was = GetShipped(s, id);
                 if (was == null) continue;
+                int rowsOf = RowCount(s, id);
+                if (rowsOf > 1)
+                    throw new ModKitException(s.Archive + " " + s.Entry + " has " + rowsOf + " rows of constant " + id + " (keys that differ only by case or spaces count as the same): "
+                        + "the server reads the last one; take the extra rows out by hand first");
                 string bad = Problem(id, was, value);
                 if (bad != null) throw new ModKitException(bad);
             }
@@ -340,20 +486,37 @@ namespace MS2.ModKit
 
         RowOp Change(ConstSide side, ConstId id, bool create)
         {
-            EditOp ed = Edit(side, create);
-            if (ed == null) return null;
-            foreach (RowOp o in ed.Rows)
-                if (o.Kind == RowOpKind.Change && Same(o.At, id)) return o;
-            if (!create) return null;
+            if (!create)
+            {
+                Dictionary<ConstId, RowOp> ix;
+                if (!opIndex.TryGetValue(side, out ix))
+                {
+                    ix = new Dictionary<ConstId, RowOp>();
+                    EditOp e = Edit(side, false);
+                    if (e != null)
+                        foreach (RowOp o in e.Rows)
+                        {
+                            ConstId at;
+                            if (o.Kind == RowOpKind.Change && IdOf(o.At, out at) && !ix.ContainsKey(at)) ix[at] = o;
+                        }
+                    opIndex[side] = ix;
+                }
+                RowOp found;
+                return ix.TryGetValue(id, out found) ? found : null;
+            }
+            RowOp had = Change(side, id, false);
+            if (had != null) return had;
+            EditOp ed = Edit(side, true);
             var op = new RowOp { Kind = RowOpKind.Change, At = id.At };
             ed.Rows.Add(op);
+            opIndex.Remove(side);
             return op;
         }
 
-        // the row op's path names the id: the same tests (key, and locale and feature with "" for none), in any order
-        static bool Same(string at, ConstId id)
+        // the id a row op's path names: the tests key, and locale and feature with "" for none, in any order
+        static bool IdOf(string at, out ConstId id)
         {
-            if ((at ?? "") == id.At) return true;
+            id = default(ConstId);
             RowPath p;
             try { p = RowPath.Parse(at ?? ""); }
             catch (ModKitException) { return false; }
@@ -366,12 +529,15 @@ namespace MS2.ModKit
                 else if (t.Key == "feature") feature = t.Value;
                 else return false;
             }
-            return key == id.Key && locale == id.Locale && feature == id.Feature;
+            if (key == null) return false;
+            id = new ConstId(key, locale, feature);
+            return true;
         }
 
         void Drop(ConstSide side, RowOp op)
         {
             EditOp ed = Edit(side, false);
+            opIndex.Remove(side);
             if (ed == null || !ed.Rows.Remove(op)) return;
             if (ed.Rows.Count == 0) Mod.Ops.Remove(ed);
         }

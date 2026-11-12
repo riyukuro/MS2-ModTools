@@ -29,18 +29,21 @@ namespace MS2.ModKit.Tests
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
-        public FakeConstants()
+        public FakeConstants() : this("") { }
+
+        // extra: rows every copy has after the shared ones
+        public FakeConstants(string extra)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-constants-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
             foreach (string d in new[] { k, g, s }) Directory.CreateDirectory(d);
-            string client = Table(Shared + "\t<v key=\"TestSplit\" value=\"5\" />\n");
+            string client = Table(Shared + extra + "\t<v key=\"TestSplit\" value=\"5\" />\n");
             M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> { E("table/constants.xml", client) });
             M2dWriter.Create(Path.Combine(g, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> { E("table/constants.xml", client) });
             M2dWriter.Create(Path.Combine(s, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> { E("table/constants.xml", client) });
             M2dWriter.Create(Path.Combine(s, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                E("table/Server/constants.xml", Table(Shared + "\t<v key=\"TestSplit\" value=\"7\" />\n\t<v key=\"TestServerOnly\" value=\"3\" />\n")),
+                E("table/Server/constants.xml", Table(Shared + extra + "\t<v key=\"TestSplit\" value=\"7\" />\n\t<v key=\"TestServerOnly\" value=\"3\" />\n")),
             });
             Data = new DataSet(k, g, s);
         }
@@ -119,7 +122,8 @@ namespace MS2.ModKit.Tests
                 Assert.That(c.Get(K, FeeCn), Is.EqualTo("20"));
                 Plan p = f.Plan(m);
                 Assert.That(p.Errors, Is.Empty);
-                Assert.That(p.Warnings, Is.Empty, string.Join("\n", p.Warnings.Select(x => x.Text)));
+                Assert.That(p.Warnings.Select(x => x.Text), Has.All.Contain("runs with locale NA"), "only the copies whose game runs another locale");
+                Assert.That(p.Warnings, Has.Count.EqualTo(3));
             }
         }
 
@@ -129,7 +133,7 @@ namespace MS2.ModKit.Tests
             using (var f = new FakeConstants())
             {
                 var c = new Constants(f.Data, FakeConstants.NewMod());
-                Assert.That(Assert.Throws<ModKitException>(() => c.Set(Price, "1.5")).Message, Does.Contain("not a whole number"));
+                Assert.That(Assert.Throws<ModKitException>(() => c.Set(Price, "cheap")).Message, Does.Contain("not a number"));
                 Assert.That(Assert.Throws<ModKitException>(() => c.Set(Rate, "half")).Message, Does.Contain("not a number"));
                 Assert.That(Assert.Throws<ModKitException>(() => c.Set(Flag, "yes")).Message, Does.Contain("not true or false"));
                 Assert.That(Assert.Throws<ModKitException>(() => c.Set(new ConstId("NoSuchKey"), "1")).Message, Does.Contain("no copy has"));
@@ -185,7 +189,7 @@ namespace MS2.ModKit.Tests
                     "<delete at=\"v[key=TestServerOnly]\"/>" +
                     "</edit></mod>", "hand");
                 Plan p = f.Plan(m);
-                Assert.That(Texts(p.Errors, "\"cheap\" is not a whole number"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "\"cheap\" is not a number"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "TestMadeUp is added, and no copy"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "TestServerOnly has no row after the mods"), Has.Count.EqualTo(1));
                 var c = new Constants(f.Data, m);
@@ -223,6 +227,129 @@ namespace MS2.ModKit.Tests
             Assert.That(Constants.Alike("2.0", "2"), Is.True);
             Assert.That(Constants.Alike("True", "true"), Is.True);
             Assert.That(Constants.Alike("a", "A"), Is.False);
+        }
+
+        // made-up values on keys the server ingest reads: NPCColorScale float, EnableSkillJumpDown bool,
+        // DamageDistance int, hitPerDeadCount byte
+        const string ServerKeys =
+            "\t<v key=\"NPCColorScale\" value=\"1\" />\n" +
+            "\t<v key=\"EnableSkillJumpDown\" value=\"0\" />\n" +
+            "\t<v key=\"DamageDistance\" value=\"3\" />\n" +
+            "\t<v key=\"hitPerDeadCount\" value=\"1\" />\n";
+        static readonly ConstId Scale = new ConstId("NPCColorScale"), Jump = new ConstId("EnableSkillJumpDown"), Dist = new ConstId("DamageDistance"), Hits = new ConstId("hitPerDeadCount");
+
+        [Test]
+        public void Kinds_OfAKeyTheServerReads_AreTheIngestsTypes()
+        {
+            Assert.That(Constants.KindOf(Scale, "1"), Is.EqualTo("float"));
+            Assert.That(Constants.KindOf(Jump, "0"), Is.EqualTo("bool"));
+            Assert.That(Constants.KindOf(new ConstId(" npccolorscale "), "1"), Is.EqualTo("float"), "keys match trimmed and case-insensitive");
+            Assert.That(Constants.KindOf(Price, "100"), Is.EqualTo("int"), "an unknown key: the shipped shape");
+            Assert.That(Constants.Problem(Scale, "1", "1.5"), Is.Null);
+            Assert.That(Constants.Problem(Scale, "1", "2.5f"), Is.Null, "the ingest strips a trailing f");
+            Assert.That(Constants.Problem(Jump, "0", "true"), Is.Null);
+            Assert.That(Constants.Problem(Jump, "0", "1"), Is.Null);
+            Assert.That(Constants.Problem(Jump, "0", "2"), Does.Contain("not a truth value"));
+            Assert.That(Constants.Problem(Dist, "3", "1.5"), Does.Contain("not a whole number"));
+            Assert.That(Constants.Problem(Hits, "1", "300"), Does.Contain("out of range"));
+            Assert.That(Constants.Problem(Hits, "1", "-1"), Does.Contain("out of range"));
+            Assert.That(Constants.Alike(Jump, "1", "true"), Is.True);
+            Assert.That(Constants.Alike(Price, "1", "true"), Is.False);
+            Assert.That(Constants.Problem(Price, "100", "1.5"), Is.Null, "an unknown whole key widens to a number");
+            Assert.That(Constants.Doubt(Price, "100", "1.5"), Does.Contain("is a fraction"));
+            Assert.That(Constants.Doubt(Scale, "1", "1.5"), Is.Null, "the server reads it as a float");
+            Assert.That(Constants.Problem(Flag, "true", "1"), Does.Contain("not true or false"), "an unknown bool keeps to true and false");
+        }
+
+        [Test]
+        public void Set_OfServerKeys_FollowsTheIngest_AndAFractionOfAnUnknownWholeKeyIsAWarning()
+        {
+            using (var f = new FakeConstants(ServerKeys))
+            {
+                Mod m = FakeConstants.NewMod();
+                var c = new Constants(f.Data, m);
+                Assert.That(c.Set(Scale, "1.5"), Is.EqualTo(4));
+                Assert.That(c.Set(Jump, "true"), Is.EqualTo(4));
+                Assert.That(Assert.Throws<ModKitException>(() => c.Set(Jump, "2")).Message, Does.Contain("not a truth value"));
+                Assert.That(Assert.Throws<ModKitException>(() => c.Set(Dist, "1.5")).Message, Does.Contain("not a whole number"));
+                Assert.That(c.Set(Price, "1.5"), Is.EqualTo(4));
+                Plan p = f.Plan(m);
+                Assert.That(p.Errors, Is.Empty, string.Join("\n", p.Errors.Select(x => x.Text)));
+                Assert.That(Texts(p.Warnings, "TestPrice \"1.5\" is a fraction"), Has.Count.EqualTo(4));
+                Assert.That(Texts(p.Warnings, "EnableSkillJumpDown"), Is.Empty, "true and 0 read alike only where they differ");
+            }
+        }
+
+        [Test]
+        public void DuplicateRows_ShowTheLast_AreRefused_AndNewOnesAreFlagged()
+        {
+            const string dups = "\t<v key=\"TestTwice\" value=\"1\" />\n\t<v key=\"TestTwice\" value=\"2\" />\n" +
+                "\t<v key=\"TestCase\" value=\"1\" />\n\t<v key=\" testcase\" value=\"2\" />\n";
+            using (var f = new FakeConstants(dups))
+            {
+                Mod m = FakeConstants.NewMod();
+                var c = new Constants(f.Data, m);
+                var twice = new ConstId("TestTwice");
+                Assert.That(c.Get(ST, twice), Is.EqualTo("2"), "the server keeps the last row");
+                Assert.That(c.RowCount(ST, twice), Is.EqualTo(2));
+                Assert.That(c.RowCount(K, new ConstId("TestCase")), Is.EqualTo(2), "keys that differ by case or spaces count as one");
+                Assert.That(c.RowCount(K, Price), Is.EqualTo(1));
+                Assert.That(Assert.Throws<ModKitException>(() => c.Set(twice, "3")).Message, Does.Contain("has 2 rows"));
+                Assert.That(Assert.Throws<ModKitException>(() => c.Set(new ConstId("TestCase"), "3")).Message, Does.Contain("has 2 rows"));
+                Assert.That(m.Ops, Is.Empty);
+                Assert.That(f.Plan(m).Warnings, Is.Empty, "rows that shipped twice raise nothing by themselves");
+            }
+            using (var f = new FakeConstants())
+            {
+                Mod m = Mod.Parse("<mod id=\"constants.dup\" name=\"t\" version=\"1\">" +
+                    "<edit archive=\"server:Server.m2d\" entry=\"table/Server/constants.xml\" sync=\"false\">" +
+                    "<add><xml><v key=\"testprice\" value=\"5\"/></xml></add>" +
+                    "</edit></mod>", "hand");
+                Plan p = f.Plan(m);
+                Assert.That(Texts(p.Warnings, "has 2 rows after the mods"), Has.Count.EqualTo(1), string.Join("\n", p.Warnings.Select(x => x.Text)));
+            }
+        }
+
+        [Test]
+        public void Plan_FlagsATakenOutValue_AndAChangeOfAnotherLocale()
+        {
+            using (var f = new FakeConstants())
+            {
+                Mod m = Mod.Parse("<mod id=\"constants.unset\" name=\"t\" version=\"1\">" +
+                    "<edit archive=\"server:Server.m2d\" entry=\"table/Server/constants.xml\" sync=\"false\">" +
+                    "<change at=\"v[key=TestPrice]\"><unset name=\"value\"/></change>" +
+                    "</edit></mod>", "hand");
+                Assert.That(Texts(f.Plan(m).Warnings, "TestPrice has no value after the mods"), Has.Count.EqualTo(1));
+            }
+            using (var f = new FakeConstants())
+            {
+                Mod m = FakeConstants.NewMod();
+                var c = new Constants(f.Data, m);
+                c.Set(FeeCn, "25");
+                Plan p = f.Plan(m);
+                Assert.That(Texts(p.Warnings, "runs with locale KR"), Is.Not.Empty, string.Join("\n", p.Warnings.Select(x => x.Text)));
+            }
+        }
+
+        [Test]
+        public void Stale_WhenAnotherViewReplacesTheEntry_AndTheLinesFollowSetAndTake()
+        {
+            using (var f = new FakeConstants())
+            {
+                Mod m = FakeConstants.NewMod();
+                var c = new Constants(f.Data, m);
+                c.Set(Price, "1");
+                c.Set(Rate, "0.25");
+                Assert.That(c.Take(Price), Is.True);
+                Assert.That(c.Get(ST, Rate), Is.EqualTo("0.25"));
+                Assert.That(c.Get(ST, Price), Is.EqualTo("100"));
+                c.Set(Price, "2");
+                Assert.That(c.Get(K, Price), Is.EqualTo("2"));
+                Assert.That(c.EditedCount(), Is.EqualTo(2));
+                Assert.That(c.Stale(), Is.False);
+                m.Ops.Add(new EntryOp { Archive = ST.Archive, Name = ST.Entry, Delete = true });
+                Assert.That(c.Stale(), Is.True);
+            }
         }
     }
 }

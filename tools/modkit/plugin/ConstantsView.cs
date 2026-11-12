@@ -208,7 +208,8 @@ namespace MS2.Tables
         void OnHostChanged()
         {
             EditorSession s = host.SharedSession();
-            if (cs != null && (cs.Data != s.Data || cs.Mod != s.Mod)) { cs = null; read = false; }
+            if (cs != null && (cs.Data != s.Data || cs.Mod != s.Mod || (read && cs.Stale()))) { cs = null; read = false; }
+            if (cs != null) cs.Forget();
             if (Visible) { if (read) ShowRows(); else if (!host.Busy) ShowTable(); }
         }
 
@@ -258,14 +259,19 @@ namespace MS2.Tables
                     var it = new ListViewItem(id.Key) { Tag = id };
                     it.SubItems.Add(id.Locale);
                     it.SubItems.Add(id.Feature);
-                    it.SubItems.Add(Constants.KindOf(cs.GetShipped(id)));
+                    it.SubItems.Add(Constants.KindOf(id, cs.GetShipped(id)));
                     var tip = new List<string>();
                     foreach (ConstSide s in ConstSide.All)
                     {
                         string now = cs.Get(s, id), was = cs.GetShipped(s, id);
                         it.SubItems.Add(now ?? "");
-                        if (was == null) tip.Add(Short(s) + ": no row");
-                        else tip.Add(Short(s) + ": " + was + " shipped" + (now != was ? ", " + now + " with the mod" : ""));
+                        if (was == null) { tip.Add(Short(s) + ": no row"); continue; }
+                        int rowsOf = cs.RowCount(s, id);
+                        Profile p = Profile.OfArchive(s.Archive);
+                        bool otherLocale = id.Locale.Length > 0 && p != null && !string.Equals(id.Locale, p.Locale, StringComparison.OrdinalIgnoreCase);
+                        tip.Add(Short(s) + ": " + was + " shipped" + (now != was ? ", " + now + " with the mod" : "")
+                            + (rowsOf > 1 ? " (" + rowsOf + " rows: the server keeps the last; not editable here)" : "")
+                            + (otherLocale ? " (this copy's game runs with locale " + p.Locale + ": it likely does not read the row)" : ""));
                     }
                     it.SubItems.Add(edited ? "yes" : "");
                     if (differs) it.ForeColor = Color.DarkOrange;
@@ -314,8 +320,10 @@ namespace MS2.Tables
             int n = cs.Set(id, valueBox.Text, side);
             host.EditedOutside();
             ShowRows();
+            string doubt = Constants.Doubt(id, cs.GetShipped(id), valueBox.Text);
             host.SayOutside(id + " = " + (side == null ? cs.Get(id) : cs.Get(side, id)) + (n == 0 ? ": as it was" : " on " + n + " cop" + (n == 1 ? "y" : "ies"))
-                + (cs.IsEdited(id) ? "" : " (as shipped: no line in the mod)") + (cs.Differs(id) && !cs.ShippedDiffers(id) ? "; the copies now differ" : ""));
+                + (cs.IsEdited(id) ? "" : " (as shipped: no line in the mod)") + (cs.Differs(id) && !cs.ShippedDiffers(id) ? "; the copies now differ" : "")
+                + (doubt != null ? "\n" + doubt : ""));
         }
 
         void TakeOne()

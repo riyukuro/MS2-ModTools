@@ -2012,26 +2012,38 @@ There are four copies:
 
 | copy | entry | read by |
 |---|---|---|
-| server table | `table/Server/constants.xml` of the server's `Server.m2d` | the server (the server-only keys are here) |
-| server xml | `table/constants.xml` of the server's `Xml.m2d` | the server |
+| server table | `table/Server/constants.xml` of the server's `Server.m2d` | the server ingest, for every key it knows (the server-only keys are here) |
+| server xml | `table/constants.xml` of the server's `Xml.m2d` | the server's copy of the client file: the ingest reads only some price keys here, in versions that have them (there the client row wins) |
 | kms client | `table/constants.xml` of the Korean client's `Xml.m2d` | the client: what it shows (prices, costs) |
 | global client | `table/constants.xml` of the global client's `Xml.m2d` | the client |
 
 A constant is one key with its locale and feature. The copies do not all agree as shipped (a few keys differ, and many
 are on the server table only), so each copy is edited on its own, with one edit per copy (no field map is needed).
+The server ingest matches keys trimmed and case-insensitive, reads the rows in order and keeps the last row of a key
+(after its locale and feature filter: a game reads the rows of its own locale and those without one). The list shows
+that last row.
 
 1. Type part of a **key** to filter the list; **edited only** and **copies differ only** narrow it further. The list
-   shows each constant with its kind (`int`, `float`, `bool`, `list` or `text`, from the shipped value) and its
+   shows each constant with its kind and its
    value on every copy with the mod. A constant the mod changes is blue, one whose copies differ is orange; the
-   tooltip gives every copy's shipped value.
-2. Pick a constant, choose **(every copy)** or one copy, type the value and **Set** (or Enter). The value must be of
-   the shipped value's kind: a whole number for an `int`, a number for a `float`, `true` or `false` for a `bool`.
-   Setting the shipped value takes the copy's line out of the mod.
+   tooltip gives every copy's shipped value, a copy with more than one row of the constant, and a row of another
+   locale than the copy's game runs with. The kind of a key the server ingest reads is the ingest's type (`int`,
+   `long`, `byte`, `float` or `bool`); of another key, what the shipped value looks like (`int`, `float`, `bool`,
+   `list` or `text`).
+2. Pick a constant, choose **(every copy)** or one copy, type the value and **Set** (or Enter). The value must be one
+   the readers take: for a key the server reads, a whole number in range for `int`, `long` and `byte`, a number
+   (a trailing `f` is fine) for `float`, `true`, `false`, `1` or `0` for `bool`. For another key a number where a
+   number shipped (a fraction where a whole number shipped is a warning) and `true` or `false` where a bool shipped.
+   A constant with more than one row in a copy is refused: take the extra rows out by hand first. Setting the
+   shipped value takes the copy's line out of the mod.
 3. **Take** and **Take all** put the shipped values back. **Plan**, **Apply** and **Save mod** are the Tables view's.
 
-Plan checks every copy the mods change, as the copy ends up with it. An error: a changed value that is not of the
-shipped value's kind. Warnings: a row the mods add whose key no copy ships (the game reads only the keys it knows),
-a shipped row the mods leave without a row (the game takes its built-in value), and a constant the copies shipped
+Plan checks every copy the mods change, as the copy ends up with it. An error: a changed value the readers do not
+take (as in step 2). Warnings: a row the mods add whose key no copy ships (the game reads only the keys it knows),
+a shipped row the mods leave without a row or without a value (the game takes its built-in value, 0 or false), a
+constant with more rows than it shipped with (the server keeps the last), a changed row of another locale than the
+copy's game runs with (it likely does nothing), a fraction where a key the server does not read shipped a whole
+number, and a constant the copies shipped
 alike that now differs between them (the server's two copies disagree, the client shows one value and the server
 uses another, or the two clients disagree). A constant whose copies shipped different values raises nothing.
 
