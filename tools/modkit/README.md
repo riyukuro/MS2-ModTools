@@ -2004,6 +2004,37 @@ disagree, or the two clients' bars do). A level whose sides shipped different va
 more than one row on a side (rows by locale or feature; the shipped tables have none) is refused by Set and Scale and
 raised by Plan: the game reads the last row it can use, so edit those rows by hand.
 
+## Game constants
+
+A view, **MS2 Constants** (menu **MS2 Mods > Constants**), edits the game constants: about a thousand settings as
+`<v key="..." value="..."/>` rows (prices, fees, rates, limits, timers; a row may be for one `locale` or `feature`).
+There are four copies:
+
+| copy | entry | read by |
+|---|---|---|
+| server table | `table/Server/constants.xml` of the server's `Server.m2d` | the server (the server-only keys are here) |
+| server xml | `table/constants.xml` of the server's `Xml.m2d` | the server |
+| kms client | `table/constants.xml` of the Korean client's `Xml.m2d` | the client: what it shows (prices, costs) |
+| global client | `table/constants.xml` of the global client's `Xml.m2d` | the client |
+
+A constant is one key with its locale and feature. The copies do not all agree as shipped (a few keys differ, and many
+are on the server table only), so each copy is edited on its own, with one edit per copy (no field map is needed).
+
+1. Type part of a **key** to filter the list; **edited only** and **copies differ only** narrow it further. The list
+   shows each constant with its kind (`int`, `float`, `bool`, `list` or `text`, from the shipped value) and its
+   value on every copy with the mod. A constant the mod changes is blue, one whose copies differ is orange; the
+   tooltip gives every copy's shipped value.
+2. Pick a constant, choose **(every copy)** or one copy, type the value and **Set** (or Enter). The value must be of
+   the shipped value's kind: a whole number for an `int`, a number for a `float`, `true` or `false` for a `bool`.
+   Setting the shipped value takes the copy's line out of the mod.
+3. **Take** and **Take all** put the shipped values back. **Plan**, **Apply** and **Save mod** are the Tables view's.
+
+Plan checks every copy the mods change, as the copy ends up with it. An error: a changed value that is not of the
+shipped value's kind. Warnings: a row the mods add whose key no copy ships (the game reads only the keys it knows),
+a shipped row the mods leave without a row (the game takes its built-in value), and a constant the copies shipped
+alike that now differs between them (the server's two copies disagree, the client shows one value and the server
+uses another, or the two clients disagree). A constant whose copies shipped different values raises nothing.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different

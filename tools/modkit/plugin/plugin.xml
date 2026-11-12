@@ -163,6 +163,11 @@
           class="MS2.Tables.LevelsView"
           default-dock="Document"
           default-visible="true"/>
+    <view id="MS2.Tables.ConstantsView"
+          name="MS2 Constants"
+          class="MS2.Tables.ConstantsView"
+          default-dock="Document"
+          default-visible="true"/>
     <view id="MS2.Tables.DialogueView"
           name="MS2 Dialogue"
           class="MS2.Tables.DialogueView"
@@ -213,6 +218,7 @@
       <menuitem id="MS2.Tables.Menu.ShowMaps" action="MS2.Tables.ShowMapsAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowSound" action="MS2.Tables.ShowSoundAction" path="MS2 Mods" priority="18"/>
       <menuitem id="MS2.Tables.Menu.ShowLevels" action="MS2.Tables.ShowLevelsAction" path="MS2 Mods" priority="18"/>
+      <menuitem id="MS2.Tables.Menu.ShowConstants" action="MS2.Tables.ShowConstantsAction" path="MS2 Mods" priority="18"/>
       <menufactory id="MS2.Tables.Menu.WholeWindow" label="Use the whole window" class="MS2.Tables.WholeWindowMenu" path="MS2 Mods" priority="19"/>
       <menuitem id="MS2.Tables.Menu.Plan" action="MS2.Tables.PlanAction" path="MS2 Mods" priority="20"/>
       <menuitem id="MS2.Tables.Menu.Apply" action="MS2.Tables.ApplyAction" path="MS2 Mods" priority="30"/>
@@ -237,6 +243,7 @@
       <action label="Maps" tooltip="Shows the MS2 Maps view: the entities of a map's files with their properties, and edits of them (set, unset, remove, restore) as map ops of the mod" handler="MS2.Tables.ShowMapsAction" id="MS2.Tables.ShowMapsAction"/>
       <action label="Sound" tooltip="Shows the MS2 Sound view, read only: the music cues of Sound/MS2Sound.fev with the maps that play them, and the sound banks (MS2Sound_*.fsb) with their samples" handler="MS2.Tables.ShowSoundAction" id="MS2.Tables.ShowSoundAction"/>
       <action label="Levels" tooltip="Shows the MS2 Levels view: the experience a level needs (table/nextexp.xml, on every client and the server alike) and the experience monsters give by level and kind (the server's monsterExpTable.xml), set, scaled or taken back into the mod" handler="MS2.Tables.ShowLevelsAction" id="MS2.Tables.ShowLevelsAction"/>
+      <action label="Constants" tooltip="Shows the MS2 Constants view: the game constants (table/constants.xml of every client and the server's pack, and the server's table/Server/constants.xml), each copy's value with the mod, set on every copy or one, or taken back into the mod" handler="MS2.Tables.ShowConstantsAction" id="MS2.Tables.ShowConstantsAction"/>
       <action label="Plan" tooltip="Shows what the enabled mods of the mods folder (and the pending edits) would change, with conflicts and warnings; writes nothing"
               handler="MS2.Tables.PlanAction" id="MS2.Tables.PlanAction"/>
       <action label="Apply" tooltip="Saves the mod being edited and writes what the enabled mods change: loose files into the game folder, or patched copies of the archives into the workspace folder"
@@ -274,6 +281,7 @@
       <view id="MS2.Tables.MapsView"/>
       <view id="MS2.Tables.SoundView"/>
       <view id="MS2.Tables.LevelsView"/>
+      <view id="MS2.Tables.ConstantsView"/>
       <actionset id="MS2.Tables.Actions"/>
     </mapping>
   </extension>

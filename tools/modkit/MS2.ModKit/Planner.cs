@@ -545,6 +545,7 @@ namespace MS2.ModKit
             LoginMusicChecks(run);
             IconChecks(run);
             LevelChecks(run);
+            ConstantChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 
