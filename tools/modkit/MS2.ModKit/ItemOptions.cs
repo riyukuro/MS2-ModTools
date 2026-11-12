@@ -825,12 +825,36 @@ namespace MS2.ModKit
                     }
                 }
             }
-            // the mod's items: their pointers as the mod leaves them
+            // the grades of the codes the mod changed, as the mod leaves them
+            foreach (OptionCodeInfo info in all.Values)
+            {
+                if (!info.Changed) continue;
+                info.Grades.Clear();
+                foreach (OptionSide s in Sides(kind))
+                {
+                    if (s.Kms)
+                    {
+                        OptNode now = KmsNow(info.Code);
+                        if (now != null) foreach (OptNode r in now.Ranks()) info.Grades[OptNode.GradeOf(r)] = true;
+                        continue;
+                    }
+                    TableDraft d;
+                    for (int g = 1; g <= ItemOptionRules.MaxGrade; g++) if (FlatRow(s, info.Code, g, out d) != null) info.Grades[g] = true;
+                }
+            }
+            // the mod's items: their pointers as the mod leaves them (an item the mod points elsewhere leaves its shipped code)
+            var moved = new Dictionary<long, List<long>>();
             foreach (KeyValuePair<long, long> kv in ModPointers(kind))
             {
+                List<long> to;
+                if (!moved.TryGetValue(kv.Key, out to)) moved[kv.Key] = to = new List<long>();
+                to.Add(kv.Value);
                 OptionCodeInfo info = Info(all, kind, kv.Value, null, null);
                 if (!info.Items.Contains(kv.Key)) info.Items.Add(kv.Key);
             }
+            if (moved.Count > 0)
+                foreach (OptionCodeInfo info in all.Values)
+                    info.Items.RemoveAll(delegate(long id) { List<long> to; return moved.TryGetValue(id, out to) && !to.Contains(info.Code); });
             return new List<OptionCodeInfo>(all.Values);
         }
 
@@ -1159,7 +1183,7 @@ namespace MS2.ModKit
                 {
                     if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
                     foreach (string f in PointerFields(kind))
-                        if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode)); hit = true; }
+                        if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode), false); hit = true; }
                 }
                 if (hit) changed++;
             }

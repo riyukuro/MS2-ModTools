@@ -262,6 +262,12 @@ namespace MS2.ModKit.Tests
                 Assert.That(n, Is.EqualTo(1));
                 Assert.That(ed.ItemsOf(OptionKind.Constant, 100), Is.EqualTo(new long[] { 11200002 }));
                 Assert.That(ed.ItemsOf(OptionKind.Constant, code), Is.EqualTo(new long[] { 11200001 }));
+                OptionCodeInfo was = null, now = null;
+                foreach (OptionCodeInfo i in ed.Codes(OptionKind.Constant)) { if (i.Code == 100) was = i; if (i.Code == code) now = i; }
+                Assert.That(was.Items, Is.EqualTo(new long[] { 11200002 }));
+                Assert.That(now.Items, Is.EqualTo(new long[] { 11200001 }));
+                Assert.That(now.Added, Is.True);
+                Assert.That(now.GradeText, Is.EqualTo(was.GradeText));
                 OptionSide k = Side(ed, OptionKind.Constant, true), s = Side(ed, OptionKind.Constant, false);
                 Assert.That(ed.Cell(s, code, 4, "pen_rate_base").Value, Is.EqualTo("0.01"));
                 ed.Set(k, code, 3, "mar_value_base", "20");
@@ -323,6 +329,26 @@ namespace MS2.ModKit.Tests
                 Assert.That(Has(p.Warnings, "grade 1 mar"), Is.False, "grade 1 still agrees");
                 Assert.That(Has(p.Errors, "static option 777"), Is.True, Fake.Dump(p));
                 Assert.That(Has(p.Errors, "constant option"), Is.False, Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void EditorEditsPlanWithoutErrors()
+        {
+            using (var f = new FakeOptions())
+            {
+                Mod m = FakeOptions.ModOf("");
+                var ed = new ItemOptionEditor(f.Data, m);
+                OptionSide k = Side(ed, OptionKind.Constant, true), s = Side(ed, OptionKind.Constant, false);
+                ed.Set(k, 100, 1, "mar_value_base", "5");
+                ed.Set(s, 100, 4, "mar_value_base", "11");
+                long code = ed.NextCodes(1)[0];
+                ed.Fork(OptionKind.Constant, 100, code, new long[] { 11200001 });
+                Plan p = Planner.Build(f.Data, new[] { m }, new PlanOptions());
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Has(p.Warnings, "space \"itemoption\""), Is.False, "a rewritten code is no new id, the option places are alternatives: " + Fake.Dump(p));
+                Assert.That(Has(p.Warnings, "new id 100 "), Is.False, Fake.Dump(p));
+                Assert.That(Has(p.Warnings, "constantID is changed on the client only"), Is.False, "the pointers are set per side: " + Fake.Dump(p));
             }
         }
 

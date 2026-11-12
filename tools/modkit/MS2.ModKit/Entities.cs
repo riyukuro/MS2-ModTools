@@ -129,8 +129,8 @@ namespace MS2.ModKit
         /// <summary>
         /// Sets a field of the bundle row or the per-id file. The edit is written on this side only, the same way a
         /// mod file has it: on Plan, the field map carries a mapped field to the other side when the two sides
-        /// corresponded before, and the mirror carries a server edit to the gms-client. Without sync, a mapped field
-        /// is marked sync="false", so Plan leaves the other side alone and says so. Returns the section of the other
+        /// corresponded before, and the mirror carries a server edit to the gms-client. Without sync, the field is
+        /// marked sync="false", so Plan leaves the other side alone (and does not warn that it is unmapped). Returns the section of the other
         /// side that Plan will change too, or null.
         /// </summary>
         public EntitySection Set(EntitySection s, string field, string value, bool sync)
@@ -142,7 +142,7 @@ namespace MS2.ModKit
             EntitySection m = Mirror(s, field, out otherField, out e);
             if (!sync)
             {
-                if (m != null) MarkOneSided(s, field);
+                MarkOneSided(s, field);
                 return null;
             }
             if (m == null) return null;

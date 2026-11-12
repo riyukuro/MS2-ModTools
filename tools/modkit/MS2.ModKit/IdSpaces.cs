@@ -184,11 +184,21 @@ namespace MS2.ModKit
                 {
                     if (Absent(data, t.Range.Places[i])) continue;   // places of a target that is not set do not count
                     present++;
-                    if (!t.Places.Contains(i)) missing.Add(Describe(t.Range.Places[i]));
+                    if (t.Places.Contains(i) || InGroup(t, i)) continue;
+                    missing.Add(Describe(t.Range.Places[i]));
                 }
                 if (missing.Count == 0) continue;
                 plan.Msg(plan.Warnings, t.Mod, null, null, "id " + id + " of space \"" + t.Range.Space + "\" is added in " + (present - missing.Count) + " of " + present + " places; nothing is added in " + string.Join("; ", missing.ToArray()));
             }
+        }
+
+        /// <summary>Place i is one of a group of alternatives (IdPlace.Any) of which the id was added in another.</summary>
+        static bool InGroup(Taken t, int i)
+        {
+            string g = t.Range.Places[i].Any;
+            if (g == null) return false;
+            foreach (int j in t.Places) if (t.Range.Places[j].Any == g) return true;
+            return false;
         }
 
         // ---- the ranges the tools use for new shops and drop boxes ----
@@ -241,10 +251,12 @@ namespace MS2.ModKit
             }
             else if (space == ItemOptionRules.Space)
             {
-                l.Add(new IdPlace { Archive = "client:Xml.m2d", Entry = ItemOptionRules.KmsEntry, Rows = "option", Key = "code" });
+                // a code is a constant code, a static code or both, and KMS ships no static table: the places are
+                // alternatives (a missing row of an item's code is the item option check's finding)
+                l.Add(new IdPlace { Archive = "client:Xml.m2d", Entry = ItemOptionRules.KmsEntry, Rows = "option", Key = "code", Any = ItemOptionRules.Space });
                 foreach (string a in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
                     foreach (string dir in new[] { ItemOptionRules.ConstantDir, ItemOptionRules.StaticDir })
-                        l.Add(new IdPlace { Archive = a, Entry = dir + "*.xml", Rows = "option", Key = "code" });
+                        l.Add(new IdPlace { Archive = a, Entry = dir + "*.xml", Rows = "option", Key = "code", Any = ItemOptionRules.Space });
             }
             else throw new ModKitException("no default places for the id space \"" + space + "\"");
             return l;

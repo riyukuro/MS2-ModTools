@@ -1282,7 +1282,12 @@ namespace MS2.ModKit
             var attrs = new Dictionary<string, string>();
             foreach (XmlAttr a in made.Attrs) attrs[a.Name] = a.Value;
             string names = RowPath.NamePath(parent, false);
-            if (!r.NoNewId) plan.NewIds.Add(claim.NewId = new NewId { Mod = mod, Archive = st.Archive, Entry = st.Name, NamePath = (names.Length > 0 ? names + "/" : "") + made.Name, Attrs = attrs });
+            // a row the mod deletes and adds again (a whole-row rewrite) keeps its id: not a new one
+            bool replaces = false;
+            if (!r.NoNewId && !r.Grouped)
+                foreach (XmlElem c in SameKey(st, parent, RowKey(made)))
+                    if (DeletedBy(st, c) == mod) { replaces = true; break; }
+            if (!r.NoNewId && !replaces) plan.NewIds.Add(claim.NewId = new NewId { Mod = mod, Archive = st.Archive, Entry = st.Name, NamePath = (names.Length > 0 ? names + "/" : "") + made.Name, Attrs = attrs });
             AddProbes(plan, mod, st, RowPath.NamePath(parent, true), made);
         }
 

@@ -24,6 +24,7 @@ namespace MS2.ModKit
         public string Entry;        // entry name pattern: * = any run without '/', {id} = the id
         public string Rows;         // selector of the rows inside the entries, or null when the entry is the row
         public string Key = "id";   // the attribute that holds the id (with Rows)
+        public string Any;          // places of one group are alternatives: an id added in one of them is in all
     }
 
     public sealed class IdRange
@@ -299,8 +300,8 @@ namespace MS2.ModKit
                 foreach (XmlElem w in e.Children)
                 {
                     if (w.Name != "where") throw Bad(w, "unknown element <" + w.Name + "> in <ids> (known: where)");
-                    Only(w, "archive", "entry", "rows", "key");
-                    var p = new IdPlace { Archive = ArchiveRef(w), Entry = Need(w, "entry").Replace('\\', '/'), Rows = w.Attr("rows"), Key = w.Attr("key") ?? "id" };
+                    Only(w, "archive", "entry", "rows", "key", "any");
+                    var p = new IdPlace { Archive = ArchiveRef(w), Entry = Need(w, "entry").Replace('\\', '/'), Rows = w.Attr("rows"), Key = w.Attr("key") ?? "id", Any = w.Attr("any") };
                     if (p.Rows == null && p.Entry.IndexOf("{id}", StringComparison.Ordinal) < 0)
                         throw Bad(w, "<where> needs {id} in entry=\"...\" or a rows=\"...\" selector");
                     if (p.Rows != null) RowPath.Parse(p.Rows);
@@ -440,6 +441,7 @@ namespace MS2.ModKit
                 {
                     sb.Append("    <where"); A(sb, "archive", p.Archive); A(sb, "entry", p.Entry); A(sb, "rows", p.Rows);
                     if (p.Rows != null) A(sb, "key", p.Key);
+                    A(sb, "any", p.Any);
                     sb.Append(" />\n");
                 }
                 sb.Append("  </ids>\n");

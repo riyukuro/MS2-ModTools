@@ -218,6 +218,7 @@ namespace MS2.ModKit
             {
                 // the key of a row, or something outside of the mapped part
                 if (side.Row != null && ch.Elem.Name == side.Row && ch.Name == side.Key) return;
+                if ((ch.Op != null && !ch.Op.Sync) || (ch.AttrOp != null && !ch.AttrOp.Sync)) return;   // one side by intent
                 Unmapped(sr, em, client, ch.Mod, ch.Archive, ch.Entry, ch.Row, RowPath.NamePath(ch.Elem, false) + "@" + ch.Name, FieldKind.Unknown, null, target);
                 return;
             }
@@ -298,7 +299,7 @@ namespace MS2.ModKit
             FieldMapEntry e;
             FieldKind kind = em.Classify(client, field, out e);
             if (kind == FieldKind.ClientOnly || kind == FieldKind.ServerOnly) return;
-            if (kind != FieldKind.Mapped) { Unmapped(sr, em, client, mod, archive, entry, row, field, kind, e, otherArchive); return; }
+            if (kind != FieldKind.Mapped) { if (rowSync) Unmapped(sr, em, client, mod, archive, entry, row, field, kind, e, otherArchive); return; }
 
             EntitySide other = em.Side(!client);
             string here = SideName(archive), there = SideName(otherArchive);
