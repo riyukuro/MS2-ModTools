@@ -111,8 +111,8 @@ namespace MS2.ModKit.Tests
             WriteModels(k);
         }
 
-        // made-up recipes of the Recipes view: crafts and gathering over the demo items; the server asks more mesos
-        // for the drum and has one gathering recipe the client lacks
+        // made-up recipes of the Recipes view: crafts and gathering over the demo items; the server and the global
+        // client (server = true) ask more mesos for the drum and have one gathering recipe the Korean client lacks
         static string DemoRecipes(bool server)
         {
             return Head + "<ms2>\n" +

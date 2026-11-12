@@ -211,6 +211,74 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void AddedIdsReadsACopyWithASetId()
+        {
+            using (var f = new FakeRecipes())
+            {
+                // the view's Clone of a shipped recipe writes copy= and sets id, the other branch of AddedIds
+                Mod other = Empty();
+                var src = new RecipeEditor(f.Data, other);
+                src.Clone(Find(src, "10000001", "F"), RecipeRules.From + 7);
+                Assert.That(other.ToXml(), Does.Contain("copy="));
+                other.Ids.Clear();
+                Assert.That(RecipeEditor.AddedIds(other), Has.Member(RecipeRules.From + 7));
+                var ed = new RecipeEditor(f.Data, FakeRecipes.ModOf("", "recipes.mine"));
+                List<long> next = ed.NextIds(new[] { other }, 8, null);
+                Assert.That(next, Has.No.Member(RecipeRules.From + 7));
+                Assert.That(next.Count, Is.EqualTo(8));
+            }
+        }
+
+        [Test]
+        public void NextIdsWhenOtherModsAddMoreThanTheTableShips()
+        {
+            using (var f = new FakeRecipes())
+            {
+                var ed = new RecipeEditor(f.Data, Empty());
+                int n = ed.Recipes.Count + 5;
+                var sb = new System.Text.StringBuilder();
+                for (int i = 0; i < n; i++)
+                    sb.Append("<edit archive=\"" + K + "\" entry=\"" + RecipeRules.Entry + "\"><add><xml><receipe id=\"" + (RecipeRules.From + i) + "\" masteryType=\"10\" /></xml></add></edit>");
+                Mod other = FakeRecipes.ModOf(sb.ToString(), "recipes.other");
+                Assert.That(ed.NextIds(new[] { other }, 2, null), Is.EqualTo(new long[] { RecipeRules.From + n, RecipeRules.From + n + 1 }));
+            }
+        }
+
+        [Test]
+        public void ATypedIdOfAnotherModIsRefused()
+        {
+            using (var f = new FakeRecipes())
+            {
+                string row = "<receipe id=\"" + RecipeRules.From + "\" masteryType=\"10\" />";
+                Mod adds = FakeRecipes.ModOf("<edit archive=\"" + K + "\" entry=\"" + RecipeRules.Entry + "\"><add><xml>" + row + "</xml></add></edit>", "recipes.adds");
+                Mod reserves = FakeRecipes.ModOf("", "recipes.reserves");
+                reserves.Ids.Add(new IdRange { Space = RecipeRules.Space, From = RecipeRules.From + 10, To = RecipeRules.From + 19 });
+                Mod m = Empty();
+                var ed = new RecipeEditor(f.Data, m) { Others = () => new[] { adds, reserves } };
+                Assert.That(Assert.Throws<ModKitException>(() => ed.Add(RecipeRules.From, 7)).Message, Does.Contain("recipes.adds"));
+                Assert.That(Assert.Throws<ModKitException>(() => ed.Clone(Find(ed, "10000001", "F"), RecipeRules.From + 12)).Message, Does.Contain("recipes.reserves"));
+                Recipe r = ed.Add(RecipeRules.From + 1, 7);
+                Assert.Throws<ModKitException>(() => ed.Set(r, "id", (RecipeRules.From + 15).ToString()));
+                Assert.That(ed.Get(r, "id"), Is.EqualTo((RecipeRules.From + 1).ToString()));
+            }
+        }
+
+        [Test]
+        public void SetItemRefusesWhatTheRowCannotHold()
+        {
+            using (var f = new FakeRecipes())
+            {
+                var ed = new RecipeEditor(f.Data, Empty());
+                Recipe r = ed.Add(RecipeRules.From, 7);
+                Assert.Throws<ModKitException>(() => ed.SetItem(r, false, 1, new RecipeItem { Id = 5001, Tag = "a,b" }));
+                Assert.Throws<ModKitException>(() => ed.SetItem(r, false, 1, new RecipeItem { Id = 5001, Tag = "a:b" }));
+                Assert.Throws<ModKitException>(() => ed.SetItem(r, false, 1, new RecipeItem { Id = (long)int.MaxValue + 1 }));
+                ed.SetItem(r, false, 1, new RecipeItem { Id = 5001, Tag = "ok" });
+                Assert.That(ed.Get(r, RecipeRules.Material(1)), Is.EqualTo("5001:ok,1,1"));
+            }
+        }
+
+        [Test]
         public void ARecipeRemovedOnOneSideIsNotChanged()
         {
             using (var f = new FakeRecipes())

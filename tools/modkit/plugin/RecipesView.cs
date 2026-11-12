@@ -101,14 +101,15 @@ namespace MS2.Tables
             applyBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change, to every target at once", delegate { return host.DoApply(); }));
             applyBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
 
+            // the label goes last: its text changes with the recipe, and the buttons keep their place
             FlowLayoutPanel recipeBar = Bar();
-            recipeBar.Controls.Add(recipeLabel);
             recipeBar.Controls.Add(Btn("Add", "Adds an empty recipe of the type chosen above under the id in the box (empty = the next free id of " + RecipeRules.From + "-" + RecipeRules.To + "), on the client and the server", delegate { Add(); }));
             recipeBar.Controls.Add(Btn("Clone", "Adds a copy of this recipe under the id in the box (empty = the next free id of " + RecipeRules.From + "-" + RecipeRules.To + "), on the client and the server", delegate { Clone(); }));
             recipeBar.Controls.Add(Lbl("new id"));
             recipeBar.Controls.Add(newIdBox);
             recipeBar.Controls.Add(Btn("Remove / restore", "Removes the recipe on every side (a new one goes away), or brings a removed shipped recipe back", delegate { RemoveOrRestore(); }));
             recipeBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
+            recipeBar.Controls.Add(recipeLabel);
 
             SetupGrid(formGrid);
             formGrid.Columns.Add(Col("field", 150, true));
@@ -196,7 +197,15 @@ namespace MS2.Tables
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) { Hook(null); bold.Dispose(); }
+            if (disposing)
+            {
+                Hook(null);
+                bold.Dispose();
+                tips.Dispose();
+                Font f = outputBox.Font;
+                outputBox.Font = null;
+                f.Dispose();
+            }
             base.Dispose(disposing);
         }
 
@@ -254,6 +263,11 @@ namespace MS2.Tables
         protected override void OnEnter(EventArgs e)
         {
             TablesView.ItemsInUse = true;
+            // an item may have been added or renamed in the Items view meanwhile
+            itemInfo.Clear();
+            items = null;
+            hitList.Invalidate();
+            itemGrid.Invalidate();
             base.OnEnter(e);
         }
 
@@ -270,6 +284,8 @@ namespace MS2.Tables
         void Hook(TablesView h)
         {
             if (h == host) return;
+            // the recipe and the list rows belong to the old view's session: drop them, and show the same recipe again
+            string key = recipe != null && editor != null ? editor.Key(recipe) : null;
             if (host != null)
             {
                 host.Changed -= OnHostChanged;
@@ -280,7 +296,12 @@ namespace MS2.Tables
             }
             host = h;
             editor = null;
-            if (h == null) return;
+            items = null;
+            itemInfo.Clear();
+            if (h == null) { recipe = null; hits.Clear(); return; }
+            ShowRecipe(null);
+            hits.Clear();
+            hitList.Items.Clear();
             h.Changed += OnHostChanged;
             h.Flushing += EndEdits;
             h.BusyChanged += OnHostBusy;
@@ -289,7 +310,13 @@ namespace MS2.Tables
             OnHostTarget();
             OutputWrap.Set(outputBox, h.OutputText);
             OnHostBusy(h.Busy);
+            try { FillHits(key); }
+            catch (ModKitException) { ShowRecipe(null); }
+            catch (System.IO.IOException) { ShowRecipe(null); }
         }
+
+        // painting reads only what is shown already: never a new session of a closed MS2 Tables view
+        bool CanPaint { get { return host != null && !host.IsDisposed && editor != null && recipe != null; } }
 
         bool Guard(MethodInvoker body)
         {
@@ -316,6 +343,7 @@ namespace MS2.Tables
             if (editor == null || editor.Mod != s.Mod || editor.Data != s.Data)
             {
                 editor = new RecipeEditor(s.Data, s.Mod);
+                editor.Others = delegate { return s.OtherMods(); };
                 itemInfo.Clear();
             }
             return editor;
@@ -346,7 +374,7 @@ namespace MS2.Tables
 
         IconCache Cache()
         {
-            if (host == null) return null;
+            if (host == null || host.IsDisposed) return null;
             try { return IconCache.For(host.SharedSession().Data); }
             catch (ModKitException) { return null; }
             catch (System.IO.IOException) { return null; }
@@ -422,24 +450,24 @@ namespace MS2.Tables
 
         RecipeItem FirstResult(Recipe r)
         {
-            foreach (RecipeItem it in Editor().Items(r, true)) if (it != null) return it;
+            foreach (RecipeItem it in editor.Items(r, true)) if (it != null) return it;
             return null;
         }
 
         void OnDrawHit(object sender, DrawItemEventArgs e)
         {
             e.DrawBackground();
-            if (e.Index < 0 || e.Index >= hitList.Items.Count || editor == null) return;
+            if (e.Index < 0 || e.Index >= hitList.Items.Count || editor == null || host == null || host.IsDisposed) return;
             var r = hitList.Items[e.Index] as Recipe;
             if (r == null) return;
             int size = e.Bounds.Height - 4;
             var box = new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 2, size, size);
             RecipeItem first = FirstResult(r);
             IconCache cache = Cache();
-            ItemInfo info = first != null && host != null ? Info(first.Id) : null;
+            ItemInfo info = first != null ? Info(first.Id) : null;
             IconCache.Draw(e.Graphics, box, cache != null && info != null ? cache.Get(info.Icon, hitList) : null);
             int type = editor.Type(r);
-            string line1 = editor.Get(r, "id") + "  " + (first == null ? "(no result)" : (info == null || string.IsNullOrEmpty(info.Name) ? "item " + first.Id : info.Name)
+            string line1 = editor.Get(r, "id") + "  " + (first == null ? "(no result)" : (info == null || info.Missing || string.IsNullOrEmpty(info.Name) ? "item " + first.Id : info.Name)
                 + (first.Count != 1 ? " x" + first.Count : ""));
             string line2 = (RecipeRules.TypeName(type) ?? "type " + type) + ", mastery " + (editor.Get(r, "requireMastery") ?? "0")
                 + (string.IsNullOrEmpty(editor.Get(r, "feature")) ? "" : ", " + editor.Get(r, "feature"))
@@ -486,6 +514,8 @@ namespace MS2.Tables
         List<string> Checks(Recipe r)
         {
             List<string> l = Editor().Check(r);
+            // a shipped recipe the mod leaves alone is not the mod's problem (as in the plan)
+            if (!r.IsAdded && !r.IsChanged) return l;
             foreach (Slot s in slots)
             {
                 RecipeItem it = SlotItem(s);
@@ -575,8 +605,26 @@ namespace MS2.Tables
             string v = ((e.Value as string) ?? "").Trim();
             Guard(delegate
             {
-                if (v == (Editor().Get(recipe, f) ?? "")) return;
-                Editor().Set(recipe, f, v);
+                RecipeEditor ed = Editor();
+                // where the sides differ the shown value is the first side's only: typing it sets every side
+                if (v == (ed.Get(recipe, f) ?? "") && !ed.Differs(recipe, f)) return;
+                ed.Set(recipe, f, v);
+                if (f == "id" || f == "masteryType")
+                {
+                    // the list's order and type filter follow the new value
+                    Recipe r = recipe;
+                    host.EditedOutside();
+                    int type = ed.Type(r);
+                    if (f == "masteryType" && TypeChosen() != 0 && RecipeRules.TypeName(type) != null)
+                    {
+                        filling = true;
+                        try { typeBox.SelectedIndex = type - RecipeRules.FirstType + 1; }
+                        finally { filling = false; }
+                    }
+                    FillHits(ed.Key(r));
+                    ShowRecipe(r);
+                    return;
+                }
                 Refresh(null);
             });
         }
@@ -590,7 +638,7 @@ namespace MS2.Tables
         RecipeItem SlotItem(Slot s)
         {
             RecipeItem it;
-            return RecipeItem.TryParse(Editor().Get(recipe, SlotName(s)), out it) ? it : null;
+            return RecipeItem.TryParse(editor.Get(recipe, SlotName(s)), out it) ? it : null;
         }
 
         void OnItemValueNeeded(object sender, DataGridViewCellValueEventArgs e)
@@ -602,7 +650,7 @@ namespace MS2.Tables
             bool ok = RecipeItem.TryParse(raw, out it);
             switch (e.ColumnIndex)
             {
-                case 1: e.Value = (s.Result ? "result " : "material ") + s.Index; break;
+                case 1: e.Value = (editor.Differs(recipe, SlotName(s)) ? "≠ " : "") + (s.Result ? "result " : "material ") + s.Index; break;
                 case 2: e.Value = ok ? (it != null ? it.Id.ToString(CultureInfo.InvariantCulture) : "") : raw; break;
                 case 3: e.Value = !ok ? "(not \"id,rank,count\")" : it != null ? Info(it.Id).Name : ""; break;
                 case 4: e.Value = ok && it != null ? it.Count.ToString(CultureInfo.InvariantCulture) : ""; break;
@@ -623,7 +671,7 @@ namespace MS2.Tables
 
         void OnItemPainting(object sender, DataGridViewCellPaintingEventArgs e)
         {
-            if (e.ColumnIndex != 0 || e.RowIndex < 0 || recipe == null) return;
+            if (e.ColumnIndex != 0 || e.RowIndex < 0 || !CanPaint) return;
             Slot s = SlotAt(e.RowIndex);
             if (s == null) return;
             e.Paint(e.ClipBounds, DataGridViewPaintParts.All);
@@ -648,12 +696,20 @@ namespace MS2.Tables
             {
                 RecipeEditor ed = Editor();
                 RecipeItem it = SlotItem(s);
+                string raw = ed.Get(recipe, SlotName(s)) ?? "";
+                // where the sides differ the shown item is the first side's: an edit sets it on every side
+                bool same = !ed.Differs(recipe, SlotName(s));
                 if (column == 2)
                 {
-                    if (v.Length == 0 || v == "0") { if (it != null) { ed.SetItem(recipe, s.Result, s.Index, null); Refresh(null); } return; }
+                    if (v.Length == 0 || v == "0")
+                    {
+                        // also an unreadable slot is emptied
+                        if (it != null || raw.Trim().Length > 0 || !same) { ed.SetItem(recipe, s.Result, s.Index, null); Refresh(null); }
+                        return;
+                    }
                     long id;
                     if (!long.TryParse(v, NumberStyles.None, CultureInfo.InvariantCulture, out id)) throw new ModKitException("\"" + v + "\" is not an item id");
-                    if (it != null && it.Id == id) return;
+                    if (it != null && it.Id == id && same) return;
                     if (it == null) it = new RecipeItem();
                     it.Id = id;
                 }
@@ -661,10 +717,15 @@ namespace MS2.Tables
                 {
                     if (it == null) throw new ModKitException("give the slot an item first");
                     long n;
-                    if (column == 6) { if (v == (it.Tag ?? "")) return; it.Tag = v.Length == 0 ? null : v; }
+                    if (column == 6) { if (v == (it.Tag ?? "") && same) return; it.Tag = v.Length == 0 ? null : v; }
                     else if (!long.TryParse(v, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n)) throw new ModKitException("\"" + v + "\" is not a number");
-                    else if (column == 4) { if (n == it.Count) return; it.Count = n; }
-                    else { if (n == it.Rank) return; it.Rank = (int)n; }
+                    else if (column == 4) { if (n == it.Count && same) return; it.Count = n; }
+                    else
+                    {
+                        if (n < int.MinValue || n > int.MaxValue) throw new ModKitException("rank " + v + " is out of range");
+                        if (n == it.Rank && same) return;
+                        it.Rank = (int)n;
+                    }
                 }
                 ed.SetItem(recipe, s.Result, s.Index, it);
                 Refresh(null);
@@ -680,7 +741,7 @@ namespace MS2.Tables
             if (text.Length > 0)
             {
                 if (!long.TryParse(text, NumberStyles.None, CultureInfo.InvariantCulture, out v)) throw new ModKitException("\"" + text + "\" is not an id");
-                return v;
+                return v;   // Add and Clone refuse an id this or another enabled mod has (RecipeEditor.Others)
             }
             List<long> free = Editor().NextIds(host.SharedSession().OtherMods(), 1, null);
             if (free.Count == 0) throw new ModKitException("no free id is left in " + RecipeRules.From + "-" + RecipeRules.To);

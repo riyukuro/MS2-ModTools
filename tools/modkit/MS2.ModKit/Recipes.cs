@@ -468,7 +468,10 @@ namespace MS2.ModKit
         {
             if (slot < 1 || slot > RecipeRules.Slots) throw new ArgumentOutOfRangeException("slot");
             if (item != null && item.Id <= 0) throw new ModKitException("item id " + item.Id + " is not an item");
+            if (item != null && item.Id > int.MaxValue) throw new ModKitException("item id " + item.Id + " is above " + int.MaxValue + ", the largest the client reads");
             if (item != null && result && !string.IsNullOrEmpty(item.Tag)) throw new ModKitException("a result takes no \":tag\"");
+            if (item != null && item.Tag != null && (item.Tag.IndexOf(',') >= 0 || item.Tag.IndexOf(':') >= 0))
+                throw new ModKitException("the tag \"" + item.Tag + "\" holds a ',' or ':', which the row cannot hold");
             Set(r, result ? RecipeRules.Result(slot) : RecipeRules.Material(slot), item == null ? "" : item.ToString());
         }
 
@@ -479,12 +482,31 @@ namespace MS2.ModKit
             return id;
         }
 
+        /// <summary>The other enabled mods, read when a new id is checked or asked for (null: none). Their added
+        /// recipes and their recipe id ranges are not offered and are refused for a new recipe.</summary>
+        public Func<IEnumerable<Mod>> Others;
+
+        List<Mod> OtherMods()
+        {
+            var l = new List<Mod>();
+            IEnumerable<Mod> mods = Others == null ? null : Others();
+            if (mods != null) foreach (Mod m in mods) if (m != null && m != Mod && m.Id != Mod.Id) l.Add(m);
+            return l;
+        }
+
         void CheckNewId(long id, Recipe self)
         {
             if (id < RecipeRules.From || id > RecipeRules.To)
                 throw new ModKitException("new recipe ids are " + RecipeRules.From + " to " + RecipeRules.To + "; " + id + " is outside");
             foreach (Recipe o in Recipes)
                 if (o != self && Id(o) == id) throw new ModKitException("recipe " + id + " is there already");
+            foreach (Mod m in OtherMods())
+            {
+                if (AddedIds(m).Contains(id)) throw new ModKitException("the enabled mod " + m.Id + " adds a recipe " + id + " already");
+                foreach (IdRange r in m.Ids)
+                    if (r.Space == RecipeRules.Space && id >= r.From && id <= r.To)
+                        throw new ModKitException("the recipe id " + id + " is reserved by the enabled mod " + m.Id);
+            }
         }
 
         /// <summary>A new recipe that copies source (its shown values), on every side, with the new id.</summary>
@@ -608,11 +630,12 @@ namespace MS2.ModKit
         {
             var all = new List<Mod>(mods ?? new Mod[0]);
             if (!all.Contains(Mod)) all.Add(Mod);
-            List<long> free = IdSpaces.NextFreeGroupIds(Data, all, RecipeRules.Space, count + Recipes.Count, progress);
             var taken = new HashSet<long>();
             foreach (Recipe r in Recipes) taken.Add(Id(r));
             // recipes other mods add without an <ids> range of their own
             foreach (Mod m in all) if (m != Mod) foreach (long id in AddedIds(m)) taken.Add(id);
+            // every taken id may sit in the free list, so ask for that many more
+            List<long> free = IdSpaces.NextFreeGroupIds(Data, all, RecipeRules.Space, count + taken.Count, progress);
             free.RemoveAll(taken.Contains);
             if (free.Count > count) free.RemoveRange(count, free.Count - count);
             return free;

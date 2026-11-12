@@ -806,13 +806,15 @@ client, see [One mod, both sides](#one-mod-both-sides)).
    one it changes `(changed)`, one it removes `(removed)`.
 2. Pick a recipe. The form shows its fields with the shipped value and what a value means: the type's name, and
    which grade a mastery value reaches with the top value of that type. `*` marks a field the mod changes, `≠` a
-   field whose shipped value differs between the sides; an edit sets it on every side.
+   field whose value differs between the sides (the form shows the first side's); an edit, also of the shown
+   value, sets it on every side.
 3. The grid below has its five results and five materials, with icons and names. Type an item id or pick one
-   with `...`; count and rank are numbers, and a material can carry a `:tag`. A result cannot: the client reads a
-   result as `id,rank,count` only.
+   with `...`; count and rank are numbers, and a material can carry a `:tag` (without `,` or `:`). A result cannot: the
+   client reads a result as `id,rank,count` only. `≠` before a slot means the sides hold different items there;
+   an edit of the slot writes the shown item, with the change, to every side.
 4. **Add** makes an empty recipe of the type picked above, **Clone** a copy of the shown one. Both take the id in
    **new id**, or the next free id in 99000000-99009999 (ids the mod's `<ids>` ranges and other mods' new recipes
-   hold are skipped); the id is reserved in the mod. **Remove / restore** removes a shipped recipe on every side or
+   hold are skipped); the id is reserved in the mod. A typed id another enabled mod adds or reserves is refused. **Remove / restore** removes a shipped recipe on every side or
    brings it back; a new recipe is gone again and its id is free. **Save mod**, **Plan**, **Apply** and **Revert**
    are the Tables view's.
 
@@ -822,14 +824,17 @@ as it ends up in each target:
 | check | why |
 |---|---|
 | `masteryType "x" is not a recipe type` | the client knows types 3 to 11 |
+| `requireMastery "x" is not a mastery value` | the mastery a recipe needs is a number |
 | `requireMastery N is above the top ... value` | no player reaches it (pet taming is left out: the client fixes its level) |
 | `... is not a number of 0 or more` | meso, mastery, experience and time are numbers |
-| `... is not "id,rank,count"` | the client splits an item on commas into exactly three parts |
+| `... is not "id[:tag],rank,count"` | the client splits an item on commas into exactly three parts (a result has no `:tag`) |
+| `the client reads no ":tag" on a result` | only a material's id can carry a tag |
 | `count N of item ... is not above 0` | the player would get or give nothing |
 | `item ... is a material and a result of the recipe` | most likely a slip |
-| `item ... is not an item of the ...` | that target has no such item |
+| `item ... is not an item` (view), `... is not an item of the ...` (Plan, per target) | that target has no such item; the view looks only at recipes the mod adds or changes |
 | `the recipe has no result` | it makes nothing (a shipped recipe the mod leaves alone is not flagged) |
 | `only on ...; not on ...` | the recipe is on one side only |
+| `new id N is outside of 99000000-99009999, ...` | a new recipe written by hand with an id outside the range of new recipes |
 | `no picture: ...` | the mastery window shows `MasteryReceipe/<id>.png` from `Image.m2d`; add one with an `<entry>` |
 
 A recipe a hand-written mod removed on one side only is not changed by the view; edit that mod by hand.
