@@ -6,6 +6,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using MS2.ModKit.M2d;
 using MS2.ModKit.Xml;
 
@@ -51,10 +52,12 @@ namespace MS2.ModKit
                     var ed = op as EditOp;
                     if (ed == null || !string.Equals(ed.Entry.Replace('\\', '/'), RecipeRules.Entry, StringComparison.OrdinalIgnoreCase)) continue;
                     any = m;
+                    var inStep = new Regex(@"\[id=[""']?" + Regex.Escape(id) + @"[""']?\]");
+                    var inRow = new Regex(@"\sid\s*=\s*[""']" + Regex.Escape(id) + @"[""']");
                     foreach (RowOp r in ed.Rows)
                     {
-                        bool hit = r.At != null && r.At.IndexOf("id=" + id, StringComparison.Ordinal) >= 0
-                            || r.Xml != null && r.Xml.IndexOf("\"" + id + "\"", StringComparison.Ordinal) >= 0;
+                        bool hit = r.At != null && inStep.IsMatch(r.At) || r.Copy != null && inStep.IsMatch(r.Copy)
+                            || r.Xml != null && inRow.IsMatch(r.Xml);
                         foreach (AttrOp a in r.Attrs) if (a.Name == "id" && a.Value == id) hit = true;
                         if (hit) named = m;
                     }
@@ -64,7 +67,8 @@ namespace MS2.ModKit
 
         static void RecipeChecks(Run run)
         {
-            var sides = new List<RecipeSide>();
+            // first which targets ship the table and whether any plan touches it; the tables are read only then
+            var found = new List<KeyValuePair<Profile, M2dArchive>>();
             bool touched = false;
             foreach (Profile p in run.Data.Profiles)
             {
@@ -74,15 +78,22 @@ namespace MS2.ModKit
                 catch (ModKitException) { continue; }
                 M2dEntry e = arch.Find(RecipeRules.Entry);
                 if (e == null) continue;
-                EntryState st = run.State(arch, archive, e.Name);
-                XmlDoc orig;
-                try { orig = XmlDoc.Parse(st.Original ?? arch.Read(e), archive + " " + e.Name); }
-                catch (ModKitException) { continue; }
-                XmlDoc fin = FinalDoc(run, archive, e.Name);
-                if (st.Final != null) touched = true;
-                sides.Add(new RecipeSide { Profile = p, Archive = archive, Original = RecipeRowsOf(orig), Final = RecipeRowsOf(fin) });
+                if (run.State(arch, archive, e.Name).Final != null) touched = true;
+                found.Add(new KeyValuePair<Profile, M2dArchive>(p, arch));
             }
             if (!touched) return;
+            var sides = new List<RecipeSide>();
+            foreach (KeyValuePair<Profile, M2dArchive> f in found)
+            {
+                string archive = f.Key.ArchiveIn("x:Xml.m2d");
+                M2dEntry e = f.Value.Find(RecipeRules.Entry);
+                EntryState st = run.State(f.Value, archive, e.Name);
+                XmlDoc orig;
+                try { orig = XmlDoc.Parse(st.Original ?? f.Value.Read(e), archive + " " + e.Name); }
+                catch (ModKitException) { continue; }
+                XmlDoc fin = FinalDoc(run, archive, e.Name);
+                sides.Add(new RecipeSide { Profile = f.Key, Archive = archive, Original = RecipeRowsOf(orig), Final = RecipeRowsOf(fin) });
+            }
             Plan plan = run.Plan;
 
             MasteryTable mastery = null;

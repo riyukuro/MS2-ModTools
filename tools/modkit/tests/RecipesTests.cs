@@ -27,9 +27,10 @@ namespace MS2.ModKit.Tests
             return Head + "<ms2>\n" +
                 Row("10000001", 7, "0", "5001,1,2", "5003,1,1", " feature=\"F\"") +
                 Row("10000001", 7, "0", "5001,1,3", "5003,1,1", " feature=\"G\"") +
-                Row("30000001", 3, "100", "", "5002,1,1", " feature=\"F\"") +
+                Row("30000001", 3, "100", "", "5002,1," + (server ? "2" : "1"), " feature=\"F\"") +
+                Row("40000001", 11, "999", "5001,1,1", "", " feature=\"F\"") +
                 Row("", 0, "", "", "", " feature=\"\"") +
-                (server ? Row("10000002", 9, "0", "5002:fake,1,1", "5001,1," + (server ? "4" : "1"), " feature=\"F\"") : "") +
+                (server ? Row("10000002", 9, "0", "5002:fake,1,1", "5001,1,4", " feature=\"F\"") : "") +
                 "</ms2>\n";
         }
 
@@ -37,6 +38,7 @@ namespace MS2.ModKit.Tests
             "\t<mastery type=\"3\">\n\t\t<v grade=\"1\" value=\"0\" />\n\t\t<v grade=\"2\" value=\"100\" />\n\t</mastery>\n" +
             "\t<mastery type=\"7\">\n\t\t<v grade=\"1\" value=\"0\" />\n\t\t<v grade=\"2\" value=\"500\" />\n\t</mastery>\n" +
             "\t<mastery type=\"9\">\n\t\t<v grade=\"1\" value=\"0\" />\n\t</mastery>\n" +
+            "\t<mastery type=\"11\">\n\t\t<v grade=\"1\" value=\"0\" />\n\t</mastery>\n" +
             "</ms2>\n";
 
         static string ItemFile(long id) { return Head + "<ms2>\n\t<environment>\n\t\t<basic itemID=\"" + id + "\" />\n\t</environment>\n</ms2>\n"; }
@@ -106,6 +108,15 @@ namespace MS2.ModKit.Tests
             return p.Find(archive) == null ? null : Fake.Text(p, archive, RecipeRules.Entry);
         }
 
+        // the line of a row with this id and feature (null when there is none)
+        static string LineOf(string text, string id, string feature)
+        {
+            if (text == null) return null;
+            foreach (string line in text.Split('\n'))
+                if (line.Contains(" id=\"" + id + "\"") && line.Contains(" feature=\"" + feature + "\"")) return line;
+            return null;
+        }
+
         [Test]
         public void ItemText()
         {
@@ -117,6 +128,7 @@ namespace MS2.ModKit.Tests
             Assert.That(RecipeItem.TryParse("0,1,1", out it) && it == null, "id 0 is no item");
             Assert.That(RecipeItem.TryParse("5001,1", out it), Is.False, "the client wants three parts");
             Assert.That(RecipeItem.TryParse("x,1,1", out it), Is.False);
+            Assert.That(RecipeItem.TryParse("2147483648,1,1", out it), Is.False, "item ids are int");
         }
 
         [Test]
@@ -125,8 +137,8 @@ namespace MS2.ModKit.Tests
             using (var f = new FakeRecipes())
             {
                 var ed = new RecipeEditor(f.Data, Empty());
-                Assert.That(RecipeEditor.SideArchives(f.Data), Is.EqualTo(new[] { K, S }), "the server's lines are planned for the global client");
-                Assert.That(ed.Recipes.Count, Is.EqualTo(4), "the row without an id is no recipe");
+                Assert.That(RecipeEditor.SideArchives(f.Data, null), Is.EqualTo(new[] { K, S }), "the server's lines are planned for the global client");
+                Assert.That(ed.Recipes.Count, Is.EqualTo(5), "the row without an id is no recipe");
                 Recipe g = Find(ed, "10000001", "G");
                 Assert.That(g.Rows[0], Is.Not.Null); Assert.That(g.Rows[1], Is.Not.Null);
                 Assert.That(ed.Items(g, false)[0].Count, Is.EqualTo(3));
@@ -138,6 +150,91 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.Mastery.MaxValue(7), Is.EqualTo(500));
                 Assert.That(ed.Mastery.GradeOf(3, 100), Is.EqualTo(2));
                 Assert.That(ed.Check(Find(ed, "30000001", "F")), Is.Empty);
+                Assert.That(ed.Differs(Find(ed, "30000001", "F"), "rewardItem1"), Is.True, "count 1 on the client, 2 on the server");
+                Assert.That(ed.Differs(Find(ed, "30000001", "F"), "requireMastery"), Is.False);
+                Assert.That(ed.Differs(g, "requireItem1"), Is.False);
+
+                // a shipped pettaming row: the client fixes its level, and a shipped row the mod leaves alone has no problems
+                Recipe pet = Find(ed, "40000001", "F");
+                Assert.That(ed.Check(pet), Is.Empty);
+                Assert.That(RecipeRules.Check(x => ed.Get(pet, x), ed.Mastery, null), Has.Some.Contains("has no result"), "the rule itself still sees it");
+                ed.Set(pet, "requireMeso", "5");
+                Assert.That(ed.Check(pet), Has.Some.Contains("has no result"), "once the mod changes it");
+                Assert.That(ed.Check(pet), Has.None.Contains("above the top"));
+            }
+        }
+
+        [Test]
+        public void RowsThatShareAKeyPairInOrder()
+        {
+            using (var f = new FakeRecipes())
+            {
+                // a second 30000001 F on the kms client only: the shipped rows still pair with each other
+                string row = "<receipe id=\"30000001\" masteryType=\"3\" requireMastery=\"0\" rewardItem1=\"5001,1,1\" feature=\"F\" />";
+                Mod m = FakeRecipes.ModOf("<edit archive=\"" + K + "\" entry=\"" + RecipeRules.Entry + "\"><add><xml>" + row + "</xml></add></edit>");
+                var ed = new RecipeEditor(f.Data, m);
+                var both = new List<Recipe>();
+                foreach (Recipe r in ed.Recipes) if (ed.Get(r, "id") == "30000001") both.Add(r);
+                Assert.That(both.Count, Is.EqualTo(2));
+                Assert.That(both[0].Rows[0].IsAdded, Is.False); Assert.That(both[0].Rows[1], Is.Not.Null, "the shipped rows pair");
+                Assert.That(both[1].Rows[0].IsAdded, Is.True); Assert.That(both[1].Rows[1], Is.Null, "the added row is on one side");
+            }
+        }
+
+        [Test]
+        public void AWarningIsBlamedOnTheModThatNamesTheRecipe()
+        {
+            using (var f = new FakeRecipes())
+            {
+                Func<string, string> edit = row => "<edit archive=\"" + K + "\" entry=\"" + RecipeRules.Entry + "\"><add><xml>" + row + "</xml></add></edit>";
+                Mod a = FakeRecipes.ModOf(edit("<receipe id=\"99000001\" masteryType=\"10\" requireMastery=\"0\" />"), "recipes.a");
+                // the later mod's row has the other id as a value only
+                Mod b = FakeRecipes.ModOf(edit("<receipe id=\"99000002\" masteryType=\"10\" requireMastery=\"0\" requireQuest=\"99000001\" rewardItem1=\"5002,1,1\" />"), "recipes.b");
+                Plan p = Planner.Build(f.Data, new[] { a, b }, new PlanOptions());
+                PlanMessage w = p.Warnings.Find(x => x.Text.Contains("recipe 99000001: the recipe has no result"));
+                Assert.That(w, Is.Not.Null);
+                Assert.That(w.ModId, Is.EqualTo("recipes.a"));
+            }
+        }
+
+        [Test]
+        public void NewIdMovesTheReservation()
+        {
+            using (var f = new FakeRecipes())
+            {
+                Mod m = Empty();
+                var ed = new RecipeEditor(f.Data, m);
+                Recipe r = ed.Add(RecipeRules.From, 7);
+                ed.Set(r, "id", (RecipeRules.From + 50).ToString());
+                Assert.That(m.Ids.Count, Is.EqualTo(1));
+                Assert.That(m.Ids[0].From, Is.EqualTo(RecipeRules.From + 50)); Assert.That(m.Ids[0].To, Is.EqualTo(RecipeRules.From + 50));
+                Assert.That(ed.NextIds(null, 1, null), Is.EqualTo(new long[] { RecipeRules.From }), "the old id is free again");
+                ed.SetItem(r, true, 1, new RecipeItem { Id = 5001, Count = 1 });
+                Assert.That(Texts(PlanOf(f, m).Warnings), Has.None.Contains("outside of the range"));
+                ed.Remove(r);
+                Assert.That(m.Ids, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void GlobalClientLinesOfTheModStayInStep()
+        {
+            using (var f = new FakeRecipes())
+            {
+                // a mod first made without a server: its global client line changes 10000001 F
+                Mod m = FakeRecipes.ModOf("<edit archive=\"" + G + "\" entry=\"" + RecipeRules.Entry + "\"><change at=\"receipe[id=10000001][feature=F]\"><set name=\"requireMeso\" value=\"7\" /></change></edit>");
+                Assert.That(RecipeEditor.SideArchives(f.Data, m), Is.EqualTo(new[] { K, S, G }));
+                var ed = new RecipeEditor(f.Data, m);
+                ed.Set(Find(ed, "10000001", "F"), "requireMeso", "50");
+                ed.Remove(Find(ed, "30000001", "F"));
+                Plan p = PlanOf(f, m);
+                Assert.That(Texts(p.Errors), Is.Empty);
+                foreach (string a in new[] { K, G, S })
+                {
+                    string t = Text(p, a);
+                    Assert.That(LineOf(t, "10000001", "F"), Does.Contain("requireMeso=\"50\""), a);
+                    Assert.That(t, Does.Not.Contain("id=\"30000001\""), a);
+                }
             }
         }
 
@@ -163,8 +260,8 @@ namespace MS2.ModKit.Tests
                 Assert.That(Texts(p.Warnings), Is.Empty);
                 foreach (string a in new[] { K, G, S })
                 {
-                    string t = Text(p, a);
-                    Assert.That(t, Does.Contain("id=\"" + ids[0] + "\""), a);
+                    string t = LineOf(Text(p, a), ids[0].ToString(), "G");
+                    Assert.That(t, Is.Not.Null, a);
                     Assert.That(t, Does.Contain("rewardItem2=\"5002,1,2\""), a);
                     Assert.That(t, Does.Contain("requireItem1=\"5001,1,3\""), a + ": the copy keeps the source's values");
                 }
@@ -213,6 +310,15 @@ namespace MS2.ModKit.Tests
                 Assert.That(w, Has.None.Contains("item 5004 is not an item of the server"));
                 Assert.That(Texts(p.Errors), Is.Empty);
 
+                Assert.Throws<ModKitException>(() => ed.SetItem(r, true, 2, new RecipeItem { Id = 5002, Tag = "t", Count = 1 }));
+                ed.Set(r, RecipeRules.Result(2), "5002:t,1,1");
+                Assert.That(ed.Check(r), Has.Some.Contains("rewardItem2: the client reads no \":tag\" on a result"));
+                ed.Set(r, RecipeRules.Result(2), "");
+
+                // the mod's own picture takes the note away
+                m.Ops.Add(new EntryOp { Archive = "client:Image.m2d", Name = "MasteryReceipe/" + RecipeRules.From + ".png", File = "p.png" });
+                Assert.That(ed.Check(r), Has.None.Contains("no picture"));
+
                 // a type the client has no name for
                 ed.Set(r, "masteryType", "2");
                 Assert.That(Texts(PlanOf(f, m).Warnings), Has.Some.Contains("masteryType \"2\" is not a recipe type"));
@@ -238,7 +344,8 @@ namespace MS2.ModKit.Tests
                 {
                     string t = Text(p, a);
                     Assert.That(t, Does.Not.Contain("id=\"30000001\""), a);
-                    Assert.That(t, Does.Contain("requireMeso=\"50\""), a);
+                    Assert.That(LineOf(t, "10000001", "F"), Does.Contain("requireMeso=\"50\""), a);
+                    Assert.That(LineOf(t, "10000001", "G"), Does.Contain("requireMeso=\"\""), a + ": the other variant keeps its value");
                 }
                 ed.Restore(gone);
                 ed.Set(r, "requireMeso", "");

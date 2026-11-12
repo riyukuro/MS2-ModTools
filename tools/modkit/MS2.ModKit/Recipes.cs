@@ -54,7 +54,7 @@ namespace MS2.ModKit
             if (colon >= 0) { tag = idPart.Substring(colon + 1); idPart = idPart.Substring(0, colon); }
             long id, count;
             int rank;
-            if (!long.TryParse(idPart, NumberStyles.None, CultureInfo.InvariantCulture, out id)) return false;
+            if (!long.TryParse(idPart, NumberStyles.None, CultureInfo.InvariantCulture, out id) || id > int.MaxValue) return false;
             if (!int.TryParse(p[1].Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out rank)) return false;
             if (!long.TryParse(p[2].Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out count)) return false;
             if (id == 0) return true;
@@ -126,6 +126,7 @@ namespace MS2.ModKit
         public const int FirstType = 3, LastType = 11;
         /// <summary>Pettaming: the client sets the level of these recipes to 50 whatever the row says.</summary>
         public const int PetTaming = 11;
+        public const string NoResult = "the recipe has no result";
 
         public static string TypeName(int type)
         {
@@ -167,7 +168,7 @@ namespace MS2.ModKit
                 long need = 0;
                 if (!string.IsNullOrEmpty(rm) && !long.TryParse(rm, NumberStyles.None, CultureInfo.InvariantCulture, out need))
                     l.Add("requireMastery \"" + rm + "\" is not a mastery value");
-                else if (mastery != null && mastery.Has(type) && need > mastery.MaxValue(type))
+                else if (type != PetTaming && mastery != null && mastery.Has(type) && need > mastery.MaxValue(type))
                     l.Add("requireMastery " + need + " is above the top " + TypeName(type) + " value " + mastery.MaxValue(type) + ": no player can use the recipe");
             }
             foreach (string f in new[] { "requireMeso", "rewardMastery", "rewardExp", "gatheringTime" })
@@ -189,6 +190,7 @@ namespace MS2.ModKit
                     if (!RecipeItem.TryParse(v, out it)) { l.Add(f + " \"" + v + "\" is not \"id" + (pass == 0 ? "" : "[:tag]") + ",rank,count\""); continue; }
                     if (it == null) continue;
                     if (it.Count <= 0) l.Add(f + ": count " + it.Count + " of item " + it.Id + " is not above 0");
+                    if (pass == 0 && !string.IsNullOrEmpty(it.Tag)) l.Add(f + ": the client reads no \":tag\" on a result (id,rank,count)");
                     if (pass == 0) { results.Add(it.Id); nResults++; }
                     else if (results.Contains(it.Id)) l.Add(f + ": item " + it.Id + " is a material and a result of the recipe");
                     if (missingItem != null)
@@ -197,7 +199,7 @@ namespace MS2.ModKit
                         if (where != null) l.Add(f + ": item " + it.Id + " is not an item of the " + where);
                     }
                 }
-            if (nResults == 0) l.Add("the recipe has no result (rewardItem1 to " + Slots + ")");
+            if (nResults == 0) l.Add(NoResult + " (rewardItem1 to " + Slots + ")");
             return l;
         }
     }
@@ -233,7 +235,7 @@ namespace MS2.ModKit
         {
             Data = data;
             Mod = mod;
-            foreach (string a in SideArchives(data)) Sides.Add(new TableDraft(data, mod, a, RecipeRules.Entry, null));
+            foreach (string a in SideArchives(data, mod)) Sides.Add(new TableDraft(data, mod, a, RecipeRules.Entry, null));
             if (Sides.Count == 0) throw new ModKitException("no target of the data set has " + RecipeRules.Entry);
             Mastery = new MasteryTable();
             foreach (TableDraft s in Sides)
@@ -247,15 +249,16 @@ namespace MS2.ModKit
             Pair();
         }
 
-        /// <summary>The archives a recipe is written to: the kms client's and the server's Xml.m2d, or the global
-        /// client's when the data set has no server (the server's lines are planned for the global client too).</summary>
-        public static List<string> SideArchives(DataSet data)
+        /// <summary>The archives a recipe is written to: the kms client's and the server's Xml.m2d, and the global
+        /// client's when the data set has no server (else the server's lines are planned for the global client too)
+        /// or when the mod has lines of its own there (the plan carries no server line over those).</summary>
+        public static List<string> SideArchives(DataSet data, Mod mod)
         {
             var l = new List<string>();
             foreach (Profile p in new[] { Profile.KmsClient, Profile.Server, Profile.GmsClient })
             {
                 if (!data.Has(p)) continue;
-                if (p == Profile.GmsClient && data.Has(Profile.Server)) continue;
+                if (p == Profile.GmsClient && data.Has(Profile.Server) && !HasLines(mod, p.ArchiveIn("x:Xml.m2d"))) continue;
                 string a = p.ArchiveIn("x:Xml.m2d");
                 M2dArchive arch;
                 try { arch = data.Open(a); }
@@ -263,6 +266,18 @@ namespace MS2.ModKit
                 if (arch.Find(RecipeRules.Entry) != null) l.Add(a);
             }
             return l;
+        }
+
+        static bool HasLines(Mod mod, string archive)
+        {
+            if (mod == null) return false;
+            foreach (ModOp op in mod.Ops)
+            {
+                var ed = op as EditOp;
+                if (ed != null && string.Equals(ed.Archive, archive, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(ed.Entry.Replace('\\', '/'), RecipeRules.Entry, StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            return false;
         }
 
         string KeyOf(TableDraft s, TableRow r)
@@ -273,21 +288,29 @@ namespace MS2.ModKit
         void Pair()
         {
             Recipes.Clear();
-            var byKey = new Dictionary<string, Recipe>();
+            // rows that share id, feature and locale on one side pair in their order: the n-th with the n-th
+            var byKey = new Dictionary<string, List<Recipe>>();
             for (int i = 0; i < Sides.Count; i++)
+            {
+                var seen = new Dictionary<string, int>();
                 foreach (TableRow r in Sides[i].Rows)
                 {
                     if (r.Base.Name != RecipeRules.Rows || string.IsNullOrEmpty(Sides[i].Get(r, "id"))) continue;
                     string k = KeyOf(Sides[i], r);
-                    Recipe rc;
-                    if (!byKey.TryGetValue(k, out rc) || rc.Rows[i] != null)
+                    List<Recipe> list;
+                    if (!byKey.TryGetValue(k, out list)) byKey[k] = list = new List<Recipe>();
+                    int n;
+                    seen.TryGetValue(k, out n);
+                    seen[k] = n + 1;
+                    if (n >= list.Count)
                     {
-                        rc = new Recipe(Sides.Count);
-                        byKey[k] = rc;
-                        Recipes.Add(rc);
+                        var made = new Recipe(Sides.Count);
+                        list.Add(made);
+                        Recipes.Add(made);
                     }
-                    rc.Rows[i] = r;
+                    list[n].Rows[i] = r;
                 }
+            }
         }
 
         // ---- reading ----
@@ -302,6 +325,17 @@ namespace MS2.ModKit
             for (int i = 0; i < Sides.Count; i++) if (r.Rows[i] != null) return Sides[i].Get(r.Rows[i], field);
             return null;
         }
+
+        /// <summary>The shipped value of the first side that has the recipe (null for a recipe the mod adds).</summary>
+        public string Shipped(Recipe r, string field)
+        {
+            if (r.IsAdded) return null;
+            for (int i = 0; i < Sides.Count; i++) if (r.Rows[i] != null) return Sides[i].GetOriginal(r.Rows[i], field);
+            return null;
+        }
+
+        /// <summary>The key a recipe keeps across a new editor: id, feature and locale.</summary>
+        public string Key(Recipe r) { return (Get(r, "id") ?? "") + "\n" + (Get(r, "feature") ?? "") + "\n" + (Get(r, "locale") ?? ""); }
 
         /// <summary>True when the sides that have the recipe give the field different values.</summary>
         public bool Differs(Recipe r, string field)
@@ -362,16 +396,33 @@ namespace MS2.ModKit
         public List<string> Check(Recipe r)
         {
             List<string> l = RecipeRules.Check(f => Get(r, f), Mastery, null);
+            // a shipped row the mod leaves alone is not the mod's problem
+            if (!r.IsAdded && !r.IsChanged) l.RemoveAll(t => t.StartsWith(RecipeRules.NoResult, StringComparison.Ordinal));
             if (r.IsAdded)
             {
                 long id = Id(r);
                 if (id < RecipeRules.From || id > RecipeRules.To)
                     l.Add("new id " + id + " is outside of " + RecipeRules.From + "-" + RecipeRules.To + ", the range of new recipes");
-                l.Add("no picture: the mastery window shows MasteryReceipe/" + id + ".png, which only shipped recipes have");
+                if (!HasPicture(id))
+                    l.Add("no picture: the mastery window shows MasteryReceipe/" + id + ".png, which only shipped recipes have");
             }
             List<string> missing = MissingOn(r);
             if (missing.Count > 0 && !r.IsDeleted) l.Add("only on " + string.Join(", ", Have(r).ToArray()) + "; not on " + string.Join(", ", missing.ToArray()));
             return l;
+        }
+
+        /// <summary>True when the mod adds the picture of a recipe (an entry MasteryReceipe/{id}.png of any archive).</summary>
+        public bool HasPicture(long id)
+        {
+            string want = "masteryreceipe/" + id.ToString(CultureInfo.InvariantCulture) + ".png";
+            foreach (ModOp op in Mod.Ops)
+            {
+                var en = op as EntryOp;
+                if (en == null || en.Delete || en.Name == null) continue;
+                string n = en.Name.Replace('\\', '/').ToLowerInvariant();
+                if (n == want || n.EndsWith("/" + want, StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         List<string> Have(Recipe r)
@@ -392,7 +443,23 @@ namespace MS2.ModKit
                 if (field == "id") CheckNewId(ParseId(value), r);
             }
             for (int i = 0; i < Sides.Count; i++)
+                if (r.Rows[i] != null && r.Rows[i].IsDeleted)
+                    throw new ModKitException("recipe " + Get(r, "id") + " is removed on " + Sides[i].Archive + "; restore it before a change");
+            long old = Id(r);
+            for (int i = 0; i < Sides.Count; i++)
                 if (r.Rows[i] != null) Sides[i].Set(r.Rows[i], field, value);
+            if (field == "id")
+            {
+                // the new id is the mod's now; the old one is free unless another new recipe still has it
+                long now = Id(r);
+                if (now != old)
+                {
+                    bool still = false;
+                    foreach (Recipe o in Recipes) if (o != r && o.IsAdded && Id(o) == old) still = true;
+                    if (!still) IdSpaces.Unreserve(Mod, RecipeRules.Space, old);
+                    IdSpaces.Reserve(Mod, RecipeRules.Space, now);
+                }
+            }
         }
 
         /// <summary>Sets slot 1 to 5 of the materials or the results (null empties it).</summary>
