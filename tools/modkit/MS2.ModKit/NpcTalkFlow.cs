@@ -165,7 +165,7 @@ namespace MS2.ModKit
                     if (m.Success && TryId(m.Groups[1].Value, out id)) set.Add(id);
                 }
                 var ed = o as EditOp;
-                if (ed != null) foreach (RowOp r in ed.Rows) if ((id = NpcOfRow(r)) >= 0) set.Add(id);
+                if (ed != null && IsCombined(ed.Entry)) foreach (RowOp r in ed.Rows) if ((id = NpcOfRow(r)) >= 0) set.Add(id);
             }
             return set;
         }

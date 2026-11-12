@@ -245,6 +245,9 @@ namespace MS2.ModKit
             return n;
         }
 
+        /// <summary>True for a combined talk file of the Korean client (script/npc/npcscript*.xml).</summary>
+        internal static bool IsCombined(string entry) { return entry != null && CombinedName.IsMatch(entry.Replace('\\', '/')); }
+
         static long NpcOfRow(RowOp r)
         {
             long id;
@@ -368,7 +371,7 @@ namespace MS2.ModKit
                     if (m.Success && TryId(m.Groups[1].Value, out id)) set[id] = true;
                 }
                 var ed = o as EditOp;
-                if (ed != null) foreach (RowOp r in ed.Rows) if (r.Kind == RowOpKind.Add && (id = NpcOfRow(r)) >= 0) set[id] = true;
+                if (ed != null && IsCombined(ed.Entry)) foreach (RowOp r in ed.Rows) if (r.Kind == RowOpKind.Add && (id = NpcOfRow(r)) >= 0) set[id] = true;
             }
             return new List<long>(set.Keys);
         }
@@ -522,6 +525,26 @@ namespace MS2.ModKit
 
         sealed class NotFound : Exception { }
 
+        /// <summary>
+        /// A place under a step is the n-th child of its name, found anew on each side; where the step differs between
+        /// the sides, the same place names another page or choice. So an edit inside a step goes only to the sides
+        /// whose step is the same (SameStep) as on the first side that has it (the side the Dialogue view shows).
+        /// Null when the side takes the edit, else the side and why, for missed.
+        /// </summary>
+        internal static string DiffersFromShown(NpcTalk t, TalkPath at, TalkSide side)
+        {
+            if (at == null || at.Below.Count == 0) return null;
+            TalkStep mine = side.Step(at.Step);
+            foreach (TalkSide s in t.Sides)
+            {
+                TalkStep st = s.Step(at.Step);
+                if (st == null) continue;
+                if (s == side || SameStep(st.Elem, mine.Elem)) return null;
+                return side.Archive + " (its " + at.Step + " differs from the " + s.Archive + "'s, so the place may be another line there)";
+            }
+            return null;
+        }
+
         NpcTalk Each(NpcTalk t, TalkPath at, List<string> missed, Action<TalkSide, XmlEditor, XmlElem> edit)
         {
             if (t == null || t.Sides.Count == 0) throw new ModKitException("the NPC has no talk to edit");
@@ -530,6 +553,8 @@ namespace MS2.ModKit
             {
                 XmlElem e = at == null ? s.Root : at.Resolve(s);
                 if (e == null) { if (missed != null) missed.Add(s.Archive); continue; }
+                string differs = DiffersFromShown(t, at, s);
+                if (differs != null) { if (missed != null) missed.Add(differs); continue; }
                 var ed = new XmlEditor(s.Doc);
                 try { edit(s, ed, e); }
                 catch (NotFound) { if (missed != null) missed.Add(s.Archive); continue; }

@@ -52,6 +52,10 @@ namespace MS2.Tables
         Dictionary<string, Dictionary<string, HashSet<long>>> textIds = new Dictionary<string, Dictionary<string, HashSet<long>>>();
         readonly List<long> hits = new List<long>();
         NpcTalk talk;
+        // the cell edit typed but not yet in the mod (see NpcTalkCellEdit.cs)
+        readonly TalkEditQueue typed = new TalkEditQueue();
+        // what the last edit said, without the NPC's summary
+        string saidLast;
         readonly List<string> stepKeys = new List<string>();
         readonly List<Line> lines = new List<Line>();
         List<TalkProblem> problems = new List<TalkProblem>();
@@ -336,7 +340,25 @@ namespace MS2.Tables
             return b;
         }
 
-        void EndEdits() { lineGrid.EndEdit(); }
+        /// <summary>Ends the cell edit and puts it into the mod now, on the NPC it was typed for.</summary>
+        void EndEdits()
+        {
+            lineGrid.EndEdit();
+            CommitTyped();
+        }
+
+        void CommitTyped()
+        {
+            TalkCellEdit e = typed.Take();
+            if (e == null) return;
+            var missed = new List<string>();
+            string said;
+            NpcTalk t = Editor().Commit(talk, e, missed, out said);
+            if (t != null) Edited(t, said, missed);
+        }
+
+        // the save, plan or apply of the Tables view: the edit is reported like any other, the mod is read after it
+        void OnHostFlushing() { Guard(EndEdits); }
 
         protected override void OnEnter(EventArgs e)
         {
@@ -361,7 +383,7 @@ namespace MS2.Tables
             if (host != null)
             {
                 host.Changed -= OnHostChanged;
-                host.Flushing -= EndEdits;
+                host.Flushing -= OnHostFlushing;
                 host.BusyChanged -= OnHostBusy;
                 host.Said -= OnHostSaid;
                 host.TargetChanged -= OnHostTarget;
@@ -371,7 +393,7 @@ namespace MS2.Tables
             if (h == null) { talk = null; hits.Clear(); return; }
             ShowTalk(null);
             h.Changed += OnHostChanged;
-            h.Flushing += EndEdits;
+            h.Flushing += OnHostFlushing;
             h.BusyChanged += OnHostBusy;
             h.Said += OnHostSaid;
             h.TargetChanged += OnHostTarget;
@@ -385,6 +407,9 @@ namespace MS2.Tables
 
         void Forget()
         {
+            // the session or its mod was replaced: an edit typed for the one before has no place to go
+            TalkCellEdit lost = typed.Take();
+            if (lost != null && host != null) host.SayOutside("the edit typed at NPC " + lost.NpcId + ", " + lost.Path + " was not kept: the mod changed in the MS2 Tables view before it was committed");
             editor = null;
             names = null;
             infos.Clear();
@@ -568,10 +593,13 @@ namespace MS2.Tables
             if (npcGrid.CurrentCell == null) return;
             int r = npcGrid.CurrentCell.RowIndex;
             if (r < 0 || r >= hits.Count) return;
-            if (talk != null && talk.NpcId == hits[r]) return;
+            long npc = hits[r];
+            if (talk != null && talk.NpcId == npc) return;
+            // the edit typed for the NPC open now goes to that NPC, before the other one opens
+            saidLast = null;
             EndEdits();
-            ShowTalk(Editor().Open(hits[r]));
-            host.SayOutside(Describe());
+            ShowTalk(Editor().Open(npc));
+            host.SayOutside((saidLast != null ? saidLast + "\r\n\r\n" : "") + Describe());
         }
 
         // ---- the talk ----
@@ -823,36 +851,34 @@ namespace MS2.Tables
         {
             Line l = LineAt(e.RowIndex);
             if (l == null) return;
-            string v = e.Value == null ? "" : e.Value.ToString();
-            int col = e.ColumnIndex;
-            // the edit runs after the grid is done with the cell: it rebuilds the lines
-            BeginInvoke((MethodInvoker)delegate { Guard(delegate { Push(l, col, v); }); });
+            TalkCellEdit edit = Typed(l, e.ColumnIndex, e.Value == null ? "" : e.Value.ToString());
+            if (edit == null) return;
+            // a second edit commits the first: one edit is held at a time
+            if (typed.Pending) CommitTyped();
+            typed.Post(edit);
+            // the grid is still busy with the cell and the edit rebuilds the lines: commit it after the grid is done,
+            // unless an NPC change, save, plan or apply commits it first (EndEdits)
+            BeginInvoke((MethodInvoker)delegate { Guard(CommitTyped); });
         }
 
-        void Push(Line l, int col, string v)
+        /// <summary>The edit a value typed into a cell of the line makes, bound to the open NPC; null for none.</summary>
+        TalkCellEdit Typed(Line l, int col, string v)
         {
             XmlElem x = ElemOf(l);
-            if (x == null) return;
-            var missed = new List<string>();
-            TalkEditor ed = Editor();
-            NpcTalk t = talk;
-            string said;
+            if (x == null) return null;
+            var edit = new TalkCellEdit { NpcId = talk.NpcId, Path = l.Path, Language = Language };
             if (col == TextCol)
             {
-                string was = x.Attr("text") == null ? "" : ed.Say(t.NpcId, x.Attr("text"), Language);
-                if (v == was) return;
-                if (Language == null) throw new ModKitException("no target has talk text files: no language to write the line in");
-                t = ed.SetText(t, l.Path, Language, v, missed);
-                textIds.Clear();
-                said = l.Path + ": the " + Language + " text set";
+                // the cell of a line with no row in the language shows the id behind a note; the note is not the text
+                string note = "(no " + Language + " row) ";
+                if (v.StartsWith(note, StringComparison.Ordinal)) v = v.Substring(note.Length);
+                if (x.Attr("text") != null && v == x.Attr("text") && editor.Say(talk.NpcId, v, Language) == null) return null;
+                edit.Text = v;
             }
             else if (col >= FirstAttrCol && col < MoreCol)
             {
-                string attr = AttrColumns[col - FirstAttrCol];
                 v = v.Trim();
-                if (v == (x.Attr(attr) ?? "")) return;
-                t = ed.SetAttr(t, l.Path, attr, v, missed);
-                said = l.Path + ": " + attr + (v.Length == 0 ? " removed" : " = " + v);
+                edit.Attrs.Add(new KeyValuePair<string, string>(AttrColumns[col - FirstAttrCol], v.Length == 0 ? null : v));
             }
             else if (col == MoreCol)
             {
@@ -871,33 +897,27 @@ namespace MS2.Tables
                     want[name] = value;
                     order.Add(name);
                 }
-                var changes = new List<string>();
                 foreach (XmlAttr a in x.Attrs)
-                    if (!Named(a.Name, step) && !want.ContainsKey(a.Name)) { t = ed.SetAttr(t, l.Path, a.Name, null, missed); changes.Add(a.Name + " removed"); }
-                foreach (string name in order)
-                {
-                    XmlElem now = l.Path.Resolve(t.Sides.Count > 0 ? FirstSideOf(t, l.Path) : null);
-                    if (now != null && now.Attr(name) == want[name]) continue;
-                    t = ed.SetAttr(t, l.Path, name, want[name], missed);
-                    changes.Add(name + " = " + want[name]);
-                }
-                if (changes.Count == 0) return;
-                said = l.Path + ": " + string.Join(", ", changes.ToArray());
+                    if (!Named(a.Name, step) && !want.ContainsKey(a.Name)) edit.Attrs.Add(new KeyValuePair<string, string>(a.Name, null));
+                foreach (string name in order) edit.Attrs.Add(new KeyValuePair<string, string>(name, want[name]));
             }
-            else return;
-            Edited(t, said, missed);
-        }
-
-        static TalkSide FirstSideOf(NpcTalk t, TalkPath p)
-        {
-            foreach (TalkSide s in t.Sides) if (p.Resolve(s) != null) return s;
-            return t.Sides[0];
+            else return null;
+            return edit;
         }
 
         void Edited(NpcTalk t, string said, List<string> missed)
         {
             infos.Remove(t.NpcId);
             host.EditedOutside();
+            var sb = new StringBuilder(said);
+            if (missed != null && missed.Count > 0) sb.Append("\r\nnot changed on: ").Append(string.Join("; ", missed.ToArray())).Append(" (a side named alone has no such place)");
+            if (talk == null || talk.NpcId != t.NpcId)
+            {
+                // an edit typed for the NPC open before: the NPC being opened stays on screen
+                npcGrid.Invalidate();
+                host.SayOutside(saidLast = sb.ToString());
+                return;
+            }
             // EditedOutside tells the other views; this one shows the talk as it is now
             string step = StepChosen();
             int row = lineGrid.CurrentCell != null ? lineGrid.CurrentCell.RowIndex : -1, col = lineGrid.CurrentCell != null ? lineGrid.CurrentCell.ColumnIndex : 0;
@@ -906,8 +926,7 @@ namespace MS2.Tables
             ShowTalk(t);
             if (step != null) SelectStep(step);
             if (row >= 0 && row < lineGrid.RowCount) WhereUsedJump.SelectCell(lineGrid, col, row);
-            var sb = new StringBuilder(said);
-            if (missed != null && missed.Count > 0) sb.Append("\r\nnot on ").Append(string.Join(", ", missed.ToArray())).Append(": the place is not there");
+            saidLast = sb.ToString();
             sb.Append("\r\n\r\n").Append(Describe());
             host.SayOutside(sb.ToString());
         }
@@ -1060,7 +1079,16 @@ namespace MS2.Tables
                 string first = editor.FirstLine(t.NpcId, s, Language);
                 if (first.Length > 50) first = first.Substring(0, 50) + "…";
                 string id = s.Id;
-                pickMenu.Items.Add(key + (first.Length > 0 ? "  " + first : ""), null, delegate { Guard(delegate { Push(l, cell.ColumnIndex, id); }); });
+                pickMenu.Items.Add(key + (first.Length > 0 ? "  " + first : ""), null, delegate
+                {
+                    Guard(delegate
+                    {
+                        var edit = new TalkCellEdit { NpcId = t.NpcId, Path = l.Path, Language = Language };
+                        edit.Attrs.Add(new KeyValuePair<string, string>(attr, id));
+                        typed.Post(edit);
+                        CommitTyped();
+                    });
+                });
             }
             long near;
             TalkStep at = FirstStep(l.Path.Step);
@@ -1074,9 +1102,16 @@ namespace MS2.Tables
                     Guard(delegate
                     {
                         var missed = new List<string>();
-                        NpcTalk now = Editor().AddStep(talk, "script", n.ToString(CultureInfo.InvariantCulture), missed);
-                        now = Editor().SetAttr(now, l.Path, attr, n.ToString(CultureInfo.InvariantCulture), missed);
-                        Edited(now, "script " + n + " added; " + l.Path + ": " + attr + " = " + n, missed);
+                        NpcTalk now = Editor().AddStep(talk != null && talk.NpcId == t.NpcId ? talk : Editor().Open(t.NpcId), "script", n.ToString(CultureInfo.InvariantCulture), missed);
+                        string said = "script " + n + " added";
+                        // the step is in the mod now: the view and the Tables view are told even when the jump fails
+                        try
+                        {
+                            now = Editor().SetAttr(now, l.Path, attr, n.ToString(CultureInfo.InvariantCulture), missed);
+                            said += "; " + l.Path + ": " + attr + " = " + n;
+                        }
+                        catch (ModKitException ex) { said += "; " + l.Path + ": " + attr + " not set: " + ex.Message; }
+                        Edited(now, said, missed);
                     });
                 });
             }

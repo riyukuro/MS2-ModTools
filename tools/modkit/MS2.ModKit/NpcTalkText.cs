@@ -301,6 +301,8 @@ namespace MS2.ModKit
             {
                 XmlElem e = at.Resolve(s);
                 if (e == null) { if (missed != null) missed.Add(s.Archive); continue; }
+                string differs = DiffersFromShown(t, at, s);
+                if (differs != null) { if (missed != null) missed.Add(differs); continue; }
                 if (e.Name != "content" && e.Name != "distractor") throw new ModKitException("<" + e.Name + "> has no text line; a content or a distractor has");
                 long id;
                 sides.Add(new KeyValuePair<TalkSide, long>(s, TryRef(e.Attr("text"), out id) ? id : -1));
@@ -314,8 +316,22 @@ namespace MS2.ModKit
                 List<TextRow> rows = TextRows(own).FindAll(r => r.Add != null);
                 if (rows.Count > 0)
                 {
+                    int set = 0;
                     foreach (TextRow r in rows)
-                        if (language == null || string.Equals(r.Lang, language, StringComparison.OrdinalIgnoreCase)) SetName(r.Add, value);
+                        if (language == null || string.Equals(r.Lang, language, StringComparison.OrdinalIgnoreCase)) { SetName(r.Add, value); set++; }
+                    if (set == 0)
+                    {
+                        // the mod's rows are in other languages: the language gets a row of the id in its home file of each target
+                        var done = new List<string>();
+                        foreach (KeyValuePair<TalkSide, long> s in sides)
+                        {
+                            if (done.Contains(s.Key.Archive)) continue;
+                            done.Add(s.Key.Archive);
+                            TextDoc home = HomeOf(s.Key, language);
+                            if (home != null) { EditOf(s.Key.Archive, home.Name, true).Rows.Add(new RowOp { Kind = RowOpKind.Add, Xml = NewRowXml(own, value) }); set++; }
+                        }
+                        if (set == 0) throw new ModKitException("no target has a " + language + " talk text file to write the line in");
+                    }
                     return Open(npc);
                 }
             }
@@ -327,6 +343,9 @@ namespace MS2.ModKit
             if (next > last) throw new ModKitException("NPC " + npc + " has no free talk text id left (" + first + " to " + last + " are taken)");
 
             var targets = new List<string>();
+            // what is added, so that a failed edit leaves the mod as it was
+            var added = new List<KeyValuePair<EditOp, RowOp>>();
+            var opsBefore = new HashSet<ModOp>(Mod.Ops);
             foreach (KeyValuePair<TalkSide, long> s in sides)
             {
                 TalkSide side = s.Key;
@@ -351,7 +370,9 @@ namespace MS2.ModKit
                         {
                             add = new RowOp { Kind = RowOpKind.Add, Xml = NewRowXml(next, mine ? value : r.Text) };
                         }
-                        EditOf(side.Archive, r.Entry, true).Rows.Add(add);
+                        EditOp into = EditOf(side.Archive, r.Entry, true);
+                        into.Rows.Add(add);
+                        added.Add(new KeyValuePair<EditOp, RowOp>(into, add));
                         done.Add(r.Lang);
                     }
                 var langs = new List<string>();
@@ -359,11 +380,23 @@ namespace MS2.ModKit
                 foreach (string lang in langs)
                 {
                     TextDoc home = HomeOf(side, lang);
-                    if (home != null) EditOf(side.Archive, home.Name, true).Rows.Add(new RowOp { Kind = RowOpKind.Add, Xml = NewRowXml(next, value) });
+                    if (home == null) continue;
+                    EditOp into = EditOf(side.Archive, home.Name, true);
+                    var add = new RowOp { Kind = RowOpKind.Add, Xml = NewRowXml(next, value) };
+                    into.Rows.Add(add);
+                    added.Add(new KeyValuePair<EditOp, RowOp>(into, add));
                 }
             }
+            NpcTalk now;
+            try { now = SetAttr(t, at, "text", RefOf(next), null); }
+            catch
+            {
+                foreach (KeyValuePair<EditOp, RowOp> a in added) a.Key.Rows.Remove(a.Value);
+                Mod.Ops.RemoveAll(o => !opsBefore.Contains(o));
+                throw;
+            }
             IdSpaces.ReserveText(Mod, TextIdSpace, TextEntries, next, targets);
-            return SetAttr(t, at, "text", RefOf(next), null);
+            return now;
         }
 
         static string NewRowXml(long id, string text)

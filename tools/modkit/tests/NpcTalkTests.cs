@@ -6,6 +6,7 @@ using System.IO;
 using System.Text;
 using MS2.ModKit;
 using MS2.ModKit.M2d;
+using MS2.ModKit.Xml;
 using NUnit.Framework;
 
 namespace MS2.ModKit.Tests
@@ -354,6 +355,10 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.Text(90000001, 90000001008, "ko").Text, Is.EqualTo("two"));
                 Assert.That(ed.Text(90000001, 90000001008, "ko").Rows, Is.EqualTo(2));
                 Assert.That(ed.Say(90000001, "$script:90000001008$", "ko"), Is.EqualTo("two"));
+                // a language no target has a talk text file of: refused, not "text set" with nothing changed
+                var e = Assert.Throws<ModKitException>(() => ed.SetText(t, Line5, "fr", "quatre", null));
+                Assert.That(e.Message, Is.EqualTo("no target has a fr talk text file to write the line in"));
+                Assert.That(m.Ops.Count, Is.EqualTo(ops));
 
                 Plan p = PlanOf(f, m);
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
@@ -467,6 +472,113 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Warnings.Count, Is.EqualTo(2), Fake.Dump(p));
                 foreach (PlanMessage w in p.Warnings)
                     Assert.That(w.Text, Does.StartWith("NPC 90000002 talk is changed for the ").And.Contains(" has it as shipped"));
+            }
+        }
+
+        [Test]
+        public void AnEditInsideAStepThatDiffers_GoesOnlyToTheSidesLikeTheShownOne()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                // script 11 has pages 004, 005 everywhere; take page 004 out on the kms client only
+                ed.Remove(ed.Open(90000001), new TalkPath("script 11").Then("content", 0), null);
+                m.Ops.RemoveAll(o => o.Archive != K);
+                NpcTalk t = ed.Open(90000001);
+                Assert.That(t.Sides[0].Archive, Is.EqualTo(K));
+                Assert.That(TalkEditor.SameOnEverySide(t, "script 11"), Is.False);
+
+                // page 1 is 005 on the kms client (shown) and 004 elsewhere: the edit goes to kms only, the rest are named
+                var missed = new List<string>();
+                t = ed.SetAttr(t, new TalkPath("script 11").Then("content", 0), "voiceID", "x/1", missed);
+                Assert.That(missed.Count, Is.EqualTo(2), string.Join("\n", missed.ToArray()));
+                Assert.That(missed[0], Does.StartWith(G + " (its script 11 differs from the " + K + "'s"));
+                Assert.That(missed[1], Does.StartWith(S + " (its script 11 differs from the " + K + "'s"));
+                foreach (TalkSide s in t.Sides)
+                {
+                    XmlElem page = new TalkPath("script 11").Then("content", 0).Resolve(s);
+                    Assert.That(page.Attr("voiceID"), Is.EqualTo(s.Archive == K ? "x/1" : null), s.Archive);
+                }
+
+                // a text edit as well: the text rows are copied for the kms client only
+                missed.Clear();
+                t = ed.SetText(t, new TalkPath("script 11").Then("content", 0), "en", "x", missed);
+                Assert.That(missed.Count, Is.EqualTo(2));
+                Assert.That(m.Ops.Exists(o => o.Archive != K), Is.False);
+                Assert.That(new TalkPath("script 11").Then("content", 0).Resolve(t.Sides[0]).Attr("text"), Is.EqualTo("$script:90000001008$"));
+
+                // a remove too: page 1 of kms goes, the global client and the server keep both pages
+                missed.Clear();
+                t = ed.Remove(t, new TalkPath("script 11").Then("content", 0), missed);
+                Assert.That(missed.Count, Is.EqualTo(2));
+                foreach (TalkSide s in t.Sides)
+                    Assert.That(s.Step("script 11").Elem.Children.Count, Is.EqualTo(s.Archive == K ? 0 : 2), s.Archive);
+
+            }
+        }
+
+        [Test]
+        public void ACellEdit_LandsOnItsOwnNpc_WhenAnotherIsOpenByThen()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                var q = new TalkEditQueue();
+                var e = new TalkCellEdit { NpcId = 90000001, Path = Choice, Language = "en" };
+                e.Attrs.Add(new KeyValuePair<string, string>("voiceID", "x/1"));
+                q.Post(e);
+                // the view opens 90000002, committing the edit typed for 90000001 on the way
+                NpcTalk open = ed.Open(90000002);
+                string said;
+                NpcTalk t = ed.Commit(open, q.Take(), null, out said);
+                Assert.That(t.NpcId, Is.EqualTo(90000001));
+                Assert.That(said, Is.EqualTo("NPC 90000001, script 10 / content 1 / distractor 1: voiceID = x/1"));
+                Assert.That(TalkEditor.Shown(ed.Open(90000001), Choice).Attr("voiceID"), Is.EqualTo("x/1"));
+                Assert.That(TalkEditor.Shown(ed.Open(90000002), Choice).Attr("voiceID"), Is.Null);
+                Assert.That(new List<long>(ed.ModNpcIds()), Is.EqualTo(new[] { 90000001L }));
+                // an <npc id> row of another table is no talk
+                var other = new EditOp { Archive = K, Entry = "table/npcdata.xml" };
+                other.Rows.Add(new RowOp { Kind = RowOpKind.Add, Xml = "<npc id=\"90000005\" />" });
+                other.Rows.Add(new RowOp { Kind = RowOpKind.Delete, At = "npc[id=90000006]" });
+                m.Ops.Add(other);
+                Assert.That(new List<long>(ed.ModNpcIds()), Is.EqualTo(new[] { 90000001L }));
+                Assert.That(ed.NpcIds(), Has.No.Member(90000005L));
+                m.Ops.Remove(other);
+                // the commit posted when the edit was typed comes after: it finds nothing
+                Assert.That(q.Take(), Is.Null);
+                Assert.That(ed.Commit(ed.Open(90000002), null, null, out said), Is.Null);
+            }
+        }
+
+        [Test]
+        public void ACellEdit_CommittedBeforeThePlan_IsInThePlan_AndTheSameValueIsNoEdit()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                var q = new TalkEditQueue();
+                var e = new TalkCellEdit { NpcId = 90000001, Path = Choice, Language = "en" };
+                e.Attrs.Add(new KeyValuePair<string, string>("goto", "11"));
+                q.Post(e);
+                string said;
+                // the value the place has: nothing goes into the mod
+                Assert.That(ed.Commit(ed.Open(90000001), q.Take(), null, out said), Is.Null);
+                Assert.That(m.IsEmpty, Is.True);
+
+                e = new TalkCellEdit { NpcId = 90000001, Path = Choice, Language = "en" };
+                e.Attrs.Add(new KeyValuePair<string, string>("goto", "11,10"));
+                q.Post(e);
+                Assert.That(q.Pending, Is.True);
+                // Plan and Apply commit the held edit before the mod is read
+                ed.Commit(ed.Open(90000001), q.Take(), null, out said);
+                Assert.That(q.Pending, Is.False);
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Dump(p), Does.Contain("npc[id=90000001]"));
+                foreach (TalkSide s in ed.Open(90000001).Sides) Assert.That(Choice.Resolve(s).Attr("goto"), Is.EqualTo("11,10"), s.Archive);
             }
         }
     }
