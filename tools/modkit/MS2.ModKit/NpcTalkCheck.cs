@@ -181,12 +181,20 @@ namespace MS2.ModKit
             return l;
         }
 
-        // the same step on two sides: the same names, attributes and children, whatever the spacing
-        static bool SameStep(XmlElem a, XmlElem b)
+        /// <summary>The same step on two sides: the same names, attributes and children, whatever the spacing and the attribute
+        /// order. An empty attribute is the same as none (the global client and the server write feature="" locale="", the
+        /// combined KMS file leaves them out).</summary>
+        public static bool SameStep(XmlElem a, XmlElem b)
         {
-            if (a.Name != b.Name || a.Attrs.Count != b.Attrs.Count || a.Children.Count != b.Children.Count) return false;
-            foreach (XmlAttr x in a.Attrs) if (b.Attr(x.Name) != x.Value) return false;
+            if (a.Name != b.Name || a.Children.Count != b.Children.Count) return false;
+            if (!AttrsIn(a, b) || !AttrsIn(b, a)) return false;
             for (int i = 0; i < a.Children.Count; i++) if (!SameStep(a.Children[i], b.Children[i])) return false;
+            return true;
+        }
+
+        static bool AttrsIn(XmlElem a, XmlElem b)
+        {
+            foreach (XmlAttr x in a.Attrs) if (x.Value.Length > 0 && b.Attr(x.Name) != x.Value) return false;
             return true;
         }
     }

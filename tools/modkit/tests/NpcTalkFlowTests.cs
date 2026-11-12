@@ -1,7 +1,9 @@
 // The flow of a talk, the NPCs the mod has a talk for and the problems of many NPCs (NpcTalkFlow.cs), on the
 // made-up talks of NpcTalkTests. Every id here is made up.
 using System.Collections.Generic;
+using System.Text;
 using MS2.ModKit;
+using MS2.ModKit.Xml;
 using NUnit.Framework;
 
 namespace MS2.ModKit.Tests
@@ -103,6 +105,20 @@ namespace MS2.ModKit.Tests
                 Assert.That(TalkEditor.SameOnEverySide(t, "script 11"), Is.True);
                 Assert.That(ed.FirstLine(90000003, ed.Open(90000003).Side(K).Step("select 0"), "ko"), Is.EqualTo("$script:90000003001$"), "no row: the reference");
             }
+        }
+
+        [Test]
+        public void SameStep_TakesAnEmptyAttributeAsNone_AndIgnoresTheOrder()
+        {
+            XmlElem a = XmlDoc.Parse(Encoding.UTF8.GetBytes("<select id=\"0\"><content text=\"t1\" voiceID=\"v\" /></select>"), "a").Root;
+            XmlElem b = XmlDoc.Parse(Encoding.UTF8.GetBytes("<select id=\"0\" feature=\"\" locale=\"\">\n\t<content voiceID=\"v\" text=\"t1\" />\n</select>"), "b").Root;
+            XmlElem c = XmlDoc.Parse(Encoding.UTF8.GetBytes("<select id=\"0\" feature=\"F1\"><content text=\"t1\" voiceID=\"v\" /></select>"), "c").Root;
+            XmlElem d = XmlDoc.Parse(Encoding.UTF8.GetBytes("<select id=\"0\"><content text=\"t2\" voiceID=\"v\" /></select>"), "d").Root;
+            Assert.That(TalkEditor.SameStep(a, b), Is.True);
+            Assert.That(TalkEditor.SameStep(b, a), Is.True);
+            Assert.That(TalkEditor.SameStep(a, c), Is.False, "a feature is a difference");
+            Assert.That(TalkEditor.SameStep(c, a), Is.False);
+            Assert.That(TalkEditor.SameStep(a, d), Is.False, "another text");
         }
     }
 }
