@@ -110,12 +110,14 @@ namespace MS2.Tables
             }
         }
 
-        // false for a PNG whose header claims more pixels than a preview decodes (a huge image would stall the view)
+        // false for a PNG whose header claims more pixels than a preview decodes, and for any other image of more bytes
+        // than an icon file may have (a huge image would stall the view)
         static bool Decodable(byte[] bytes)
         {
             string why;
             PngInfo p = PngInfo.Read(bytes, out why);
-            return p == null || (long)p.Width * p.Height <= ItemIcon.MaxPixels;
+            if (p == null) return bytes.Length <= ItemIcon.MaxBytes;
+            return (long)p.Width * p.Height <= ItemIcon.MaxPixels;
         }
 
         /// <summary>True when the entry was looked for and no archive has it (or it is not an image).</summary>

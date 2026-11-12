@@ -1990,7 +1990,8 @@ and reads only the levels 1..99. So an edit of nextexp goes to every side that h
 2. Pick a level (or type it), the field and the value, then **Set** (or Enter): a whole number of 0 or more. Setting
    the shipped value takes the level's line out of the mod.
 3. **Scale levels** *from* **to** *to* sets the values of those levels to the shipped values times the percentage,
-   rounded (50: half the experience, 200: twice; 100 puts the shipped values back), for one field or `(all)`.
+   rounded (50: half the experience, 200: twice; 100 puts the shipped values back), for one field or `(all)`. Each
+   side scales its own shipped value.
 4. **Take level** and **Take all** put the shipped values back. **Plan**, **Apply** and **Save mod** are the Tables
    view's.
 
@@ -1999,7 +2000,9 @@ that is not a whole number of 0 or more. Warnings, nextexp: a level outside 1..9
 row), a value of 0 (the level is passed at once), a value below the level before it, a shipped level the mods leave
 without a row (the client's bar never fills there; on the server a character cannot level up past it), and a level
 the sides shipped alike that now differs between them (the client's experience bar and the server's level-up
-disagree, or the two clients' bars do). A level whose sides shipped different values raises nothing.
+disagree, or the two clients' bars do). A level whose sides shipped different values raises nothing. A level with
+more than one row on a side (rows by locale or feature; the shipped tables have none) is refused by Set and Scale and
+raised by Plan: the game reads the last row it can use, so edit those rows by hand.
 
 ## One mod, both sides
 

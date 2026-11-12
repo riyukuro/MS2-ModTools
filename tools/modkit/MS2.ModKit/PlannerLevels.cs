@@ -3,7 +3,8 @@
 // not a whole number of 0 or more. Warnings, nextexp: a level outside 1..99 on a client (the client reads only
 // those), a level the shipped table has that the mods leave without a row, a value of 0 (the level is passed at
 // once), a value below the level before it, and a level whose value the sides shipped alike and now differ in (the
-// client's experience bar and the server's level-up disagree).
+// client's experience bar and the server's level-up disagree), and a level with more than one row (by locale or
+// feature: the reader takes the last row it can use, the checks look at the first).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -45,6 +46,22 @@ namespace MS2.ModKit
             return s;
         }
 
+        // the levels with more than one row, and how many
+        static SortedDictionary<int, int> LevelDupes(XmlDoc d, LevelTable t)
+        {
+            var c = new SortedDictionary<int, int>();
+            if (d == null || d.Root == null) return c;
+            foreach (XmlElem e in d.Root.Children)
+            {
+                int level, n;
+                if (e.Name != t.Row || !int.TryParse(e.Attr(t.Key), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out level)) continue;
+                c[level] = c.TryGetValue(level, out n) ? n + 1 : 1;
+            }
+            var s = new SortedDictionary<int, int>();
+            foreach (KeyValuePair<int, int> kv in c) if (kv.Value > 1) s[kv.Key] = kv.Value;
+            return s;
+        }
+
         static void LevelChecks(Run run)
         {
             Plan plan = run.Plan;
@@ -65,6 +82,8 @@ namespace MS2.ModKit
                     origs.Add(then);
                     if (mod == null) continue;
                     any = mod;
+                    foreach (KeyValuePair<int, int> kv in LevelDupes(fin, t))
+                        plan.Msg(plan.Warnings, mod, archive, t.Entry, t.Name + " level " + kv.Key + " has " + kv.Value + " rows: the game reads the last one it can use (by locale and feature), these checks only the first");
                     Profile p = Profile.Find(DataSet.RootOf(DataSet.NormalizeRef(archive)));
                     bool client = p != null && !p.IsServer && t.ClientMax > 0;
                     long? before = null;

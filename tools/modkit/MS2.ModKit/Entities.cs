@@ -166,7 +166,8 @@ namespace MS2.ModKit
             EntityMap em = Editor.Maps == null ? null : Editor.Maps.Entity(Editor.Entity);
             FieldMapEntry e = null;
             if (em != null && em.Classify(true, clientField, out e) != FieldKind.Mapped) e = null;
-            int n = 0;
+            // every section's value first, then the writes: a side that refuses the value leaves no section set
+            var sets = new List<KeyValuePair<EntitySection, KeyValuePair<string, string>>>();
             foreach (EntitySection s in Sections.ToArray())
             {
                 if (!s.Chain.StartsWith("environment[", StringComparison.Ordinal)) continue;
@@ -182,10 +183,10 @@ namespace MS2.ModKit
                     if (!e.TryToServer(value, Get(s, attr), e.Index == null ? null : ServerValue(s, e.Index), out v, out why))
                         throw new ModKitException(clientField + " = \"" + value + "\" has no " + want + " on the " + s.Part.Target + ": " + why);
                 }
-                Set(s, attr, v);
-                n++;
+                sets.Add(new KeyValuePair<EntitySection, KeyValuePair<string, string>>(s, new KeyValuePair<string, string>(attr, v)));
             }
-            return n;
+            foreach (var x in sets) Set(x.Key, x.Value.Key, x.Value.Value);
+            return sets.Count;
         }
 
         /// <summary>Sets a field of the per-id file only (a field the bundle side does not have, as "basic@difficulty"). Returns the number of sections set.</summary>

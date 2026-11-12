@@ -48,6 +48,7 @@ namespace MS2.ModKit
     {
         public int Level;
         public string At;   // exp[level=N]
+        public int Count = 1;   // the rows of the level (more than 1: rows by locale or feature, edited by hand only)
         public readonly Dictionary<string, string> Shipped = new Dictionary<string, string>(StringComparer.Ordinal);
     }
 
@@ -83,7 +84,8 @@ namespace MS2.ModKit
             foreach (XmlElem e in doc.Root.Children)
             {
                 int level;
-                if (e.Name != t.Row || !int.TryParse(e.Attr(t.Key), NumberStyles.Integer, CultureInfo.InvariantCulture, out level) || d.ContainsKey(level)) continue;
+                if (e.Name != t.Row || !int.TryParse(e.Attr(t.Key), NumberStyles.Integer, CultureInfo.InvariantCulture, out level)) continue;
+                if (d.ContainsKey(level)) { d[level].Count++; continue; }
                 var r = new LevelRow { Level = level, At = RowPath.Canonical(e) };
                 foreach (string f in t.Fields) r.Shipped[f] = e.Attr(f) ?? "";
                 d[level] = r;
@@ -203,10 +205,22 @@ namespace MS2.ModKit
                 LevelRow r = Row(t, a, level);
                 if (r == null) continue;
                 had++;
-                if (SetOne(t, a, r, field, value)) n++;
+                Single(t, a, r);
             }
             if (had == 0) throw new ModKitException(t.Name + " has no row of level " + level);
+            foreach (string a in Sides(t))
+            {
+                LevelRow r = Row(t, a, level);
+                if (r != null && SetOne(t, a, r, field, value)) n++;
+            }
             return n;
+        }
+
+        // refuses a level with more than one row on the side: the reader takes the last row it can use (by locale and
+        // feature), so a line on the first one may change nothing
+        static void Single(LevelTable t, string archive, LevelRow r)
+        {
+            if (r.Count > 1) throw new ModKitException(t.Name + " level " + r.Level + " has " + r.Count + " rows on " + archive + " (by locale or feature): edit them by hand");
         }
 
         bool SetOne(LevelTable t, string archive, LevelRow r, string field, string value)
@@ -226,8 +240,8 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Multiplies the shipped values of the levels from..to (of one field, or of every field when field is null)
-        /// by percent/100, rounded to the nearest whole number; a value above 0 stays at least 1. Returns the levels
-        /// that changed.
+        /// by percent/100, rounded to the nearest whole number; a value above 0 stays at least 1. Each side scales its
+        /// own shipped value. Returns the levels that changed.
         /// </summary>
         public int Scale(LevelTable t, int from, int to, string field, double percent)
         {
@@ -236,15 +250,27 @@ namespace MS2.ModKit
             if (field != null && Array.IndexOf(t.Fields, field) < 0) throw new ModKitException(t.Name + " has no field \"" + field + "\"");
             int n = 0;
             foreach (int level in Levels(t))
+                if (level >= from && level <= to)
+                    foreach (string a in Sides(t))
+                    {
+                        LevelRow r = Row(t, a, level);
+                        if (r != null) Single(t, a, r);
+                    }
+            foreach (int level in Levels(t))
             {
                 if (level < from || level > to) continue;
                 bool changed = false;
-                foreach (string f in t.Fields)
+                foreach (string a in Sides(t))
                 {
-                    if (field != null && f != field) continue;
-                    long? was = Number(GetShipped(t, level, f));
-                    if (was == null) continue;
-                    if (Set(t, level, f, Scaled(was.Value, percent).ToString(CultureInfo.InvariantCulture)) > 0) changed = true;
+                    LevelRow r = Row(t, a, level);
+                    if (r == null) continue;
+                    foreach (string f in t.Fields)
+                    {
+                        if (field != null && f != field) continue;
+                        long? was = Number(r.Shipped[f]);
+                        if (was == null) continue;
+                        if (SetOne(t, a, r, f, Scaled(was.Value, percent).ToString(CultureInfo.InvariantCulture))) changed = true;
+                    }
                 }
                 if (changed) n++;
             }

@@ -251,5 +251,42 @@ namespace MS2.ModKit.Tests
                 Assert.That(Texts(p.Warnings, "nextexp level 1:"), Has.Count.EqualTo(2), string.Join("\n", p.Warnings));
             }
         }
+
+        [Test]
+        public void Scale_ScalesEachSideFromItsOwnShippedValue()
+        {
+            using (var f = new FakeLevels(gmsTable: FakeLevels.Next(100, 300, 400, 900)))
+            {
+                Mod m = FakeLevels.NewMod();
+                var lx = new LevelExp(f.Data, m);
+                Assert.That(lx.Scale(Next, 2, 2, null, 200), Is.EqualTo(1));
+                Assert.That(lx.Get(Next, K, 2, "value"), Is.EqualTo("500"));
+                Assert.That(lx.Get(Next, G, 2, "value"), Is.EqualTo("600"));
+                Assert.That(lx.Get(Next, S, 2, "value"), Is.EqualTo("500"));
+                Plan p = f.Plan(m);
+                Assert.That(Texts(p.Warnings, "nextexp level 2:"), Is.Empty, "the sides shipped different values: nothing to raise");
+                Assert.That(lx.Scale(Next, 2, 2, null, 100), Is.EqualTo(1));
+                Assert.That(lx.Get(Next, G, 2, "value"), Is.EqualTo("300"), "100% puts each side's shipped value back");
+                Assert.That(m.Ops, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void ALevelWithRowsByLocale_IsRefusedAndRaised()
+        {
+            string table = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<ms2>\n\t<exp level=\"1\" value=\"100\" locale=\"\" />\n\t<exp level=\"2\" value=\"250\" locale=\"KR\" />\n" +
+                "\t<exp level=\"2\" value=\"260\" locale=\"CN\" />\n\t<exp level=\"3\" value=\"400\" locale=\"\" />\n</ms2>\n";
+            using (var f = new FakeLevels(gmsTable: table))
+            {
+                Mod m = FakeLevels.NewMod();
+                var lx = new LevelExp(f.Data, m);
+                Assert.That(Assert.Throws<ModKitException>(() => lx.Set(Next, 2, "value", "300")).Message, Does.Contain("has 2 rows on " + G));
+                Assert.That(Assert.Throws<ModKitException>(() => lx.Scale(Next, 1, 3, null, 200)).Message, Does.Contain("has 2 rows"));
+                Assert.That(m.Ops, Is.Empty, "a refused level leaves no line on any side");
+                lx.Set(Next, 3, "value", "500");
+                Plan p = f.Plan(m);
+                Assert.That(Texts(p.Warnings, "nextexp level 2 has 2 rows"), Has.Count.EqualTo(1), string.Join("\n", p.Warnings));
+            }
+        }
     }
 }

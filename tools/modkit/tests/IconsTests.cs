@@ -344,10 +344,19 @@ namespace MS2.ModKit.Tests
                 StringAssert.Contains("has no property@slotIcon", x.Message);
                 CollectionAssert.IsEmpty(ImageOps(m));
                 CollectionAssert.IsEmpty(m.Files);
-                // a file far bigger than an icon is refused before anything is written
+            }
+        }
+
+        [Test]
+        public void OwnIconRefusesAFileFarBiggerThanAnIcon()
+        {
+            using (var f = new FakeIcons(true, true, true))
+            {
+                // refused before anything is written
+                Mod m = NewMod();
                 var big = new byte[ItemIcon.MaxBytes + 1];
                 Array.Copy(Png(60, 60), big, Png(60, 60).Length);
-                x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(Items(f, m).Open(1200001), big); });
+                var x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(Items(f, m).Open(1200001), big); });
                 StringAssert.Contains("more than", x.Message);
                 CollectionAssert.IsEmpty(m.Ops);
             }
