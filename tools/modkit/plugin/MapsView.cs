@@ -7,7 +7,8 @@
 // or <remove> op of the mod's <map xblock="..."> with the shipped value as the expected old one, so Plan makes it on
 // every target that ships the same entity (client, global client, server) and warns where one does not. Add spawn
 // point and Add portal make a <spawn> or <portal> op: the new entity is listed first as "new", its properties, numbers
-// and server rows are edited the same way, and Remove entity takes it out of the mod. Plan, Apply and Save mod are the
+// and server rows are edited the same way, and Remove entity takes it out of the mod. Add other adds an NPC spawn
+// point, an interact object or a trigger box as a plain <add> op, listed and edited the same way. Plan, Apply and Save mod are the
 // MS2 Tables view's. Each edited row has a mark in its first column that stays when the row is selected.
 //
 // The view holds no data logic: MS2.ModKit.MapEditor reads the files and makes the ops. The session, the worker
@@ -102,6 +103,17 @@ namespace MS2.Tables
             entityBar.Controls.Add(entitiesLabel);
             entityBar.Controls.Add(Btn("Add spawn point", "Adds a spawn point to the map file in the mod, with the next free SpawnPointID of the mod range; give it server rows as \"" + MapEditor.ServerRow + "\"", delegate { AddNew(false); }));
             entityBar.Controls.Add(Btn("Add portal", "Adds a portal to the map file in the mod, with the next free PortalID of the mod range, that leads to a portal of a map", delegate { AddNew(true); }));
+            var otherMenu = new ContextMenuStrip();
+            foreach (MapEditor.AddKind kind in MapEditor.AddKinds)
+            {
+                MapEditor.AddKind k = kind;
+                otherMenu.Items.Add("Add " + k.Label).Click += delegate { Guard(delegate { AddOther(k); }); };
+            }
+            Disposed += delegate { otherMenu.Dispose(); };
+            Button other = null;
+            other = Btn("Add other...", "Adds an NPC spawn point, an interact object or a trigger box to the map file in the mod (a plain <add>); other kinds are written in mod.xml by hand",
+                delegate { otherMenu.Show(other, new Point(0, other.Height)); });
+            entityBar.Controls.Add(other);
             MakeMarks();
             entityList.SmallImageList = marks;
             propList.SmallImageList = marks;
@@ -706,6 +718,114 @@ namespace MS2.Tables
                 if (IsDisposed || ed != editor || file != xblock) return;
                 Guard(delegate { ShowAddDialog(ed, mod, map, file, portal, models, number, near); });
             });
+        }
+
+        /// <summary>Add other: an NPC spawn point, interact object or trigger box; its models are read by a job, then the dialog.</summary>
+        void AddOther(MapEditor.AddKind kind)
+        {
+            if (xblock == null || entities == null) throw new ModKitException("choose a map file first");
+            Mod mod = Session().Mod;
+            if (mod == null) throw new ModKitException("no mod is being edited");
+            MapEditor ed = Editor();
+            string file = xblock;
+            long map = mapId;
+            string near = entity != null ? MapEditor.Position(entity) : newOp != null ? MapEditor.Position(newOp) : "";
+            List<string> models = null;
+            long number = -1;
+            host.RunOutside("reading the models of " + file, delegate
+            {
+                models = ed.ModelsOf(file, kind);
+                if (kind.Number != null) number = ed.NextNumber(mod, file, kind.Number);
+            }, delegate
+            {
+                if (IsDisposed || ed != editor || file != xblock) return;
+                Guard(delegate { ShowOtherDialog(ed, mod, map, file, kind, models, number, near); });
+            });
+        }
+
+        void ShowOtherDialog(MapEditor ed, Mod mod, long map, string file, MapEditor.AddKind kind, List<string> models, long number, string near)
+        {
+            string stem = kind == MapEditor.NpcSpawn ? "npc-" : kind == MapEditor.Interact ? "interact-" : "trigger-";
+            int k = 1;
+            while (MapEditor.FindNew(mod, file, stem + k) != null) k++;
+            using (var dlgTips = new ToolTip())
+            using (var dlg = new Form { Text = "Add " + kind.Label + " to " + file, FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false,
+                StartPosition = FormStartPosition.CenterParent, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false })
+            {
+                var grid = new TableLayoutPanel { ColumnCount = 2, AutoSize = true, Dock = DockStyle.Fill, Padding = new Padding(8) };
+                var nameBox = new TextBox { Width = 260, Text = stem + k };
+                var modelBox = new ComboBox { Width = 260 };
+                foreach (string m in models) modelBox.Items.Add(m);
+                if (models.Count > 0) modelBox.SelectedIndex = 0;
+                var posBox = new TextBox { Width = 260, Text = near };
+                var aBox = new TextBox { Width = 260 };
+                var bBox = new TextBox { Width = 260, Text = "1" };
+                Action<string, Control, string> row = delegate (string label, Control c, string tip)
+                {
+                    grid.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(3, 7, 8, 0) });
+                    grid.Controls.Add(c);
+                    dlgTips.SetToolTip(c, tip);
+                };
+                row("Name", nameBox, "The name of the op in the mod and of the new entity; its id comes from the mod id, the map file and this name");
+                row("Model", modelBox, models.Count > 0 ? "The " + kind.Label + " models (mixin " + kind.Mixin + ") the map file's entities use, most used first; when none does, the listing's models named like one (or type another of the model listing)"
+                    : "No " + kind.Label + " model found: type one of the model listing (it needs the mixin " + kind.Mixin + ")");
+                row("Position", posBox, "x, y, z (the chosen entity's position to start from); empty: the model's default");
+                if (kind == MapEditor.NpcSpawn)
+                {
+                    row("NPC id", aBox, "The id of the NPC that spawns there (a row of the NPC table): NpcList [NPC id]");
+                    row("Count", bBox, "How many of the NPC spawn there: the NpcList value and NpcCount");
+                }
+                else if (kind == MapEditor.Interact)
+                    row("interactID", aBox, "The id of the object's row in the interact object table (several entities may share it)");
+                else
+                {
+                    aBox.Text = "";
+                    row("Size", aBox, "ShapeDimensions x, y, z of the box; empty: the model's");
+                }
+                if (kind.Number != null)
+                {
+                    grid.Controls.Add(new Label { Text = kind.Number + " " + number.ToString(CultureInfo.InvariantCulture) + " (the next free one of the mod range; editable after)",
+                        AutoSize = true, Margin = new Padding(3, 8, 3, 3) });
+                    grid.SetColumnSpan(grid.Controls[grid.Controls.Count - 1], 2);
+                }
+                var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill };
+                var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+                var ok = new Button { Text = "Add", AutoSize = true, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+                buttons.Controls.Add(cancel);
+                buttons.Controls.Add(ok);
+                grid.Controls.Add(buttons);
+                grid.SetColumnSpan(buttons, 2);
+                dlg.Controls.Add(grid);
+                dlg.AcceptButton = ok;
+                dlg.CancelButton = cancel;
+                MapEntityOp made = null;
+                ok.Click += delegate
+                {
+                    try
+                    {
+                        string model = modelBox.Text.Trim();
+                        if (kind == MapEditor.NpcSpawn)
+                            made = ed.AddNpcSpawn(mod, map, file, nameBox.Text, model, posBox.Text, Whole("NPC id", aBox.Text), Whole("Count", bBox.Text));
+                        else if (kind == MapEditor.Interact)
+                            made = ed.AddInteract(mod, map, file, nameBox.Text, model, posBox.Text, Whole("interactID", aBox.Text));
+                        else
+                            made = ed.AddTriggerBox(mod, map, file, nameBox.Text, model, posBox.Text, aBox.Text.Trim());
+                        dlg.DialogResult = DialogResult.OK;
+                    }
+                    catch (ModKitException ex) { MessageBox.Show(dlg, ex.Message, dlg.Text, MessageBoxButtons.OK, MessageBoxIcon.Warning); }
+                };
+                if (dlg.ShowDialog(this) != DialogResult.OK || made == null) return;
+                entity = null;
+                newOp = made;
+                Edited("added " + kind.Label + " " + made.Name + (number >= 0 ? " (" + kind.Number + " " + number.ToString(CultureInfo.InvariantCulture) + ")" : "") + " to " + file);
+            }
+        }
+
+        static long Whole(string what, string s)
+        {
+            long v;
+            if (!long.TryParse((s ?? "").Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out v)) throw new ModKitException(what + " takes a whole number");
+            return v;
         }
 
         void ShowAddDialog(MapEditor ed, Mod mod, long map, string file, bool portal, List<string> models, long number, string near)
