@@ -34,6 +34,14 @@ namespace MS2.ModKit
         public string Path;
         /// <summary>SHA-1 of the content that was written, lower-case hex.</summary>
         public string Sha1;
+        /// <summary>
+        /// Banks only, in the record that is written before the banks are moved in: the SHA-1 of the bank the earlier
+        /// apply wrote, which is still in place when the move fails (the game holds the bank open) or is cut short.
+        /// </summary>
+        public string Prev;
+
+        /// <summary>True when the file holds what this record wrote (or, during a re-apply, what the one before wrote).</summary>
+        internal bool Holds(string sha1) { return sha1 == Sha1 || (!string.IsNullOrEmpty(Prev) && sha1 == Prev); }
     }
 
     public sealed class LooseState
@@ -116,7 +124,7 @@ namespace MS2.ModKit
                 if (e.Name == "mod") s.Mods.Add(new WorkspaceMod { Id = e.Attr("id"), Path = e.Attr("path") ?? "", Version = e.Attr("version") ?? "" });
                 else if (e.Name == "file") s.Files.Add(new LooseFile { Archive = e.Attr("archive"), Entry = e.Attr("entry"), Path = e.Attr("path"), Sha1 = e.Attr("sha1") ?? "" });
                 else if (e.Name == "dir") s.Dirs.Add(e.Attr("path"));
-                else if (e.Name == "bank") s.Banks.Add(new LooseFile { Archive = e.Attr("archive"), Path = e.Attr("path"), Sha1 = e.Attr("sha1") ?? "" });
+                else if (e.Name == "bank") s.Banks.Add(new LooseFile { Archive = e.Attr("archive"), Path = e.Attr("path"), Sha1 = e.Attr("sha1") ?? "", Prev = e.Attr("prev") });
             }
             return s;
         }
@@ -134,8 +142,11 @@ namespace MS2.ModKit
                 sb.Append("  <file path=\"").Append(XmlDoc.EscapeAttr(f.Path, '"')).Append("\" sha1=\"").Append(f.Sha1)
                   .Append("\" archive=\"").Append(XmlDoc.EscapeAttr(f.Archive, '"')).Append("\" entry=\"").Append(XmlDoc.EscapeAttr(f.Entry, '"')).Append("\"/>\n");
             foreach (LooseFile f in s.Banks)
-                sb.Append("  <bank path=\"").Append(XmlDoc.EscapeAttr(f.Path, '"')).Append("\" sha1=\"").Append(f.Sha1)
-                  .Append("\" archive=\"").Append(XmlDoc.EscapeAttr(f.Archive, '"')).Append("\"/>\n");
+            {
+                sb.Append("  <bank path=\"").Append(XmlDoc.EscapeAttr(f.Path, '"')).Append("\" sha1=\"").Append(f.Sha1);
+                if (!string.IsNullOrEmpty(f.Prev)) sb.Append("\" prev=\"").Append(f.Prev);
+                sb.Append("\" archive=\"").Append(XmlDoc.EscapeAttr(f.Archive, '"')).Append("\"/>\n");
+            }
             sb.Append("</modkit-loose>\n");
             string p = System.IO.Path.Combine(GameDir, StateFile);
             File.WriteAllBytes(p + ".tmp", new UTF8Encoding(false).GetBytes(sb.ToString()));
@@ -222,9 +233,15 @@ namespace MS2.ModKit
                 plan.Msg(plan.Conflicts, null, pb.Ref, entry, "the file " + orig + " exists and was not written by this tool; it is not overwritten (move it away or delete it, then apply again)");
                 return 1;
             }
-            if (rec != null && File.Exists(full) && File.Exists(orig) && SoundReplace.Sha1File(full) != rec.Sha1)
+            if (rec != null && File.Exists(full) && File.Exists(orig) && !rec.Holds(SoundReplace.Sha1File(full)))
             {
                 plan.Msg(plan.Conflicts, null, pb.Ref, entry, "the bank " + full + " was changed after this tool wrote it; it is not overwritten (put the shipped bank back, delete " + orig + " and apply again)");
+                return 1;
+            }
+            if (rec != null && !File.Exists(orig) && File.Exists(full) && rec.Holds(SoundReplace.Sha1File(full)))
+            {
+                // the shipped copy was deleted: the bank in place is this tool's own and must not be taken for the shipped one
+                plan.Msg(plan.Errors, null, pb.Ref, entry, "the shipped bank " + orig + " is gone and " + full + " is the one this tool wrote; put the shipped bank back as " + full + ", delete " + StateFile + " and apply again");
                 return 1;
             }
             string src = rec != null && File.Exists(orig) ? orig : full;
@@ -329,7 +346,15 @@ namespace MS2.ModKit
             foreach (KeyValuePair<LooseFile, byte[]> t in todo) NoteNewDirs(t.Key.Path, state.Dirs);
             var first = new LooseState { Applied = state.Applied };
             first.Mods.AddRange(state.Mods); first.Dirs.AddRange(state.Dirs); first.Files.AddRange(state.Files); first.Files.AddRange(stale);
-            first.Banks.AddRange(state.Banks); first.Banks.AddRange(staleBanks);
+            foreach (LooseFile f in state.Banks)
+            {
+                LooseFile was = old == null ? null : old.FindBank(f.Path);
+                string prev = was == null ? null : was.Sha1;
+                // an earlier re-apply that was cut short: the bank in place is one of the two that record names
+                if (was != null && !string.IsNullOrEmpty(was.Prev) && File.Exists(FullPath(f.Path))) prev = SoundReplace.Sha1File(FullPath(f.Path));
+                first.Banks.Add(new LooseFile { Archive = f.Archive, Path = f.Path, Sha1 = f.Sha1, Prev = prev });
+            }
+            first.Banks.AddRange(staleBanks);
             WriteState(first);
 
             int n = 0;
@@ -344,8 +369,10 @@ namespace MS2.ModKit
                 if (Sha1Of(File.ReadAllBytes(full)) != t.Key.Sha1) throw new ModKitException("read-back of " + full + ": the file does not hold the planned bytes");
                 res.Written.Add(full);
             }
+            n = 0;
             foreach (KeyValuePair<LooseFile, PlanBank> t in banks)
             {
+                ProgressUtil.Report(options.Progress, "move bank", t.Key.Path, ++n, banks.Count);
                 string full = FullPath(t.Key.Path), orig = full + SoundReplace.OrigSuffix;
                 // the shipped bank goes aside once; after that the bank in place is ours
                 if (!File.Exists(orig)) File.Move(full, orig);
@@ -388,10 +415,15 @@ namespace MS2.ModKit
         bool RestoreBank(LooseFile f, ApplyResult res)
         {
             string full = FullPath(f.Path), orig = full + SoundReplace.OrigSuffix;
-            if (!File.Exists(orig)) return true;
+            if (!File.Exists(orig))
+            {
+                // the shipped copy is gone: a bank of this tool in place stays named, it cannot be put back from here
+                if (File.Exists(full) && f.Holds(SoundReplace.Sha1File(full))) { res.Left.Add(full); return false; }
+                return true;
+            }
             if (File.Exists(full))
             {
-                if (SoundReplace.Sha1File(full) != f.Sha1) { res.Left.Add(full); return false; }
+                if (!f.Holds(SoundReplace.Sha1File(full))) { res.Left.Add(full); return false; }
                 File.Delete(full);
             }
             File.Move(orig, full);

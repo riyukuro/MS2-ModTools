@@ -121,9 +121,11 @@ namespace MS2.ModKit
         public int Channels;        // 1 or 2
         public long Frames;         // samples per channel
         public int MpegFrames;
+        /// <summary>The encoder's delay and padding (samples per channel) from a LAME tag; in Frames, not in Seconds.</summary>
+        public int EncoderGap;
         /// <summary>The frames only: no tags, no Xing/Info frame.</summary>
         public byte[] Data;
-        public double Seconds { get { return Rate > 0 ? (double)Frames / Rate : 0; } }
+        public double Seconds { get { return Rate > 0 ? (double)Math.Max(0, Frames - EncoderGap) / Rate : 0; } }
 
         public string Describe()
         {
@@ -152,6 +154,17 @@ namespace MS2.ModKit
             }
             // ID3v1 and APE tags at the end
             if (end - at >= 128 && b[end - 128] == 'T' && b[end - 127] == 'A' && b[end - 126] == 'G') end -= 128;
+            // Lyrics3 (before ID3v1): v2 ends in a 6-digit size and "LYRICS200", v1 runs from "LYRICSBEGIN" to "LYRICSEND"
+            if (end - at >= 15 && Encoding.ASCII.GetString(b, end - 9, 9) == "LYRICS200")
+            {
+                int size;
+                if (int.TryParse(Encoding.ASCII.GetString(b, end - 15, 6), NumberStyles.None, CultureInfo.InvariantCulture, out size) && size + 15 <= end - at) end -= size + 15;
+            }
+            else if (end - at >= 20 && Encoding.ASCII.GetString(b, end - 9, 9) == "LYRICSEND")
+            {
+                for (int i = end - 20; i >= Math.Max(at, end - 5100 - 20); i--)
+                    if (b[i] == 'L' && Encoding.ASCII.GetString(b, i, 11) == "LYRICSBEGIN") { end = i; break; }
+            }
             if (end - at >= 32 && Encoding.ASCII.GetString(b, end - 32, 8) == "APETAGEX")
             {
                 int size = (int)BitConverter.ToUInt32(b, end - 20);
@@ -162,6 +175,8 @@ namespace MS2.ModKit
             bool first = true;
             while (at < end)
             {
+                // after the last frame: a few bytes or zeros that some editors leave there
+                if (!first && (end - at < 4 || Zeros(b, at, end))) break;
                 if (end - at < 4 || b[at] != 0xFF || (b[at + 1] & 0xE0) != 0xE0)
                     throw new ModKitException(label + ": no MPEG audio frame at byte " + at.ToString(CultureInfo.InvariantCulture) + (first ? " (this is not an .mp2 or .mp3 file)" : ""));
                 int v = (b[at + 1] >> 3) & 3, layer = 4 - ((b[at + 1] >> 1) & 3), bi = b[at + 2] >> 4, ri = (b[at + 2] >> 2) & 3, pad = (b[at + 2] >> 1) & 1;
@@ -185,7 +200,8 @@ namespace MS2.ModKit
                 {
                     a.Version = version; a.Layer = layer; a.Rate = rate; a.Channels = ch;
                     first = false;
-                    if (layer == 3 && IsInfoFrame(b, at, version, ch, len)) { at += len; continue; }
+                    int gap;
+                    if (layer == 3 && IsInfoFrame(b, at, version, ch, len, out gap)) { a.EncoderGap = gap; at += len; continue; }
                 }
                 else if (version != a.Version || layer != a.Layer || rate != a.Rate || ch != a.Channels)
                     throw new ModKitException(label + ": the MPEG frame at byte " + at.ToString(CultureInfo.InvariantCulture) + " is of another kind than the first one (version, layer, rate or channels)");
@@ -200,16 +216,39 @@ namespace MS2.ModKit
         }
 
         // the Xing, Info or VBRI frame an encoder puts first (it holds no sound)
-        static bool IsInfoFrame(byte[] b, int at, int version, int ch, int len)
+        // a Xing/Info or VBRI frame (no sound); gap: the delay and padding of a LAME tag in it, else 0
+        static bool IsInfoFrame(byte[] b, int at, int version, int ch, int len, out int gap)
         {
+            gap = 0;
             int side = version == 1 ? (ch == 1 ? 17 : 32) : (ch == 1 ? 9 : 17);
-            int x = at + 4 + ((b[at + 1] & 1) == 0 ? 2 : 0) + side;
-            if (x + 4 <= at + len)
+            int x = at + 4 + ((b[at + 1] & 1) == 0 ? 2 : 0) + side, stop = at + len;
+            if (x + 8 <= stop)
             {
                 string t = Encoding.ASCII.GetString(b, x, 4);
-                if (t == "Xing" || t == "Info") return true;
+                if (t == "Xing" || t == "Info")
+                {
+                    int flags = b[x + 7], p = x + 8;
+                    if ((flags & 1) != 0) p += 4;      // frames
+                    if ((flags & 2) != 0) p += 4;      // bytes
+                    if ((flags & 4) != 0) p += 100;    // table of contents
+                    if ((flags & 8) != 0) p += 4;      // quality
+                    // the LAME tag (also written by ffmpeg as "Lavc"/"Lavf"): 12 bits delay, 12 bits padding at +21
+                    if (p + 24 <= stop)
+                    {
+                        string e = Encoding.ASCII.GetString(b, p, 4);
+                        if (e == "LAME" || e == "Lavc" || e == "Lavf" || e == "L3.9")
+                            gap = (b[p + 21] << 4 | b[p + 22] >> 4) + ((b[p + 22] & 15) << 8 | b[p + 23]);
+                    }
+                    return true;
+                }
             }
-            return at + 36 + 4 <= at + len && Encoding.ASCII.GetString(b, at + 36, 4) == "VBRI";
+            return at + 36 + 4 <= stop && Encoding.ASCII.GetString(b, at + 36, 4) == "VBRI";
+        }
+
+        static bool Zeros(byte[] b, int from, int to)
+        {
+            for (int i = from; i < to; i++) if (b[i] != 0) return false;
+            return true;
         }
     }
 
@@ -249,11 +288,35 @@ namespace MS2.ModKit
                 && name != ".fsb" && !name.StartsWith(".", StringComparison.Ordinal);
         }
 
-        /// <summary>The shipped bank of a folder: its .modkit-orig when a loose apply has put a new bank in its place.</summary>
+        /// <summary>
+        /// The shipped bank of a folder: its .modkit-orig when a loose apply of this tool has put a new bank in its
+        /// place. A .modkit-orig that no loose-file record names, or one that is not the bank in place before the
+        /// samples (a game patch has put a new bank there since), is not taken: ModKitException.
+        /// </summary>
         public static string ShippedPath(string folder, string bank)
         {
-            string p = Path.Combine(folder, bank);
-            return File.Exists(p + OrigSuffix) ? p + OrigSuffix : p;
+            string p = Path.Combine(folder, bank), orig = p + OrigSuffix;
+            if (!File.Exists(orig)) return p;
+            string full = Path.GetFullPath(p);
+            LooseFile rec = null;
+            for (string d = Path.GetDirectoryName(full); d != null && rec == null; d = Path.GetDirectoryName(d))
+            {
+                if (!File.Exists(Path.Combine(d, LooseTarget.StateFile))) continue;
+                if (!Directory.Exists(Path.Combine(d, "Data"))) break;
+                LooseState st = new LooseTarget(d).ReadState();
+                string rel = full.Substring(d.TrimEnd(Path.DirectorySeparatorChar).Length + 1).Replace(Path.DirectorySeparatorChar, '/');
+                if (st != null) rec = st.FindBank(rel);
+                break;
+            }
+            if (rec == null)
+                throw new ModKitException(orig + " is there, but no record of this tool's loose files names " + bank + "; it is not taken for the shipped bank (move it away, or put it back in place of " + bank + ")");
+            if (File.Exists(p))
+            {
+                SoundBank now = SoundBank.Read(p), was = SoundBank.Read(orig);
+                if (SoundBank.Hex(now.Hash) != SoundBank.Hex(was.Hash) || now.Samples.Count != was.Samples.Count)
+                    throw new ModKitException(p + " is not the bank its " + OrigSuffix + " was put aside for (a game patch may have put a new bank there); revert the loose files, or move " + orig + " away");
+            }
+            return orig;
         }
 
         /// <summary>The bank's file name for an index of the rate table, -1 for a rate the FSB5 header cannot hold.</summary>
@@ -505,6 +568,7 @@ namespace MS2.ModKit
                     MpegAudio a;
                     try { a = MpegAudio.Parse(SampleBytes(m, op), op.File); }
                     catch (ModKitException x) { plan.Msg(plan.Errors, m, null, null, where + ": " + x.Message); continue; }
+                    catch (Exception x) when (x is IOException || x is UnauthorizedAccessException) { plan.Msg(plan.Errors, m, null, null, where + ": " + op.File + ": " + x.Message); continue; }
                     if (SoundReplace.RateIndex(a.Rate) < 0) { plan.Msg(plan.Errors, m, null, null, where + ": " + op.File + " is " + a.Rate + " Hz, a rate a bank cannot hold (use 44100 or 48000 Hz)"); continue; }
                     KeyValuePair<Mod, SampleOp> w;
                     if (winners.TryGetValue(key, out w))
@@ -536,11 +600,15 @@ namespace MS2.ModKit
             SoundBank b;
             if (banks.TryGetValue(name, out b)) return b;
             if (bad.ContainsKey(name)) return null;
-            string p = SoundReplace.ShippedPath(folder, name);
-            if (!File.Exists(p)) { bad[name] = "no bank " + name + " in " + folder; return null; }
-            try { b = SoundBank.Read(p); }
+            string p = Path.Combine(folder, name);
+            try
+            {
+                p = SoundReplace.ShippedPath(folder, name);
+                if (!File.Exists(p)) { bad[name] = "no bank " + name + " in " + folder; return null; }
+                b = SoundBank.Read(p);
+            }
             catch (ModKitException x) { bad[name] = x.Message; return null; }
-            catch (IOException x) { bad[name] = p + ": " + x.Message; return null; }
+            catch (Exception x) when (x is IOException || x is UnauthorizedAccessException) { bad[name] = p + ": " + x.Message; return null; }
             // the name of the file the bank stands for, also when it was read from its .modkit-orig
             b.Name = name;
             if (b.Mode != 11) { bad[name] = name + " holds " + SoundBank.Codec(b.Mode) + ", not MPEG; only MPEG banks can take a new sample"; return null; }

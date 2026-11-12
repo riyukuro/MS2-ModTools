@@ -38,6 +38,16 @@ namespace MS2.ModKit.Tests
             return f;
         }
 
+        /// <summary>A Xing frame with a LAME tag: the encoder's delay and padding (samples) in 12 bits each.</summary>
+        public static byte[] Lame(int delay, int padding)
+        {
+            byte[] f = Xing();
+            int p = 4 + 32 + 8;     // after "Xing" and its flags (none set)
+            Encoding.ASCII.GetBytes("LAME3.100").CopyTo(f, p);
+            f[p + 21] = (byte)(delay >> 4); f[p + 22] = (byte)((delay & 15) << 4 | padding >> 8); f[p + 23] = (byte)padding;
+            return f;
+        }
+
         public static byte[] Join(params byte[][] parts) { return parts.SelectMany(p => p).ToArray(); }
 
         public static byte[] Frames(int n, bool mono = false, byte fill = 0x55)
@@ -200,6 +210,28 @@ namespace MS2.ModKit.Tests
             Assert.That(v2.Rate, Is.EqualTo(22050));
             Assert.That(v2.Frames, Is.EqualTo(2 * 576), "MPEG-2 layer III has 576 samples a frame");
             Assert.That(v2.Data.Length, Is.EqualTo(2 * 208));
+        }
+
+        [Test]
+        public void Mpeg_TakesTheTailsEditorsLeave_AndTheEncoderGap()
+        {
+            byte[] frames = FakeMpeg.Frames(3);
+            Func<byte[], byte[]> data = tail => MpegAudio.Parse(FakeMpeg.Join(frames, tail), "x.mp3").Data;
+            Assert.That(data(new byte[] { 1 }), Is.EqualTo(frames), "1 to 3 bytes after the last frame");
+            Assert.That(data(new byte[] { 1, 2, 3 }), Is.EqualTo(frames));
+            Assert.That(data(new byte[700]), Is.EqualTo(frames), "zero padding");
+            byte[] v2 = FakeMpeg.Join(Encoding.ASCII.GetBytes("LYRICSBEGININD00002"), Encoding.ASCII.GetBytes("000019LYRICS200"));
+            Assert.That(data(v2), Is.EqualTo(frames), "a Lyrics3 v2 tag");
+            Assert.That(data(FakeMpeg.Join(v2, FakeMpeg.Id3v1())), Is.EqualTo(frames), "Lyrics3 v2 before ID3v1");
+            Assert.That(data(FakeMpeg.Join(Encoding.ASCII.GetBytes("LYRICSBEGINsome words\nLYRICSEND"), FakeMpeg.Id3v1())), Is.EqualTo(frames), "a Lyrics3 v1 tag");
+            Assert.That(() => MpegAudio.Parse(FakeMpeg.Join(frames, new byte[] { 0, 0, 7, 0, 0 }), "x.mp3"), Throws.TypeOf<ModKitException>().With.Message.Contains("no MPEG audio frame at byte"), "bytes that are not all zero are no padding");
+
+            MpegAudio a = MpegAudio.Parse(FakeMpeg.Join(FakeMpeg.Lame(576, 1000), FakeMpeg.Frames(10)), "x.mp3");
+            Assert.That(a.MpegFrames, Is.EqualTo(10), "the LAME tag frame is no audio");
+            Assert.That(a.Frames, Is.EqualTo(10 * 1152), "the frames the bank gets");
+            Assert.That(a.EncoderGap, Is.EqualTo(1576));
+            Assert.That(a.Seconds, Is.EqualTo((10 * 1152 - 1576) / 44100.0).Within(1e-9), "the length leaves out the encoder's delay and padding");
+            Assert.That(MpegAudio.Parse(FakeMpeg.Join(FakeMpeg.Xing(), frames), "x.mp3").EncoderGap, Is.EqualTo(0), "a Xing frame without a LAME tag");
         }
 
         [Test]
@@ -369,6 +401,57 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        [Test]
+        public void Plan_SaysASampleFileThatCannotBeRead()
+        {
+            using (var w = new World())
+            {
+                Mod m = w.Mod("a", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 77));
+                string f = Path.Combine(m.Dir, "files", "a.mp3");
+                Plan p;
+                using (new FileStream(f, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+                {
+                    try { File.ReadAllBytes(f); Assert.Ignore("this file system does not lock files"); }
+                    catch (IOException) { }
+                    p = w.F.Plan(m);
+                }
+                Assert.That(p.Errors.Single().Text, Does.Contain("a.mp3"), EditorSession.Report(p));
+                Assert.That(p.Banks.Sum(b => b.Samples.Count), Is.EqualTo(0));
+                Assert.That(w.F.Plan(m).Errors, Is.Empty, "the same file once it is free");
+            }
+        }
+
+        [Test]
+        public void Plan_TakesOnlyAShippedCopyThisToolPutAside()
+        {
+            using (var w = new World())
+            {
+                Mod m = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                string bank = Path.Combine(w.Sound, "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
+
+                // a .modkit-orig without any record of this tool: not taken for the shipped bank
+                File.WriteAllBytes(orig, w.BankBytes);
+                Plan p = w.F.Plan(m);
+                Assert.That(p.Errors.Single().Text, Does.Contain("no record of this tool's loose files names MS2Sound_Fake.fsb"));
+                Assert.That(p.Banks, Is.Empty);
+
+                // a record that names it: the shipped copy is the source
+                string game = Path.GetDirectoryName(w.F.ClientDir);
+                Directory.CreateDirectory(Path.Combine(game, "Data"));
+                File.WriteAllText(Path.Combine(game, LooseTarget.StateFile), "<modkit-loose applied=\"x\">\n  <bank path=\"client/Sound/MS2Sound_Fake.fsb\" sha1=\"00\" archive=\"client:Sound/MS2Sound_Fake.fsb\"/>\n</modkit-loose>\n");
+                p = w.F.Plan(m);
+                Assert.That(p.Errors, Is.Empty, EditorSession.Report(p));
+                Assert.That(p.Banks.Single().Source, Is.EqualTo(orig));
+
+                // a bank in place of another version (a game patch): the old copy is not built from
+                byte[] other = (byte[])w.BankBytes.Clone();
+                other[0x24] ^= 0xff;
+                File.WriteAllBytes(bank, other);
+                p = w.F.Plan(m);
+                Assert.That(p.Errors.Single().Text, Does.Contain("not the bank its .modkit-orig was put aside for"));
+            }
+        }
+
         // ---- the workspace ----
 
         [Test]
@@ -490,6 +573,73 @@ namespace MS2.ModKit.Tests
                 Assert.That(rv.Left, Is.EqualTo(new[] { bank }));
                 Assert.That(File.Exists(orig), Is.True);
                 Assert.That(lt.ReadState().Banks.Single().Path, Is.EqualTo("Data/Sound/MS2Sound_Fake.fsb"), "the shipped bank beside it is not forgotten");
+            }
+        }
+
+        static ApplyOptions FailAt(string stage)
+        {
+            return new ApplyOptions { Progress = i => { if (i.Stage == stage) throw new IOException("the game holds the bank open"); } };
+        }
+
+        [Test]
+        public void Loose_AReApplyCutShort_LeavesTheBankItsOwn()
+        {
+            using (var w = new World())
+            {
+                string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
+                var lt = new LooseTarget(g);
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod b = w.Mod("b", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 77));
+                Mod c = w.Mod("c", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 60));
+                Assert.That(lt.Apply(w.F.Data, new[] { a }, null).Applied, Is.True);
+                byte[] aBank = File.ReadAllBytes(bank);
+
+                // the bank cannot be moved in (the game holds it open): a's bank stays, the record knows both
+                Assert.That(() => lt.Apply(w.F.Data, new[] { b }, FailAt("move bank")), Throws.TypeOf<IOException>());
+                Assert.That(File.ReadAllBytes(bank), Is.EqualTo(aBank));
+                LooseFile rec = lt.ReadState().Banks.Single();
+                Assert.That(rec.Prev, Is.EqualTo(SoundReplace.Sha1File(bank)));
+
+                // twice in a row: the bank in place is still known
+                Assert.That(() => lt.Apply(w.F.Data, new[] { c }, FailAt("move bank")), Throws.TypeOf<IOException>());
+                Assert.That(lt.ReadState().Banks.Single().Prev, Is.EqualTo(SoundReplace.Sha1File(bank)));
+
+                ApplyResult r = lt.Apply(w.F.Data, new[] { b }, null);
+                Assert.That(r.Applied, Is.True, EditorSession.Report(r));
+                Assert.That(SoundBank.Read(bank).Samples[0].Frames, Is.EqualTo(77 * 1152));
+                Assert.That(lt.ReadState().Banks.Single().Prev, Is.Null.Or.Empty, "the record once the move went through");
+                Assert.That(File.ReadAllBytes(orig), Is.EqualTo(w.BankBytes));
+
+                // cut short, then reverted: the shipped bank goes back
+                Assert.That(() => lt.Apply(w.F.Data, new[] { a }, FailAt("move bank")), Throws.TypeOf<IOException>());
+                ApplyResult rv = lt.Revert();
+                Assert.That(rv.Left, Is.Empty);
+                Assert.That(File.ReadAllBytes(bank), Is.EqualTo(w.BankBytes));
+                Assert.That(File.Exists(orig), Is.False);
+            }
+        }
+
+        [Test]
+        public void Loose_ADeletedShippedCopy_IsNotReplacedByTheToolsOwnBank()
+        {
+            using (var w = new World())
+            {
+                string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
+                var lt = new LooseTarget(g);
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Assert.That(lt.Apply(w.F.Data, new[] { a }, null).Applied, Is.True);
+                byte[] mine = File.ReadAllBytes(bank);
+                File.Delete(orig);
+
+                ApplyResult r = lt.Apply(w.F.Data, new[] { a }, null);
+                Assert.That(r.Applied, Is.False);
+                Assert.That(r.Plan.Errors.Single().Text, Does.Contain("is gone").And.Contain("is the one this tool wrote"));
+                Assert.That(File.Exists(orig), Is.False, "the tool's own bank is not put aside as the shipped one");
+                Assert.That(File.ReadAllBytes(bank), Is.EqualTo(mine));
+
+                ApplyResult rv = lt.Revert();
+                Assert.That(rv.Left, Is.EqualTo(new[] { bank }));
+                Assert.That(File.ReadAllBytes(bank), Is.EqualTo(mine));
             }
         }
 
