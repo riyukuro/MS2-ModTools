@@ -987,6 +987,8 @@ namespace MS2.Tables
             return Guard(delegate { FlushEdits(); Session(); })
                 && RunJob("Apply", delegate(Action<ProgressInfo> progress) { r = session.Apply(progress); }, delegate
                 {
+                    // the session saved the mod before it wrote anything (a failed save stops the apply)
+                    MarkSaved();
                     FillMods();
                     ShowMod();
                     Say(session.Describe(r));

@@ -291,6 +291,41 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // Apply saves the mod being edited before it writes, into the folder it was loaded from also when that
+        // folder's name is not the mod's id; when the save fails nothing is written
+        [Test]
+        public void SessionApply_SavesTheModFirstIntoItsOwnFolder()
+        {
+            using (var f = new Fake())
+            {
+                string mods = Path.Combine(f.Dir, "mods"), ws = Path.Combine(f.Dir, "ws");
+                Directory.Move(f.ModDir("a.one", Hp("11")), Path.Combine(mods, "folder.a"));
+                string xml = Path.Combine(Path.Combine(mods, "folder.a"), "mod.xml");
+                using (var s = new EditorSession(f.ClientDir, f.ServerDir, mods, ws))
+                {
+                    s.LoadMod("folder.a");
+                    Mod edited = Mod.Parse("<mod id=\"a.one\" name=\"test\" version=\"1\">" + Hp("33") + "</mod>", "edit");
+                    edited.Dir = s.Mod.Dir;
+                    s.Adopt(edited);
+                    Assert.That(s.SavedHere(), Is.True, "a folder under the mods folder is the mod's own");
+                    ApplyResult r = s.Apply(null);
+                    Assert.That(r.Applied, Is.True, s.Describe(r));
+                    Assert.That(Written(ws), Does.Contain("hp=\"33\""));
+                    Assert.That(File.ReadAllText(xml), Does.Contain("value=\"33\""), "Apply saved the mod where it was loaded");
+                    Assert.That(Directory.Exists(Path.Combine(mods, "a.one")), Is.False, "no second folder under the id");
+
+                    // a save that fails stops the apply: the workspace keeps the earlier write
+                    Mod other = Mod.Parse("<mod id=\"b.new\" name=\"test\" version=\"1\">" + Hp("44") + "</mod>", "new");
+                    s.Adopt(other);
+                    f.ModDir("b.new", Hp("55"));
+                    var x = Assert.Throws<ModKitException>(() => s.Apply(null));
+                    Assert.That(x.Message, Does.EndWith("already holds a mod; give this one another id"));
+                    Assert.That(Written(ws), Does.Contain("hp=\"33\""));
+                    Assert.That(File.ReadAllText(xml), Does.Contain("value=\"33\""));
+                }
+            }
+        }
+
         // the pet table as the apply left it in the workspace
         static string Written(string ws)
         {

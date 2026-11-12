@@ -91,13 +91,14 @@ namespace MS2.ModKit
             return SaveMod();
         }
 
-        /// <summary>Saves the mod to &lt;mods folder&gt;/&lt;id&gt;/mod.xml and returns the folder.</summary>
+        /// <summary>Saves the mod to the folder under the mods folder it was loaded from (else &lt;mods
+        /// folder&gt;/&lt;id&gt;) as mod.xml and returns the folder.</summary>
         public string SaveMod()
         {
             if (ModsDir == null) throw new ModKitException("the mods folder is not set");
             // a mod emptied after it was saved (everything taken out of it) is saved empty over its own folder
             if (Mod.IsEmpty && !SavedHere()) throw new ModKitException("mod " + Mod.Id + " holds no change yet; there is nothing to save");
-            string dir = ModFolder.DirOf(ModsDir, Mod.Id);
+            string dir = SaveDir();
             if ((Mod.Dir == null || !SamePath(Mod.Dir, dir)) && File.Exists(Path.Combine(dir, "mod.xml")))
                 throw new ModKitException(dir + " already holds a mod; give this one another id");
             // an empty mod as it was loaded is not written: the save would take away the files under its files/
@@ -118,7 +119,20 @@ namespace MS2.ModKit
         /// <summary>The mod being edited was loaded from, or saved to, its folder under the mods folder.</summary>
         public bool SavedHere()
         {
-            return ModsDir != null && Mod.Dir != null && SamePath(Mod.Dir, ModFolder.DirOf(ModsDir, Mod.Id));
+            return ModsDir != null && Mod.Dir != null && SamePath(Mod.Dir, SaveDir());
+        }
+
+        // where Save writes: the folder the mod was loaded from or saved to, when it sits right under the mods folder
+        // and its mod.xml has this id (the folder's name may differ from the id: a save there keeps the folder, so
+        // Apply and the mod list read the same mod.xml); else <mods folder>/<id> (a new mod, or one given a new id)
+        string SaveDir()
+        {
+            string byId = ModFolder.DirOf(ModsDir, Mod.Id);
+            if (Mod.Dir == null || SamePath(Mod.Dir, byId)) return byId;
+            string parent = Path.GetDirectoryName(Path.GetFullPath(Mod.Dir).TrimEnd('/', '\\'));
+            if (parent == null || !SamePath(parent, ModsDir) || !File.Exists(Path.Combine(Mod.Dir, "mod.xml"))) return byId;
+            try { return Mod.LoadHead(Mod.Dir).Id == Mod.Id ? Mod.Dir : byId; }
+            catch (ModKitException) { return byId; }
         }
 
         static bool SamePath(string a, string b)
