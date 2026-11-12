@@ -19,6 +19,7 @@ namespace MS2.ModKit.Tests
             public string Name;
             public int RateIndex = 8, Frames;
             public bool Stereo, Loop;
+            public int Channels;    // 6 or 8: the channel code 2 or 3 (else Stereo picks 1 or 0)
             public int Bytes;
             public int? Rate;   // an extra frequency chunk
         }
@@ -30,7 +31,9 @@ namespace MS2.ModKit.Tests
             foreach (S s in samples)
             {
                 bool extra = s.Loop || s.Rate != null;
-                ulong v = (extra ? 1UL : 0) | ((ulong)s.RateIndex << 1) | ((s.Stereo ? 1UL : 0) << 5) | ((ulong)(off / 16) << 6) | ((ulong)s.Frames << 34);
+                // FSB5: bit 0 more chunks, 1-4 the rate, 5-6 the channels (1, 2, 6, 8), 7-33 the offset / 32, 34-63 the frames
+                ulong code = s.Channels == 8 ? 3UL : s.Channels == 6 ? 2UL : s.Stereo ? 1UL : 0;
+                ulong v = (extra ? 1UL : 0) | ((ulong)s.RateIndex << 1) | (code << 5) | ((ulong)(off / 32) << 7) | ((ulong)s.Frames << 34);
                 sh.Write(BitConverter.GetBytes(v), 0, 8);
                 if (s.Rate != null)
                 {
@@ -44,7 +47,7 @@ namespace MS2.ModKit.Tests
                     sh.Write(BitConverter.GetBytes(c), 0, 4);
                     sh.Write(new byte[8], 0, 8);
                 }
-                off += (s.Bytes + 15) / 16 * 16;
+                off += (s.Bytes + 31) / 32 * 32;
             }
             var nt = new MemoryStream();
             var names = new MemoryStream();
@@ -124,12 +127,26 @@ namespace MS2.ModKit.Tests
             Assert.That(t.Channels, Is.EqualTo(2));
             Assert.That(t.Loops, Is.True);
             Assert.That(t.Seconds, Is.EqualTo(3.0).Within(1e-9));
-            Assert.That(t.Size, Is.EqualTo(1008), "to the next sample's offset");
+            Assert.That(t.Size, Is.EqualTo(1024), "to the next sample's offset");
             Assert.That(bank.Samples[1].Rate, Is.EqualTo(22050));
             Assert.That(bank.Samples[1].Channels, Is.EqualTo(1));
-            Assert.That(bank.Samples[1].Offset, Is.EqualTo(1008));
+            Assert.That(bank.Samples[1].Offset, Is.EqualTo(1024));
             Assert.That(bank.Samples[2].Rate, Is.EqualTo(9000), "the frequency chunk wins");
             Assert.That(bank.Samples[2].Size, Is.EqualTo(32), "to the end of the data");
+        }
+
+        [Test]
+        public void ReadsTheTwoChannelBits_AndTheOffsetIn32ByteUnits()
+        {
+            // a sample at a large offset after a 6- and an 8-channel one, none with a channels chunk
+            byte[] b = FakeSound.Bank(
+                new FakeSound.S { Name = "Six", Frames = 10, Channels = 6, Bytes = 70000 },
+                new FakeSound.S { Name = "Eight", Frames = 10, Channels = 8, Bytes = 40 },
+                new FakeSound.S { Name = "Two", Frames = 10, Stereo = true, Bytes = 32 });
+            SoundBank bank = SoundBank.Read(new MemoryStream(b), "x");
+            Assert.That(bank.Samples.Select(x => x.Channels), Is.EqualTo(new[] { 6, 8, 2 }));
+            Assert.That(bank.Samples.Select(x => x.Offset), Is.EqualTo(new[] { 0L, 70016L, 70080L }));
+            Assert.That(bank.Samples.Select(x => x.Size), Is.EqualTo(new[] { 70016L, 64L, 32L }));
         }
 
         [Test]
@@ -174,11 +191,26 @@ namespace MS2.ModKit.Tests
                 "<fieldData id=\"9100003\"><environment><bgm id=\"9\" /></environment></fieldData>\n</ms2>";
             List<CueUse> l = SoundData.FromFieldData(fd, "client:Xml.m2d");
             Assert.That(l.Select(u => u.Map + ":" + u.Cue + (u.Boss ? "b" : "") + ":" + u.Param + "=" + u.Value),
-                Is.EqualTo(new[] { "9100001:12:3=1", "9100001:40b:5=0", "9100003:9:=" }), "a cue twice on one map counts once; 0 is none");
+                Is.EqualTo(new[] { "9100001:12:3=1", "9100001:40b:5=0", "9100001:12:=", "9100003:9:=" }), "one use per environment (the feature's is its own); 0 is none");
             List<CueUse> m = SoundData.FromMapFile("<ms2><environment><bgm id=\"9\" param=\"0\" value=\"0\" boss=\"0\" /></environment></ms2>", 9100004, "server:Xml.m2d");
             Assert.That(m.Single().Cue, Is.EqualTo(9));
             Assert.That(m.Single().Side, Is.EqualTo("server:Xml.m2d"));
             Assert.That(SoundData.ShortName("MS2Sound_Voice_Kor_def.fsb"), Is.EqualTo("Voice_Kor_def"));
+        }
+
+        [Test]
+        public void EachUseSaysItsEnvironment()
+        {
+            // a global map file with a cue per locale, a feature's environment, and a plain one
+            string map = "<ms2><environment feature=\"\" locale=\"NA\"><bgm id=\"47\" /></environment>" +
+                "<environment feature=\"\" locale=\"KR\"><xblock name=\"x\" /><bgm id=\"48\" /></environment>" +
+                "<environment feature=\"FakeOn\" locale=\"\"><bgm id=\"47\" /></environment>" +
+                "<environment><bgm id=\"47\" /></environment></ms2>";
+            List<CueUse> m = SoundData.FromMapFile(map, 9100005, "gms-client:Xml.m2d");
+            Assert.That(m.Select(u => u.Cue + " " + u.Env), Is.EqualTo(new[] { "47 locale=NA", "48 locale=KR", "47 feature=FakeOn", "47 " }));
+            string fd = "<ms2><fieldData id=\"9100006\"><environment><bgm id=\"12\" /></environment><environment feature=\"FakeOn\"><bgm id=\"12\" /></environment></fieldData></ms2>";
+            Assert.That(SoundData.FromFieldData(fd, "client:Xml.m2d").Select(u => u.Cue + " " + u.Env), Is.EqualTo(new[] { "12 ", "12 feature=FakeOn" }));
+            Assert.That(SoundData.EnvLabel("FakeOn", "NA"), Is.EqualTo("feature=FakeOn locale=NA"));
         }
 
         [Test]
@@ -209,6 +241,15 @@ namespace MS2.ModKit.Tests
                     mod.Ops.Add(new EntryOp { Archive = EntityEditor.ClientXml, Name = FieldRows.Entry, File = "fd.xml" });
                     l = SoundData.MapUses(data, mod);
                     Assert.That(l.First().Cue, Is.EqualTo(9), "the mod's whole file");
+
+                    // a map file the mod adds, and a whole file of an archive the mod spells in another case
+                    mod.Files["new.xml"] = Encoding.UTF8.GetBytes("<ms2><environment><bgm id=\"33\" /></environment></ms2>");
+                    mod.Files["old.xml"] = Encoding.UTF8.GetBytes("<ms2><environment><bgm id=\"34\" /></environment></ms2>");
+                    mod.Ops.Add(new EntryOp { Archive = "server:Xml.m2d", Name = "map/09100002.xml", File = "new.xml" });
+                    mod.Ops.Add(new EntryOp { Archive = "SERVER:xml.M2D", Name = "map/09100001.xml", File = "old.xml" });
+                    l = SoundData.MapUses(data, mod);
+                    Assert.That(l.Where(u => u.Side == EntityEditor.ServerXml).Select(u => u.Map + ":" + u.Cue),
+                        Is.EqualTo(new[] { "9100001:34", "9100002:33" }));
                 }
             }
             finally { if (Directory.Exists(dir)) Directory.Delete(dir, true); }

@@ -1824,10 +1824,14 @@ kms client data folder of the MS2 Tables view's settings.
   - plays: `normal` for the `id` attribute, `boss` for `boss` (played in a boss fight);
   - param, value: the event parameter set with the cue;
   - side: where the row is. The kms client keeps it in `table/fielddata.xml`; the server and the global client keep
-    it in `map/<id>.xml`.
+    it in `map/<id>.xml`;
+  - environment: the `<environment>` the element is in, by its feature and locale (empty for a plain one). A map
+    with a cue per locale or behind a feature is listed under each cue, so check this column before you change one.
 
-  The rows are read as the mod being edited leaves them, as long as the mod replaces the whole file. Row edits to
-  `fielddata.xml` are not applied here.
+  The rows are read as the mod being edited leaves them, as long as the mod replaces the whole file (a map file the
+  mod adds counts too). Row edits to `fielddata.xml` are not applied here. Reading every map file takes a while, so
+  it runs as a job of the MS2 Tables view. When the mod changes while the view is hidden, the view reads again the
+  next time it is shown.
 - **Banks** lists the bank files with their sample counts and sizes. Select a bank to see its samples: name, length
   in seconds, channels, rate, bytes and whether it loops. A bank whose header hash is not in the project is flagged,
   because the client is not expected to load it.

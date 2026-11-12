@@ -79,6 +79,7 @@ namespace MS2.ModKit
             }
         }
 
+        static readonly int[] ChannelCodes = { 1, 2, 6, 8 };
         static readonly int[] Rates = { 4000, 8000, 11000, 11025, 16000, 22050, 24000, 32000, 44100, 48000, 96000 };
 
         public static SoundBank Read(string path)
@@ -119,8 +120,9 @@ namespace MS2.ModKit
                 {
                     Index = i,
                     Rate = fi < Rates.Length ? Rates[fi] : 0,
-                    Channels = ((v >> 5) & 1) != 0 ? 2 : 1,
-                    Offset = (long)((v >> 6) & 0xfffffff) * 16,
+                    // bits 5-6: 1, 2, 6 or 8 channels; bits 7-33: the data offset in 32-byte units
+                    Channels = ChannelCodes[(int)((v >> 5) & 3)],
+                    Offset = (long)((v >> 7) & 0x7ffffff) * 32,
                     Frames = (long)(v >> 34),
                 };
                 bool more = (v & 1) != 0;
@@ -275,6 +277,8 @@ namespace MS2.ModKit
         public bool Boss;
         public string Side;         // the archive the row is in
         public string Param, Value; // the parameter set with it (bossParam/bossValue for Boss)
+        /// <summary>The environment the element is in: "feature=X locale=Y" (the parts it has), "" for a plain one.</summary>
+        public string Env = "";
     }
 
     /// <summary>The Sound folder and what the maps play.</summary>
@@ -320,6 +324,7 @@ namespace MS2.ModKit
         static readonly Regex BgmTag = new Regex("<bgm\\b[^>]*>", RegexOptions.CultureInvariant);
         static readonly Regex AttrRx = new Regex("\\b([A-Za-z]+)\\s*=\\s*\"([^\"]*)\"", RegexOptions.CultureInvariant);
         static readonly Regex RowRx = new Regex("<fieldData\\b[^>]*\\bid\\s*=\\s*\"([0-9]+)\"", RegexOptions.CultureInvariant);
+        static readonly Regex EnvTag = new Regex("<environment\\b[^>]*>", RegexOptions.CultureInvariant);
         static readonly Regex MapEntry = new Regex("^map/([0-9]+)\\.xml$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
         /// <summary>The bgm rows of a table/fielddata.xml (the kms client's form): every row's every bgm element.</summary>
@@ -331,37 +336,67 @@ namespace MS2.ModKit
             {
                 long map = long.Parse(rows[i].Groups[1].Value, CultureInfo.InvariantCulture);
                 int from = rows[i].Index, to = i + 1 < rows.Count ? rows[i + 1].Index : text.Length;
-                foreach (Match b in BgmTag.Matches(text.Substring(from, to - from))) Add(l, b.Value, map, side);
+                Tags(l, text.Substring(from, to - from), map, side);
             }
             return l;
+        }
+
+        // every bgm element with the environment it is in (the last one opened before it)
+        static void Tags(List<CueUse> l, string text, long map, string side)
+        {
+            MatchCollection envs = EnvTag.Matches(text);
+            int e = -1;
+            foreach (Match b in BgmTag.Matches(text))
+            {
+                while (e + 1 < envs.Count && envs[e + 1].Index < b.Index) e++;
+                Add(l, b.Value, map, side, e < 0 ? "" : EnvLabel(envs[e].Value));
+            }
+        }
+
+        /// <summary>The label of an environment element: its feature and locale, the ones that are set.</summary>
+        public static string EnvLabel(string feature, string locale)
+        {
+            string f = (feature ?? "").Trim(), lo = (locale ?? "").Trim();
+            return (f.Length > 0 ? "feature=" + f : "") + (f.Length > 0 && lo.Length > 0 ? " " : "") + (lo.Length > 0 ? "locale=" + lo : "");
+        }
+
+        static string EnvLabel(string tag)
+        {
+            string f = null, lo = null;
+            foreach (Match m in AttrRx.Matches(tag))
+            {
+                if (m.Groups[1].Value == "feature") f = m.Groups[2].Value;
+                else if (m.Groups[1].Value == "locale") lo = m.Groups[2].Value;
+            }
+            return EnvLabel(f, lo);
         }
 
         /// <summary>The bgm rows of a map/&lt;id&gt;.xml (the server's and the global client's form).</summary>
         public static List<CueUse> FromMapFile(string text, long map, string side)
         {
             var l = new List<CueUse>();
-            foreach (Match b in BgmTag.Matches(text)) Add(l, b.Value, map, side);
+            Tags(l, text, map, side);
             return l;
         }
 
-        static void Add(List<CueUse> l, string tag, long map, string side)
+        static void Add(List<CueUse> l, string tag, long map, string side, string env)
         {
             var a = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (Match m in AttrRx.Matches(tag)) a[m.Groups[1].Value] = m.Groups[2].Value;
-            Use(l, a, "id", "param", "value", false, map, side);
-            Use(l, a, "boss", "bossParam", "bossValue", true, map, side);
+            Use(l, a, "id", "param", "value", false, map, side, env);
+            Use(l, a, "boss", "bossParam", "bossValue", true, map, side, env);
         }
 
-        static void Use(List<CueUse> l, Dictionary<string, string> a, string id, string param, string value, bool boss, long map, string side)
+        static void Use(List<CueUse> l, Dictionary<string, string> a, string id, string param, string value, bool boss, long map, string side, string env)
         {
             string s;
             int cue;
             if (!a.TryGetValue(id, out s) || !int.TryParse(s.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out cue) || cue == 0) return;
-            foreach (CueUse u in l) if (u.Map == map && u.Boss == boss && u.Cue == cue && u.Side == side) return;
+            foreach (CueUse u in l) if (u.Map == map && u.Boss == boss && u.Cue == cue && u.Side == side && u.Env == env) return;
             string pv, vv;
             a.TryGetValue(param, out pv);
             a.TryGetValue(value, out vv);
-            l.Add(new CueUse { Cue = cue, Map = map, Boss = boss, Side = side, Param = pv ?? "", Value = vv ?? "" });
+            l.Add(new CueUse { Cue = cue, Map = map, Boss = boss, Side = side, Param = pv ?? "", Value = vv ?? "", Env = env });
         }
 
         /// <summary>
@@ -384,13 +419,22 @@ namespace MS2.ModKit
             {
                 if (!data.Exists(archive)) continue;
                 M2dArchive a = data.Open(archive);
-                foreach (M2dEntry e in a.Entries)
+                var names = new List<string>();
+                foreach (M2dEntry e in a.Entries) names.Add(e.Name);
+                // the map files the mod adds (an entry op for a name the archive does not have)
+                foreach (ModOp o in mod != null ? mod.Ops : new List<ModOp>())
                 {
-                    Match m = MapEntry.Match(e.Name.Replace('\\', '/'));
-                    if (!m.Success) continue;
-                    byte[] b = Current(store, a, archive, e.Name);
+                    var op = o as EntryOp;
+                    if (op != null && !op.Delete && op.Name != null && string.Equals(op.Archive, archive, StringComparison.OrdinalIgnoreCase) && a.Find(op.Name) == null) names.Add(op.Name);
+                }
+                foreach (string name in names)
+                {
+                    Match m = MapEntry.Match(name.Replace('\\', '/'));
+                    long map;
+                    if (!m.Success || !long.TryParse(m.Groups[1].Value, NumberStyles.None, CultureInfo.InvariantCulture, out map)) continue;
+                    byte[] b = Current(store, a, archive, name);
                     if (b == null) continue;
-                    l.AddRange(FromMapFile(Text(b), long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture), archive));
+                    l.AddRange(FromMapFile(Text(b), map, archive));
                 }
             }
             return l;

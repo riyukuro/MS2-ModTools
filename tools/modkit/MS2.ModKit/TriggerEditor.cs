@@ -36,7 +36,7 @@ namespace MS2.ModKit
             foreach (ModOp o in Mod.Ops)
             {
                 var e = o as EntryOp;
-                if (e != null && e.Archive == archive && string.Equals(e.Name, entry, StringComparison.OrdinalIgnoreCase)) return e;
+                if (e != null && string.Equals(e.Archive, archive, StringComparison.OrdinalIgnoreCase) && string.Equals(e.Name, entry, StringComparison.OrdinalIgnoreCase)) return e;
             }
             return null;
         }

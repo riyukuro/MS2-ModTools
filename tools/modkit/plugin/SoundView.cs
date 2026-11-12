@@ -20,16 +20,21 @@ namespace MS2.Tables
     public class SoundView : AbstractView
     {
         public const string ViewId = "MS2.Tables.SoundView";
-        static readonly string[] CueHeads = { "map", "name", "plays", "param", "value", "side" };
+        static readonly string[] CueHeads = { "map", "name", "plays", "param", "value", "side", "environment" };
         static readonly string[] SampleHeads = { "#", "sample", "seconds", "ch", "rate", "bytes", "loop" };
 
         TablesView host;
         string folder;                  // the Sound folder, or null
         SoundProject project;           // null without the folder or when it does not read
         string projectProblem;
-        List<CueUse> uses;              // every side's bgm rows
+        List<CueUse> uses;              // every side's bgm rows, null until read (a job of the MS2 Tables view)
         Dictionary<long, string> mapNames;
-        object usesOf;                  // the session and mod the uses were read for
+        DataSet usesData;               // the session data and mod the uses were read for
+        Mod usesMod;
+        int usesAge;                    // counts the mod's changes: a scan started before one is thrown away
+        bool reading;                   // the scan job runs
+        string readProblem;             // the last scan failed (the MS2 Tables view said why); Reload tries again
+        bool stale;                     // the mod changed while the view was hidden: read again when it is shown
         readonly Dictionary<string, SoundBank> banks = new Dictionary<string, SoundBank>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> bankProblems = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -110,6 +115,7 @@ namespace MS2.Tables
                 Guard(delegate { Find(); });
             };
             hitList.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { OpenSelected(); }); };
+            VisibleChanged += delegate { if (Visible && stale && host != null && !host.Busy) { stale = false; Guard(delegate { Fill(Selected()); }); } };
         }
 
         public override void Initialize()
@@ -154,7 +160,7 @@ namespace MS2.Tables
                 host.BusyChanged -= OnHostBusy;
             }
             host = h;
-            usesOf = null;
+            uses = null;
             if (h == null) return;
             h.Changed += OnHostChanged;
             h.BusyChanged += OnHostBusy;
@@ -183,18 +189,36 @@ namespace MS2.Tables
         void OnHostBusy(bool on)
         {
             ViewLayout.Lock(this, lockable, on, outputBox);
-            // opened while the MS2 Tables view was still loading: fill the list when it is done
-            if (!on && hits.Count == 0 && IsHandleCreated && !IsDisposed)
-                BeginInvoke((MethodInvoker)delegate { if (hits.Count == 0 && host != null && !host.Busy) Guard(delegate { Find(); }); });
+            if (on || !IsHandleCreated || IsDisposed) return;
+            // after the job's own end (the scan's done runs first): a scan that failed, a list still empty because the
+            // MS2 Tables view was loading when this view opened, or a change while that view was busy
+            BeginInvoke((MethodInvoker)delegate
+            {
+                if (host == null || host.Busy || IsDisposed) return;
+                if (reading)
+                {
+                    reading = false;
+                    readProblem = "the maps could not be read (see the MS2 Tables view's output); Reload tries again";
+                    Fill(Selected());
+                }
+                else if (hits.Count == 0 || (stale && Visible)) { stale = false; Guard(delegate { Find(); }); }
+            });
         }
 
-        // the mod was replaced or edited in another view: the maps' rows may differ
+        // the mod was replaced or edited in another view: the maps' rows may differ. Read again when the view is looked
+        // at; another view's edit never waits for the map scan.
         void OnHostChanged()
         {
-            usesOf = null;
-            try { Fill(Selected()); }
-            catch (ModKitException ex) { OutputWrap.Set(outputBox, ex.Message); }
-            catch (IOException ex) { OutputWrap.Set(outputBox, ex.Message); }
+            uses = null;
+            usesAge++;
+            if (!Visible || host == null || host.Busy) { stale = true; return; }
+            try { Guard(delegate { Fill(Selected()); }); }
+            catch (Exception ex)
+            {
+                // the change is another view's: what fails here must not reach it
+                OutputWrap.Set(outputBox, ex.Message);
+                Logger.Warning("MS2 Sound: " + ex);
+            }
         }
 
         // ---- reading ----
@@ -206,7 +230,9 @@ namespace MS2.Tables
             projectProblem = null;
             banks.Clear();
             bankProblems.Clear();
-            usesOf = null;
+            uses = null;
+            usesAge++;
+            readProblem = null;
         }
 
         void ReadFolder()
@@ -227,16 +253,35 @@ namespace MS2.Tables
             catch (UnauthorizedAccessException ex) { projectProblem = SoundData.ProjectFile + ": " + ex.Message; }
         }
 
-        void ReadUses()
+        // true when the uses are read for the session's data and mod; else starts the scan (every map file of the
+        // server and the global client) as a job of the MS2 Tables view, which fills the list again when it is done
+        bool ReadUses()
         {
             EditorSession s = host.SharedSession();
-            object key = new object[] { s.Data, s.Mod };
-            if (usesOf != null && ((object[])usesOf)[0] == s.Data && ((object[])usesOf)[1] == s.Mod && uses != null) return;
-            uses = SoundData.MapUses(s.Data, s.Mod);
-            TableIdList maps = TableIdList.Maps(s.Data, s.Mod);
-            mapNames = new Dictionary<long, string>(maps.Names());
-            foreach (KeyValuePair<long, string> kv in maps.AddedNames()) mapNames[kv.Key] = kv.Value;
-            usesOf = key;
+            if (uses != null && usesData == s.Data && usesMod == s.Mod) return true;
+            if (reading || readProblem != null) return false;
+            DataSet data = s.Data;
+            Mod mod = s.Mod;
+            int age = usesAge;
+            List<CueUse> found = null;
+            Dictionary<long, string> names = null;
+            reading = true;
+            bool started = host.RunOutside("map music scan", delegate
+            {
+                found = SoundData.MapUses(data, mod);
+                TableIdList maps = TableIdList.Maps(data, mod);
+                names = new Dictionary<long, string>(maps.Names());
+                foreach (KeyValuePair<long, string> kv in maps.AddedNames()) names[kv.Key] = kv.Value;
+            }, delegate
+            {
+                reading = false;
+                if (IsDisposed) return;
+                // the mod changed while it ran: read again
+                if (age == usesAge) { uses = found; mapNames = names; usesData = data; usesMod = mod; }
+                Fill(Selected());
+            });
+            if (!started) reading = false;
+            return false;
         }
 
         SoundBank Bank(string file)
@@ -272,7 +317,9 @@ namespace MS2.Tables
             string q = searchBox.Text.Trim();
             if (Music)
             {
-                ReadUses();
+                bool ready = ReadUses();
+                if (!ready) said.Add(readProblem ?? "reading the maps' bgm rows (a job of the MS2 Tables view)...");
+                List<CueUse> uses = ready ? this.uses : new List<CueUse>();
                 var count = new Dictionary<int, HashSet<long>>();
                 foreach (CueUse u in uses)
                 {
@@ -347,15 +394,16 @@ namespace MS2.Tables
             {
                 int cue = (int)what;
                 MusicCue c = project != null ? project.Cue(cue) : null;
-                foreach (CueUse u in uses) if (u.Cue == cue) shownUses.Add(u);
+                if (uses != null) foreach (CueUse u in uses) if (u.Cue == cue) shownUses.Add(u);
                 shownUses.Sort(delegate(CueUse a, CueUse b)
                 {
                     int r = a.Map.CompareTo(b.Map);
                     if (r == 0) r = a.Boss.CompareTo(b.Boss);
-                    return r != 0 ? r : string.CompareOrdinal(a.Side, b.Side);
+                    if (r == 0) r = string.CompareOrdinal(a.Side, b.Side);
+                    return r != 0 ? r : string.CompareOrdinal(a.Env, b.Env);
                 });
                 shownLabel.Text = "cue " + cue + (c != null ? " " + c.Name : "") + ": " + shownUses.Count + " bgm row(s)";
-                int[] w = { 70, 180, 60, 50, 50, 110 };
+                int[] w = { 70, 180, 60, 50, 50, 110, 120 };
                 for (int i = 0; i < CueHeads.Length; i++) grid.Columns.Add(Col(CueHeads[i], w[i]));
                 grid.RowCount = shownUses.Count;
             }
@@ -406,6 +454,7 @@ namespace MS2.Tables
                 case 3: e.Value = u.Param; break;
                 case 4: e.Value = u.Value; break;
                 case 5: e.Value = u.Side; break;
+                case 6: e.Value = u.Env; break;
             }
         }
 
@@ -426,6 +475,7 @@ namespace MS2.Tables
                     case 3: e.ToolTipText = "the event parameter set with the cue (param, or bossParam)"; break;
                     case 4: e.ToolTipText = "the parameter's value (value, or bossValue)"; break;
                     case 5: e.ToolTipText = "the archive the row is in: the kms client's fielddata.xml, the server's or the global client's map file"; break;
+                    case 6: e.ToolTipText = "the environment the element is in: its feature and locale (empty: the plain one). The client plays the one whose feature is on and whose locale is its own"; break;
                 }
         }
     }
