@@ -8,6 +8,16 @@ using MS2.ModKit.Xml;
 
 namespace MS2.ModKit
 {
+    /// <summary>Where an op stands in mod.xml, for the plan's messages.</summary>
+    public static class ModLine
+    {
+        /// <summary>"mod.xml line N"; "unsaved" for an op the views made and that is not in the saved file yet (line 0).</summary>
+        public static string Of(int line)
+        {
+            return line > 0 ? "mod.xml line " + line.ToString(CultureInfo.InvariantCulture) : "unsaved";
+        }
+    }
+
     public sealed class IdPlace
     {
         public string Archive;      // "client:Xml.m2d"

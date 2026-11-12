@@ -180,7 +180,7 @@ namespace MS2.ModKit
             MapTable table = MapTableOf(run, mr, ms.Target);
             if (table == null) return;
             Plan plan = run.Plan;
-            string at = " (" + ms.Target.Name + ", mod.xml line " + mop.Line + ")";
+            string at = " (" + ms.Target.Name + ", " + ModLine.Of(mop.Line) + ")";
             List<MapFileUse> uses;
             if (!table.ByFile.TryGetValue(mop.XBlock.ToLowerInvariant(), out uses))
             {

@@ -240,9 +240,12 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.ModelsWith(FakeMaps.MapA, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }), "the map file's own");
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID"), Is.Empty, "only a crate, no hint");
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }));
-                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "spawnpoint"), Is.EqualTo(new[] { "SpawnPointNPC", "SpawnPointNPC_A", "SpawnPoint_A" }));
-                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "portal"), Is.Empty, "named like one but without the property");
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "spawnpoint"), Is.EqualTo(new[] { "SpawnPointNPC_A" }), "the map file's NPC spawn point");
+                Assert.That(ed.ModelsWith(FakeMaps.MapA, "SpawnPointID", "portal"), Is.EqualTo(new[] { "SpawnPoint_A" }), "the map file's own, whatever the hint");
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID", "spawnpoint"), Is.Empty, "named like one but without the property");
+                // its only spawn point is an NPC one: Add spawn point leaves it out and falls back to the listing (without NPC spawn models)
                 Assert.That(ed.SpawnModels(FakeMaps.MapUpper), Is.EqualTo(new[] { "SpawnPoint_A" }), "Add spawn point leaves the NPC spawn models out");
+                Assert.That(ed.SpawnModels(FakeMaps.MapA), Is.EqualTo(new[] { "SpawnPoint_A" }));
             }
         }
 
@@ -588,6 +591,59 @@ namespace MS2.ModKit.Tests
 
                 MapEditor.RemoveNew(mod, X, box);
                 Assert.That(ed.NextNumber(mod, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom), "a removed one frees its number");
+            }
+        }
+
+        [Test]
+        public void ANumberTheModFreesCanBeGivenAndAHandSetNpcCountStays()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                const string X = FakeMaps.MapUpper;
+                const long Id = 90000006;
+                XEntity npc1 = ed.Shipped(X).Single(e => e.Name == "Npc_1");
+                Mod mod = f.Mod("free", "");
+                MapEntityOp npc = ed.AddNpcSpawn(mod, Id, X, "guard", "SpawnPointNPC_A", null, 21000001, 2);
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, npc, "SpawnPointID", null, "3"), "the shipped Npc_1 has 3");
+                // the mod removes Npc_1: its number is free, as at Plan
+                MapEditor.Remove(mod, X, npc1);
+                ed.SetNew(mod, X, npc, "SpawnPointID", null, "3");
+                Assert.That(f.Plan(mod).Errors, Is.Empty);
+                MapEditor.Restore(mod, X, npc1.Id);
+                Plan back = f.Plan(mod);
+                Assert.That(back.Errors, Is.Not.Empty, "back in the map, Npc_1's 3 is used twice");
+                Assert.That(back.Errors.All(x => x.ToString().EndsWith("(unsaved)")), Is.True, "an op not saved yet has no mod.xml line: " + Fake.Dump(back));
+                // a <change> that moves Npc_1 to another number frees 3 and holds that one
+                MapEditor.Set(mod, X, npc1, "SpawnPointID", null, "4");
+                Assert.That(f.Plan(mod).Errors, Is.Empty, Fake.Dump(f.Plan(mod)));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, npc, "SpawnPointID", null, "4"), "the change gives Npc_1 4");
+
+                // NpcCount follows the NpcList sum while it is that sum; one set by hand stays
+                Func<string> count = () => ed.RowsOfNew(npc).Single(r => r.Name == "NpcCount").Current;
+                ed.SetNew(mod, X, npc, "NpcList", "21000002", "1");
+                Assert.That(count(), Is.EqualTo("3"));
+                ed.SetNew(mod, X, npc, "NpcCount", null, "1");
+                ed.SetNew(mod, X, npc, "NpcList", "21000002", "5");
+                Assert.That(count(), Is.EqualTo("1"), "spawn fewer than the list holds: kept");
+                ed.SetNew(mod, X, npc, "NpcCount", null, "7");
+                ed.SetNew(mod, X, npc, "NpcList", "21000002", null);
+                Assert.That(count(), Is.EqualTo("2"), "7 was the sum again, so it follows");
+                ed.SetNew(mod, X, npc, "NpcList", "21000001", null);
+                Assert.That(count(), Is.EqualTo("0"), "the whole list unset: the sum is 0");
+
+                // a hand-written <add> without the number or interactID: a set is checked as on one that has it
+                Mod hand = f.Mod("hand", "<map xblock=\"" + X + "\"><add name=\"n\" model=\"SpawnPointNPC_A\" entity-name=\"N_9\" />"
+                    + "<add name=\"i\" model=\"Interact_A\" entity-name=\"I_9\" /></map>");
+                MapEntityOp hn = hand.Maps[0].Ops[0], hi = hand.Maps[0].Ops[1];
+                Assert.Throws<ModKitException>(() => ed.SetNew(hand, X, hn, "SpawnPointID", null, "3"), "used by Npc_1");
+                Assert.Throws<ModKitException>(() => ed.SetNew(hand, X, hn, "SpawnPointID", "0", "5"), "a plain value");
+                ed.SetNew(hand, X, hn, "SpawnPointID", null, "140007");
+                Assert.Throws<ModKitException>(() => ed.SetNew(hand, X, hn, "SpawnPointID", null, null), "now it has one, it keeps one");
+                Assert.Throws<ModKitException>(() => ed.SetNew(hand, X, hi, "interactID", null, "0"));
+                Assert.Throws<ModKitException>(() => ed.SetNew(hand, X, hi, "interactID", null, "x"));
+                ed.SetNew(hand, X, hi, "interactID", null, "10000123");
+                Assert.That(ed.RowsOfNew(hi).Single(r => r.Name == "interactID").Current, Is.EqualTo("10000123"));
             }
         }
 

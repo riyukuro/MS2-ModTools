@@ -193,7 +193,7 @@ namespace MS2.ModKit
             var missing = new List<int>();
             if (want != null) foreach (int l in want) if (!picked.ContainsKey(l)) missing.Add(l);
             if (missing.Count > 0)
-                plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + ": level " + LevelText(missing) + " is not there on " + c.Label + ", skipped (mod.xml line " + set.Line + ")");
+                plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + ": level " + LevelText(missing) + " is not there on " + c.Label + ", skipped (" + ModLine.Of(set.Line) + ")");
             SkillSide s = c.Side;
             foreach (KeyValuePair<int, XmlElem> lv in picked)
             {
@@ -205,7 +205,7 @@ namespace MS2.ModKit
                     List<XmlElem> motions = Named(scope, s.Motion);
                     if (set.Motion > motions.Count)
                     {
-                        plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": motion " + set.Motion + " is not there on " + c.Label + " (" + motions.Count + " motions), skipped (mod.xml line " + set.Line + ")");
+                        plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": motion " + set.Motion + " is not there on " + c.Label + " (" + motions.Count + " motions), skipped (" + ModLine.Of(set.Line) + ")");
                         continue;
                     }
                     scope = motions[set.Motion - 1];
@@ -215,7 +215,7 @@ namespace MS2.ModKit
                         List<XmlElem> attacks = Named(scope, s.Attack);
                         if (set.Attack > attacks.Count)
                         {
-                            plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": attack " + set.Attack + " is not there on " + c.Label + " (" + attacks.Count + " attacks), skipped (mod.xml line " + set.Line + ")");
+                            plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": attack " + set.Attack + " is not there on " + c.Label + " (" + attacks.Count + " attacks), skipped (" + ModLine.Of(set.Line) + ")");
                             continue;
                         }
                         scope = attacks[set.Attack - 1];
@@ -229,14 +229,14 @@ namespace MS2.ModKit
                     XmlElem el = at.Length == 0 ? scope : Child(scope, at);
                     if (el == null)
                     {
-                        plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": " + f.Key + " has no <" + at + "> on " + c.Label + ", skipped (mod.xml line " + set.Line + ")");
+                        plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": " + f.Key + " has no <" + at + "> on " + c.Label + ", skipped (" + ModLine.Of(set.Line) + ")");
                         continue;
                     }
                     string old = el.Attr(fm.Attr(c.Bundle)), why;
                     string nv = SkillValue.Convert(f.Value, fm.Scale(c.Bundle), fm.Whole(c.Bundle), old ?? DefaultText(fm, c.Bundle), out why);
                     if (nv == null)
                     {
-                        plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": " + f.Key + "=\"" + f.Value + "\" on " + c.Label + ": " + why + ", skipped (mod.xml line " + set.Line + ")");
+                        plan.Msg(plan.Warnings, mod, c.Archive, entry, op.Tag + " " + op.Id + " " + where + ": " + f.Key + "=\"" + f.Value + "\" on " + c.Label + ": " + why + ", skipped (" + ModLine.Of(set.Line) + ")");
                         continue;
                     }
                     hits.Add(new FieldHit { Elem = el, Attr = fm.Attr(c.Bundle), Old = old, New = nv, Level = lv.Key, Field = fm });
@@ -282,7 +282,7 @@ namespace MS2.ModKit
             r.Attrs.Add(new AttrOp { Kind = unset ? AttrOpKind.Unset : AttrOpKind.Set, Name = attr, Value = value, Sync = false, Line = line });
             int n = run.Plan.Changes.Count;
             try { DoChange(run, mod, st, r); }
-            catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, st.Archive, st.Name, x.Message + " (mod.xml line " + line + ")"); }
+            catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, st.Archive, st.Name, x.Message + " (" + ModLine.Of(line) + ")"); }
             Own(run, n);
         }
 
@@ -306,7 +306,7 @@ namespace MS2.ModKit
                         if (op.IsClone) DoSkillClone(run, mod, c, op);
                         else DoSkillEdit(run, mod, c, op);
                     }
-                    catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, c.Archive, null, op.Tag + " " + op.Id + " (mod.xml line " + op.Line + "): " + x.Message); }
+                    catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, c.Archive, null, op.Tag + " " + op.Id + " (" + ModLine.Of(op.Line) + "): " + x.Message); }
                 }
                 CountCheck(run, mod, op);
             }
@@ -314,7 +314,7 @@ namespace MS2.ModKit
                 foreach (SkillSideCtx c in SkillSides(run, mod, SkillKind.Skill))
                 {
                     try { DoJobSkill(run, mod, c, j); }
-                    catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, c.Archive, JobEntry, "jobskill (mod.xml line " + j.Line + "): " + x.Message); }
+                    catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, c.Archive, JobEntry, "jobskill (" + ModLine.Of(j.Line) + "): " + x.Message); }
                 }
         }
 
@@ -326,7 +326,7 @@ namespace MS2.ModKit
             XmlElem root = SkillRoot(run, mod, c, op.Id, out st, out variants);
             if (root == null)
             {
-                plan.Msg(plan.Warnings, mod, c.Archive, null, op.Tag + " " + op.Id + " is not on " + c.Label + ", skipped there (mod.xml line " + op.Line + ")");
+                plan.Msg(plan.Warnings, mod, c.Archive, null, op.Tag + " " + op.Id + " is not on " + c.Label + ", skipped there (" + ModLine.Of(op.Line) + ")");
                 return;
             }
             if (variants > 1)
@@ -347,12 +347,12 @@ namespace MS2.ModKit
                     if (!SkillLevels.Has(r.Levels, lv.Key)) continue;
                     string err;
                     XmlElem at = r.At.Length == 0 ? lv.Value : RowPath.Parse(r.At).TryResolve(lv.Value, out err);
-                    if (at == null) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + " level " + lv.Key + ": at=\"" + r.At + "\" is not there, skipped (mod.xml line " + r.Line + ")"); continue; }
+                    if (at == null) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + " level " + lv.Key + ": at=\"" + r.At + "\" is not there, skipped (" + ModLine.Of(r.Line) + ")"); continue; }
                     foreach (AttrOp a in r.Attrs)
                     {
                         string err2;
                         XmlElem el = string.IsNullOrEmpty(a.At) ? at : RowPath.Parse(a.At).TryResolve(at, out err2);
-                        if (el == null) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + " level " + lv.Key + ": at=\"" + a.At + "\" is not there, skipped (mod.xml line " + r.Line + ")"); continue; }
+                        if (el == null) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + " level " + lv.Key + ": at=\"" + a.At + "\" is not there, skipped (" + ModLine.Of(r.Line) + ")"); continue; }
                         Change(run, mod, st, el, a.Name, a.Value, r.Line, a.Kind == AttrOpKind.Unset);
                         RefCheckValue(run, mod, c, st.Name, op, el.Name, a.Name, a.Value, el.Attr(a.Name));
                     }
@@ -372,17 +372,17 @@ namespace MS2.ModKit
             Dictionary<int, XmlElem> fp = froot == null ? null : Picked(run, mod, c, op, froot, fst.Name, false);
             if (fp == null || !fp.TryGetValue(w.FromLevel, out flevel))
             {
-                plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + ": skill " + w.FromSkill + " level " + w.FromLevel + " is not on " + c.Label + ", swap skipped (mod.xml line " + w.Line + ")");
+                plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + ": skill " + w.FromSkill + " level " + w.FromLevel + " is not on " + c.Label + ", swap skipped (" + ModLine.Of(w.Line) + ")");
                 return;
             }
             List<XmlElem> fm = Named(flevel, c.Side.Motion);
-            if (w.FromMotion > fm.Count) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + ": skill " + w.FromSkill + " level " + w.FromLevel + " has " + fm.Count + " motions on " + c.Label + ", swap skipped (mod.xml line " + w.Line + ")"); return; }
+            if (w.FromMotion > fm.Count) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + ": skill " + w.FromSkill + " level " + w.FromLevel + " has " + fm.Count + " motions on " + c.Label + ", swap skipped (" + ModLine.Of(w.Line) + ")"); return; }
             XmlElem src = fm[w.FromMotion - 1];
             foreach (KeyValuePair<int, XmlElem> lv in picked)
             {
                 if (!SkillLevels.Has(w.Levels, lv.Key)) continue;
                 List<XmlElem> m = Named(lv.Value, c.Side.Motion);
-                if (w.Motion > m.Count) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + " level " + lv.Key + ": motion " + w.Motion + " is not there on " + c.Label + " (" + m.Count + " motions), swap skipped (mod.xml line " + w.Line + ")"); continue; }
+                if (w.Motion > m.Count) { plan.Msg(plan.Warnings, mod, c.Archive, st.Name, op.Tag + " " + op.Id + " level " + lv.Key + ": motion " + w.Motion + " is not there on " + c.Label + " (" + m.Count + " motions), swap skipped (" + ModLine.Of(w.Line) + ")"); continue; }
                 XmlElem target = m[w.Motion - 1];
                 int n = plan.Changes.Count;
                 string sel = RowPath.Canonical(target);
@@ -391,7 +391,7 @@ namespace MS2.ModKit
                     DoAdd(run, mod, st, new RowOp { Kind = RowOpKind.Add, After = sel, Xml = src.OuterText, FromIndent = src.Doc.IndentOf(src.Start), Line = w.Line, NoNewId = true, Sync = false });
                     DoDelete(run, mod, st, new RowOp { Kind = RowOpKind.Delete, At = sel, Line = w.Line, Sync = false });
                 }
-                catch (ModKitException x) { plan.Msg(plan.Errors, mod, st.Archive, st.Name, x.Message + " (mod.xml line " + w.Line + ")"); }
+                catch (ModKitException x) { plan.Msg(plan.Errors, mod, st.Archive, st.Name, x.Message + " (" + ModLine.Of(w.Line) + ")"); }
                 Own(run, n);
                 NewRefChecks(run, mod, c, st.Name, op, src, target);
             }
@@ -454,7 +454,7 @@ namespace MS2.ModKit
             if (s == null) return;
             if (only != null && !c.P.ReadsLanguage(only))
             {
-                run.Plan.Msg(run.Plan.Warnings, mod, c.Archive, null, "id " + id + " level " + level + ": " + c.Label + " has no language \"" + only + "\", the text is not written there (mod.xml line " + line + ")");
+                run.Plan.Msg(run.Plan.Warnings, mod, c.Archive, null, "id " + id + " level " + level + ": " + c.Label + " has no language \"" + only + "\", the text is not written there (" + ModLine.Of(line) + ")");
                 return;
             }
             string ids = id.ToString(CultureInfo.InvariantCulture), lvs = level.ToString(CultureInfo.InvariantCulture);
@@ -497,7 +497,7 @@ namespace MS2.ModKit
             if (!EnsureDoc(run.Plan, mod, st)) return;
             int n = run.Plan.Changes.Count;
             try { DoAdd(run, mod, st, new RowOp { Kind = RowOpKind.Add, Xml = xml, FromIndent = fromIndent, Line = line, NoNewId = true, Sync = false, Grouped = true }); }
-            catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, c.Archive, file, x.Message + " (mod.xml line " + line + ")"); }
+            catch (ModKitException x) { run.Plan.Msg(run.Plan.Errors, mod, c.Archive, file, x.Message + " (" + ModLine.Of(line) + ")"); }
             Own(run, n);
         }
 
@@ -667,7 +667,7 @@ namespace MS2.ModKit
             if (op.CooldownGroup == null)
             {
                 if (old != null && old.Trim() != "0" && old.Trim().Length > 0)
-                    plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": shares cooldown group " + old.Trim() + " with its source on " + c.Label + " (using one starts the other's cooldown); set cooldown-group=\"own\" to give it its own (mod.xml line " + op.Line + ")");
+                    plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": shares cooldown group " + old.Trim() + " with its source on " + c.Label + " (using one starts the other's cooldown); set cooldown-group=\"own\" to give it its own (" + ModLine.Of(op.Line) + ")");
                 return;
             }
             string v = op.CooldownGroup == "own" ? op.Id.ToString(CultureInfo.InvariantCulture) : op.CooldownGroup;
@@ -684,7 +684,7 @@ namespace MS2.ModKit
             int variants;
             XmlElem sroot = SkillRoot(run, mod, c, op.Clone, out sst, out variants);
             string what = op.Tag + " " + op.Id + " (clone of " + op.Clone + ")";
-            if (sroot == null) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": " + op.Clone + " is not on " + c.Label + ", skipped there (mod.xml line " + op.Line + ")"); return; }
+            if (sroot == null) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": " + op.Clone + " is not on " + c.Label + ", skipped there (" + ModLine.Of(op.Line) + ")"); return; }
             if (Index(run, c).Where.ContainsKey(op.Id)) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + ": " + c.Label + " ships id " + op.Id + " already, skipped there"); return; }
 
             // the source as its own document: a row fragment (bundle) or the whole file
@@ -733,7 +733,7 @@ namespace MS2.ModKit
                     if (!SkillLevels.Has(r.Levels, lv.Key)) continue;
                     string err;
                     XmlElem at = r.At.Length == 0 ? lv.Value : RowPath.Parse(r.At).TryResolve(lv.Value, out err);
-                    if (at == null) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + " level " + lv.Key + ": at=\"" + r.At + "\" is not there, skipped (mod.xml line " + r.Line + ")"); continue; }
+                    if (at == null) { plan.Msg(plan.Warnings, mod, c.Archive, null, what + " level " + lv.Key + ": at=\"" + r.At + "\" is not there, skipped (" + ModLine.Of(r.Line) + ")"); continue; }
                     foreach (AttrOp a in r.Attrs)
                     {
                         XmlElem el = string.IsNullOrEmpty(a.At) ? at : RowPath.Parse(a.At).TryResolve(at, out err);
@@ -802,7 +802,7 @@ namespace MS2.ModKit
         {
             Plan plan = run.Plan;
             EntryState st = run.State(c.Arch, c.Archive, JobEntry);
-            if (st.Base == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, "no " + JobEntry + " on " + c.Label + ", jobskill skipped (mod.xml line " + j.Line + ")"); return; }
+            if (st.Base == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, "no " + JobEntry + " on " + c.Label + ", jobskill skipped (" + ModLine.Of(j.Line) + ")"); return; }
             if (!EnsureDoc(plan, mod, st)) return;
             string jobKey = c.Bundle ? "jobGroupID" : "code";
             string jobVal = c.Bundle ? j.Job.ToString(CultureInfo.InvariantCulture) : j.Job.ToString("000", CultureInfo.InvariantCulture);
@@ -810,7 +810,7 @@ namespace MS2.ModKit
             foreach (XmlElem e in st.Doc.Root.Children) if (e.Name == "job" && e.Attr(jobKey) == jobVal) jobs.Add(e);
             XmlElem job = c.Gate.Pick(jobs);
             string tag = "jobskill job " + j.Job + " skill " + j.Skill;
-            if (job == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, tag + ": job " + jobVal + " is not read on " + c.Label + ", skipped (mod.xml line " + j.Line + ")"); return; }
+            if (job == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, tag + ": job " + jobVal + " is not read on " + c.Label + ", skipped (" + ModLine.Of(j.Line) + ")"); return; }
             if (jobs.Count > 1) plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, tag + ": job " + jobVal + " is written " + jobs.Count + " times (features) on " + c.Label + "; the one this side reads (feature \"" + (job.Attr("feature") ?? "") + "\") is changed");
             XmlElem skills = Child(job, "skills");
             if (skills == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, tag + ": job " + jobVal + " has no <skills> on " + c.Label + ", skipped"); return; }
@@ -840,7 +840,7 @@ namespace MS2.ModKit
                 string rv = j.Replace.ToString(CultureInfo.InvariantCulture);
                 XmlElem slot = null;
                 foreach (XmlElem e in skills.Children) if (e.Name == row && e.Attr(idAttr) == rv) { slot = e; break; }
-                if (slot == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, tag + ": job " + jobVal + " has no slot with skill " + rv + " on " + c.Label + ", skipped (mod.xml line " + j.Line + ")"); return; }
+                if (slot == null) { plan.Msg(plan.Warnings, mod, c.Archive, JobEntry, tag + ": job " + jobVal + " has no slot with skill " + rv + " on " + c.Label + ", skipped (" + ModLine.Of(j.Line) + ")"); return; }
                 Change(run, mod, st, slot, idAttr, j.Skill.ToString(CultureInfo.InvariantCulture), j.Line, false);
                 foreach (KeyValuePair<string, string> f in fields) Change(run, mod, st, slot, f.Key, f.Value, j.Line, false);
             }
@@ -863,7 +863,7 @@ namespace MS2.ModKit
                 foreach (KeyValuePair<string, string> f in fields) Attr(sb, f.Key, f.Value);
                 sb.Append(" />");
                 try { DoAdd(run, mod, st, new RowOp { Kind = RowOpKind.Add, Xml = sb.ToString(), FromIndent = "", In = RowPath.Canonical(skills), Line = j.Line, NoNewId = true, Sync = false }); }
-                catch (ModKitException x) { plan.Msg(plan.Errors, mod, c.Archive, JobEntry, x.Message + " (mod.xml line " + j.Line + ")"); }
+                catch (ModKitException x) { plan.Msg(plan.Errors, mod, c.Archive, JobEntry, x.Message + " (" + ModLine.Of(j.Line) + ")"); }
             }
             Own(run, n);
         }

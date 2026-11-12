@@ -145,7 +145,7 @@ namespace MS2.ModKit
                             foreach (MapEnt e in ms.Added) if (e.Op == op) placed = true;
                         if (placed) SpawnRows(run, m, mop, op);
                         else if (op.Rows.Count > 0)
-                            plan.Msg(plan.Warnings, m, null, null, "spawn point " + D(op.Number) + " of map " + mop.XBlock + " was put into no map file, so its spawn rows are not written either (mod.xml line " + op.Line + ")");
+                            plan.Msg(plan.Warnings, m, null, null, "spawn point " + D(op.Number) + " of map " + mop.XBlock + " was put into no map file, so its spawn rows are not written either (" + ModLine.Of(op.Line) + ")");
                     }
                 }
             }
@@ -250,7 +250,7 @@ namespace MS2.ModKit
             string entry = "xblock/" + mop.XBlock + ".xblock";
             EntryState st = run.State(arch, ar, entry);
             if ((st.DeletedBy != null || st.DeleteLeftOut.Contains(mod)) && DeletedEntryStays(run, mod, st, "changes a map that " + Who(st.DeleteLeftOut.Contains(mod) ? mod : st.DeletedBy, mod) + " deletes")) return null;
-            if (st.Base == null) { plan.Msg(plan.Warnings, mod, ar, entry, target.Name + " has no such map; its map lines are skipped there (mod.xml line " + mop.Line + ")"); return null; }
+            if (st.Base == null) { plan.Msg(plan.Warnings, mod, ar, entry, target.Name + " has no such map; its map lines are skipped there (" + ModLine.Of(mop.Line) + ")"); return null; }
             Mod instead;
             if (st.BaseMod != mod && st.FileLeftOut.TryGetValue(mod, out instead))
             {
@@ -302,15 +302,20 @@ namespace MS2.ModKit
             MapState ms = OpenMap(run, mr, mod, mop, target, ar);
             if (ms == null) return;
             EntryState st = ms.St;
-            foreach (MapEntityOp op in mop.Ops)
-            {
-                try
+            // the edits of shipped entities first, then the new ones: a number the mod frees (a <remove>, or a <change> that
+            // moves or unsets it) is free for a new entity wherever the ops stand in mod.xml (the Maps view checks it so)
+            for (int pass = 0; pass < 2; pass++)
+                foreach (MapEntityOp op in mop.Ops)
                 {
-                    if (op.Kind == MapOpKind.Remove || op.Kind == MapOpKind.Change) Existing(run, mr, mod, ms, op);
-                    else AddEntity(run, mr, mod, mop, ms, op);
+                    bool existing = op.Kind == MapOpKind.Remove || op.Kind == MapOpKind.Change;
+                    if (existing != (pass == 0)) continue;
+                    try
+                    {
+                        if (existing) Existing(run, mr, mod, ms, op);
+                        else AddEntity(run, mr, mod, mop, ms, op);
+                    }
+                    catch (ModKitException x) { plan.Msg(plan.Errors, mod, ar, st.Name, x.Message + " (" + ModLine.Of(op.Line) + ")"); }
                 }
-                catch (ModKitException x) { plan.Msg(plan.Errors, mod, ar, st.Name, x.Message + " (mod.xml line " + op.Line + ")"); }
-            }
         }
 
         /// <summary>The per-map number of an entity: PortalID, SpawnPointID or TriggerObjectID (-1 for none).</summary>
@@ -348,10 +353,10 @@ namespace MS2.ModKit
                 string ok = KindOf(ms, o.Model);
                 if (kind != null && ok != null && ok != kind) continue;
                 if (o.AddedBy != null && o.AddedBy != mod)
-                    plan.Conflict(mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is also brought by mod " + o.AddedBy.Id + " (mod.xml line " + line + ")", o.AddedBy);
+                    plan.Conflict(mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is also brought by mod " + o.AddedBy.Id + " (" + ModLine.Of(line) + ")", o.AddedBy);
                 else
                     plan.Msg(plan.Errors, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is already used in this map by entity " + o.Id
-                        + (self.Elem != null ? "; the change is not made" : "; nothing is added") + " (mod.xml line " + line + ")");
+                        + (self.Elem != null ? "; the change is not made" : "; nothing is added") + " (" + ModLine.Of(line) + ")");
                 return false;
             }
             long from, to;
@@ -375,7 +380,7 @@ namespace MS2.ModKit
             MapEnt old;
             if (ms.ById.TryGetValue(id, out old))
             {
-                plan.Msg(plan.Errors, mod, ms.ArchiveRef, st.Name, "the new entity \"" + op.Name + "\" would get the id " + id + ", which is already in the map" + (old.AddedBy == null ? " (is the mod applied there already?)" : "") + " (mod.xml line " + op.Line + ")");
+                plan.Msg(plan.Errors, mod, ms.ArchiveRef, st.Name, "the new entity \"" + op.Name + "\" would get the id " + id + ", which is already in the map" + (old.AddedBy == null ? " (is the mod applied there already?)" : "") + " (" + ModLine.Of(op.Line) + ")");
                 return;
             }
             var props = new List<XProp>();
@@ -417,7 +422,7 @@ namespace MS2.ModKit
             MapEnt me;
             if (!ms.ById.TryGetValue(op.Id, out me))
             {
-                plan.Msg(plan.Warnings, mod, ms.ArchiveRef, st.Name, "has no entity " + op.Id + "; the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (mod.xml line " + op.Line + ")");
+                plan.Msg(plan.Warnings, mod, ms.ArchiveRef, st.Name, "has no entity " + op.Id + "; the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (" + ModLine.Of(op.Line) + ")");
                 return;
             }
             if (me.AddedBy != null)
@@ -432,7 +437,7 @@ namespace MS2.ModKit
                 if (me.Touched == mod) plan.Msg(plan.Errors, mod, ms.ArchiveRef, st.Name, t); else plan.Conflict(mod, ms.ArchiveRef, st.Name, t, me.Touched);
                 return;
             }
-            string skip = " the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (mod.xml line " + op.Line + ")";
+            string skip = " the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (" + ModLine.Of(op.Line) + ")";
             if (me.Model != op.Model)
             {
                 plan.Msg(plan.Warnings, mod, ms.ArchiveRef, st.Name, "entity " + op.Id + " is a \"" + me.Model + "\" here, the mod expects \"" + op.Model + "\";" + skip);
@@ -681,11 +686,11 @@ namespace MS2.ModKit
             string what = "spawn point " + D(op.Number) + " of map " + mop.XBlock;
             if (op.Rows.Count == 0)
             {
-                plan.Msg(plan.Warnings, mod, null, null, what + " has no <row>: the server gets no line that says what spawns there, so nothing will (mod.xml line " + op.Line + ")");
+                plan.Msg(plan.Warnings, mod, null, null, what + " has no <row>: the server gets no line that says what spawns there, so nothing will (" + ModLine.Of(op.Line) + ")");
                 return;
             }
             long map = mop.EffectiveMapId;
-            if (map < 0) { plan.Msg(plan.Errors, mod, null, null, what + ": the map id is not known; give <map id=\"...\"> (mod.xml line " + mop.Line + ")"); return; }
+            if (map < 0) { plan.Msg(plan.Errors, mod, null, null, what + ": the map id is not known; give <map id=\"...\"> (" + ModLine.Of(mop.Line) + ")"); return; }
             string code = map.ToString("D8", CultureInfo.InvariantCulture), point = D(op.Number);
 
             // The table ships in the server's and in each client's Xml archive: every copy gets the rows, so they stay equal.
@@ -722,7 +727,7 @@ namespace MS2.ModKit
                 if (r.Name != "region" || (r.Attr("mapCode") ?? "").TrimStart('0') != code.TrimStart('0') || DeletedBy(st, r) != null) continue;
                 if (r.Attr("spawnPointID") == point)
                 {
-                    plan.Msg(plan.Errors, mod, ar, SpawnTagEntry, "this target already has a row for " + what + " (line " + r.Line + "); nothing is added (mod.xml line " + op.Line + ")");
+                    plan.Msg(plan.Errors, mod, ar, SpawnTagEntry, "this target already has a row for " + what + " (line " + r.Line + "); nothing is added (" + ModLine.Of(op.Line) + ")");
                     return;
                 }
                 last = r;
@@ -745,7 +750,7 @@ namespace MS2.ModKit
                 sb.Append(" />");
                 var ro = new RowOp { Kind = RowOpKind.Add, Xml = sb.ToString(), FromIndent = "", After = after, Sync = false, Grouped = true, NoNewId = true, Line = op.Line };
                 try { DoAdd(run, mod, st, ro); }
-                catch (ModKitException ex) { plan.Msg(plan.Errors, mod, ar, SpawnTagEntry, ex.Message + " (mod.xml line " + op.Line + ")"); return; }
+                catch (ModKitException ex) { plan.Msg(plan.Errors, mod, ar, SpawnTagEntry, ex.Message + " (" + ModLine.Of(op.Line) + ")"); return; }
             }
         }
 
@@ -783,7 +788,7 @@ namespace MS2.ModKit
         static void ModelChecks(Run run, MapRun mr, Mod mod, MapState ms, string model, List<XProp> props, MapOpKind kind, int line)
         {
             Plan plan = run.Plan;
-            string at = " (" + ms.Target.Name + ", mod.xml line " + line + ")";
+            string at = " (" + ms.Target.Name + ", " + ModLine.Of(line) + ")";
             foreach (XProp p in props)
                 if (p.Name == "NpcList")
                     foreach (XSet s in p.Items)
@@ -916,7 +921,7 @@ namespace MS2.ModKit
                 if (me.Op.Kind != MapOpKind.Portal) continue;
                 Mod mod = me.AddedBy;
                 string what = "portal " + D(me.Portal) + " leads to portal " + D(me.ToPortal) + " of map " + D(me.ToMap);
-                string at = " (" + ms.Target.Name + ", mod.xml line " + me.Op.Line + ")";
+                string at = " (" + ms.Target.Name + ", " + ModLine.Of(me.Op.Line) + ")";
                 Dictionary<long, bool> maps = MapIdsOf(run, mr, ms.Target);
                 if (maps != null && !maps.ContainsKey(me.ToMap))
                 {

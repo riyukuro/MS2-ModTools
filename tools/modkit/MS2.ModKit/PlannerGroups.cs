@@ -113,7 +113,7 @@ namespace MS2.ModKit
                 {
                     string msg = x.Message;
                     if (St.Doc != null && msg.StartsWith(St.Doc.Label + ": ", StringComparison.Ordinal)) msg = msg.Substring(St.Doc.Label.Length + 2);
-                    Run.Plan.Msg(Run.Plan.Errors, Mod, St.Archive, St.Name, Group + ": " + msg + " (mod.xml line " + line + ")");
+                    Run.Plan.Msg(Run.Plan.Errors, Mod, St.Archive, St.Name, Group + ": " + msg + " (" + ModLine.Of(line) + ")");
                 }
             }
 
@@ -284,12 +284,12 @@ namespace MS2.ModKit
 
         static void Warn(Run run, Mod mod, string archive, string entry, GroupOp g, string text, int line)
         {
-            run.Plan.Msg(run.Plan.Warnings, mod, archive, entry, g + ": " + text + " (mod.xml line " + line + ")");
+            run.Plan.Msg(run.Plan.Warnings, mod, archive, entry, g + ": " + text + " (" + ModLine.Of(line) + ")");
         }
 
         static void Err(Run run, Mod mod, string archive, string entry, GroupOp g, string text, int line)
         {
-            run.Plan.Msg(run.Plan.Errors, mod, archive, entry, g + ": " + text + " (mod.xml line " + line + ")");
+            run.Plan.Msg(run.Plan.Errors, mod, archive, entry, g + ": " + text + " (" + ModLine.Of(line) + ")");
         }
 
         /// <summary>The state of an entry, ready to edit; null (with a message) when it cannot be.</summary>
@@ -331,7 +331,7 @@ namespace MS2.ModKit
                 bool declared = false;
                 foreach (IdRange r in mod.Ids) if (r.Space == space && g.Id >= r.From && g.Id <= r.To) declared = true;
                 if (!declared && (g.Id < from || g.Id > to))
-                    run.Plan.Msg(run.Plan.Warnings, mod, null, null, g + ": the new id is outside of the range " + from + "-" + to + " kept for new " + (g.Kind == GroupKind.Shop ? "shops" : "drop boxes") + " (mod.xml line " + g.Line + ")");
+                    run.Plan.Msg(run.Plan.Warnings, mod, null, null, g + ": the new id is outside of the range " + from + "-" + to + " kept for new " + (g.Kind == GroupKind.Shop ? "shops" : "drop boxes") + " (" + ModLine.Of(g.Line) + ")");
             }
             if (g.Kind == GroupKind.Shop) DoShop(run, mod, g);
             else DoBox(run, mod, g);
@@ -500,7 +500,7 @@ namespace MS2.ModKit
                         {
                             sn = Inv(NextSn(run, stock, addTo, shopId));
                             text = WithAttr(text, "sn", sn, "the new stock row");
-                            run.Plan.Msg(run.Plan.Notes, mod, stock.Archive, stock.Name, g + ": the new stock row of item " + (fd.Root.Attr("id") ?? "?") + " gets sn " + sn + " (mod.xml line " + r.Line + ")");
+                            run.Plan.Msg(run.Plan.Notes, mod, stock.Archive, stock.Name, g + ": the new stock row of item " + (fd.Root.Attr("id") ?? "?") + " gets sn " + sn + " (" + ModLine.Of(r.Line) + ")");
                         }
                         else
                         {
@@ -1164,14 +1164,14 @@ namespace MS2.ModKit
             long id;
             if (!long.TryParse(num, NumberStyles.None, CultureInfo.InvariantCulture, out id))
             {
-                run.Plan.Msg(run.Plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": " + what + " \"" + value + "\" is not an item id (mod.xml line " + row.Line + ")");
+                run.Plan.Msg(run.Plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": " + what + " \"" + value + "\" is not an item id (" + ModLine.Of(row.Line) + ")");
                 return;
             }
             foreach (Profile p in on)
             {
                 HashSet<long> items = Items(run, p);
                 if (items != null && !items.Contains(id))
-                    run.Plan.Msg(run.Plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": " + what + " " + id + " is not an item of the " + p.Title + " (mod.xml line " + row.Line + ")");
+                    run.Plan.Msg(run.Plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": " + what + " " + id + " is not an item of the " + p.Title + " (" + ModLine.Of(row.Line) + ")");
             }
         }
 
@@ -1194,12 +1194,12 @@ namespace MS2.ModKit
                     string pt = row.Attrs.TryGetValue("paymentType", out v) ? v : "0";
                     int pti;
                     if (!int.TryParse(pt, NumberStyles.None, CultureInfo.InvariantCulture, out pti) || pti > 14)
-                        plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": sn " + sn + ": paymentType \"" + pt + "\" is not a known currency (0 to 14) (mod.xml line " + row.Line + ")");
+                        plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": sn " + sn + ": paymentType \"" + pt + "\" is not a known currency (0 to 14) (" + ModLine.Of(row.Line) + ")");
                     else if (pti == 1)
                     {
                         string pay = row.Attrs.TryGetValue("paymentItemID", out v) ? v : null;
                         if (string.IsNullOrEmpty(ItemNum(pay)) || ItemNum(pay) == "0")
-                            plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": sn " + sn + ": paymentType 1 is paid with an item, and paymentItemID is not set (mod.xml line " + row.Line + ")");
+                            plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": sn " + sn + ": paymentType 1 is paid with an item, and paymentItemID is not set (" + ModLine.Of(row.Line) + ")");
                         else CheckItem(run, row, "sn " + sn + ": the payment item", pay, all);
                     }
                     if (row.Attrs.TryGetValue("category", out v)) CheckStockCategory(run, row, sn, v, clients);
@@ -1212,7 +1212,7 @@ namespace MS2.ModKit
                             XmlDoc cat = FinalDoc(run, p.ArchiveIn("x:Xml.m2d"), ShopCategoryEntry);
                             if (cat == null) continue;
                             if (Children(cat.Root, "category", "id", v).Count == 0)
-                                plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": categoryID " + v + " is not a category of the " + p.Title + "'s " + ShopCategoryEntry + " (mod.xml line " + row.Line + ")");
+                                plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": categoryID " + v + " is not a category of the " + p.Title + "'s " + ShopCategoryEntry + " (" + ModLine.Of(row.Line) + ")");
                         }
                 }
                 else if (row.Group.Kind == GroupKind.DropBox && target != null)
@@ -1228,7 +1228,7 @@ namespace MS2.ModKit
                     {
                         bool ok = flat ? (string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) || string.Equals(v, "false", StringComparison.OrdinalIgnoreCase)) : (v == "0" || v == "1");
                         if (!ok)
-                            plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": isApplySmartGenderDrop is \"" + v + "\"; this layout writes " + (flat ? "True or False" : "1 or 0") + " (mod.xml line " + row.Line + ")");
+                            plan.Msg(plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": isApplySmartGenderDrop is \"" + v + "\"; this layout writes " + (flat ? "True or False" : "1 or 0") + " (" + ModLine.Of(row.Line) + ")");
                     }
                 }
             }
@@ -1254,7 +1254,7 @@ namespace MS2.ModKit
                             groups++;
                             string gid = grp.Attr("dropGroupID") ?? "?";
                             var rows = Children(grp, DropMap.RowNested, null, null);
-                            if (rows.Count == 0) { plan.Msg(plan.Warnings, kv.Key, archive, entry, g + ": group " + gid + " has no rows after the mod (mod.xml line " + g.Line + ")"); continue; }
+                            if (rows.Count == 0) { plan.Msg(plan.Warnings, kv.Key, archive, entry, g + ": group " + gid + " has no rows after the mod (" + ModLine.Of(g.Line) + ")"); continue; }
                             if (p != Profile.Server) continue;
                             bool allZero = true;
                             foreach (XmlElem v in rows)
@@ -1263,9 +1263,9 @@ namespace MS2.ModKit
                                 string ws = v.Attr("weight");
                                 if (ws == null || !double.TryParse(ws, NumberStyles.Float, CultureInfo.InvariantCulture, out w) || w != 0) { allZero = false; break; }
                             }
-                            if (allZero) plan.Msg(plan.Warnings, kv.Key, archive, entry, g + ": every row of group " + gid + " has weight 0, so the group cannot drop anything (mod.xml line " + g.Line + ")");
+                            if (allZero) plan.Msg(plan.Warnings, kv.Key, archive, entry, g + ": every row of group " + gid + " has weight 0, so the group cannot drop anything (" + ModLine.Of(g.Line) + ")");
                         }
-                    if (groups == 0) plan.Msg(plan.Warnings, kv.Key, archive, entry, g + ": the box has no groups after the mod (mod.xml line " + g.Line + ")");
+                    if (groups == 0) plan.Msg(plan.Warnings, kv.Key, archive, entry, g + ": the box has no groups after the mod (" + ModLine.Of(g.Line) + ")");
                 }
             }
             CheckNpcRefs(run);
@@ -1289,7 +1289,7 @@ namespace MS2.ModKit
                     var tabs = new HashSet<string>(StringComparer.Ordinal);
                     foreach (XmlElem c in cats) CollectTabs(c, tabs);
                     if (!tabs.Contains(category))
-                        run.Plan.Msg(run.Plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": sn " + sn + ": category \"" + category + "\" is in no tab of category " + cid + " of the " + p.Title + "'s " + ShopCategoryEntry + " (mod.xml line " + row.Line + ")");
+                        run.Plan.Msg(run.Plan.Warnings, row.Mod, row.Archive, row.Entry, row.Group + ": sn " + sn + ": category \"" + category + "\" is in no tab of category " + cid + " of the " + p.Title + "'s " + ShopCategoryEntry + " (" + ModLine.Of(row.Line) + ")");
                 }
             }
         }

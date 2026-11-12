@@ -367,21 +367,26 @@ namespace MS2.ModKit
             return p != null && p.Scalar ? p.Items[0].Value : "";
         }
 
-        /// <summary>
-        /// The models of the map file's shipped entities whose model has the property (most used first). When none has it and a
-        /// hint is given: the models of the listing whose file name holds the hint and that have the property (at most 40).
-        /// </summary>
         /// <summary>The models Add spawn point offers: those with SpawnPointID that are not an NPC or player spawn point.</summary>
         public List<string> SpawnModels(string xblock)
         {
-            List<string> res = ModelsWith(xblock, "SpawnPointID", "spawnpoint");
-            res.RemoveAll(IsNpcOrPcSpawn);
-            return res;
+            return ModelsWith(xblock, "SpawnPointID", "spawnpoint", IsNpcOrPcSpawn, "spawn");
         }
 
         bool IsNpcOrPcSpawn(string model) { return HasMixin(model, NpcSpawn.Mixin) || HasMixin(model, "SpawnPointPC"); }
 
+        /// <summary>
+        /// The models of the map file's shipped entities whose model has the property (most used first). When none has it and a
+        /// hint is given: the models of the listing whose file name holds the hint and that have the property (at most 40).
+        /// </summary>
         public List<string> ModelsWith(string xblock, string prop, string hint = null)
+        {
+            return ModelsWith(xblock, prop, hint, null, "");
+        }
+
+        /// <summary>As above, leaving out the models <paramref name="skip"/> is true for, on both paths and before the cap of 40
+        /// (<paramref name="tag"/> keys the listing cache per skip).</summary>
+        List<string> ModelsWith(string xblock, string prop, string hint, Predicate<string> skip, string tag)
         {
             var count = new Dictionary<string, int>(StringComparer.Ordinal);
             List<XEntity> l = Shipped(xblock);
@@ -392,14 +397,14 @@ namespace MS2.ModKit
                     int c;
                     if (count.TryGetValue(e.Model, out c)) { count[e.Model] = c + 1; continue; }
                     FlatModel fm = Model(e.Model);
-                    if (fm != null && fm.Prop(prop) != null) count[e.Model] = 1;
+                    if (fm != null && fm.Prop(prop) != null && (skip == null || !skip(e.Model))) count[e.Model] = 1;
                 }
             var res = new List<string>(count.Keys);
             res.Sort(delegate (string a, string b) { int d = count[b].CompareTo(count[a]); return d != 0 ? d : string.CompareOrdinal(a, b); });
             if (res.Count > 0 || hint == null) return res;
             // no entity of the map file uses one: the models of the listing named like one (e.g. "portal") that have the property
             List<string> known;
-            string key = "p:" + prop + "|" + hint;
+            string key = "p:" + prop + "|" + hint + "|" + tag;
             if (listed.TryGetValue(key, out known)) return new List<string>(known);
             ListFlats();
             var names = new List<string>(flats.Keys);
@@ -414,7 +419,7 @@ namespace MS2.ModKit
                 if (n.IndexOf(hint, StringComparison.OrdinalIgnoreCase) < 0) continue;
                 FlatModel pm = ParseFlat(flats[n]);
                 FlatModel fm = pm == null ? null : Model(pm.Name);     // with its mixins
-                if (fm != null && fm.Prop(prop) != null) res.Add(fm.Name);
+                if (fm != null && fm.Prop(prop) != null && (skip == null || !skip(fm.Name))) res.Add(fm.Name);
                 if (res.Count >= 40) break;
             }
             listed[key] = new List<string>(res);
@@ -463,8 +468,24 @@ namespace MS2.ModKit
             };
             var used = new HashSet<long>();
             List<XEntity> l = Shipped(xblock);
-            if (l != null) foreach (XEntity e in l) { long v = Scalar(e, prop); if (v >= 0 && !other(e.Model)) used.Add(v); }
             MapOp m = mod == null ? null : MapOf(mod, xblock);
+            // a shipped entity the mod removes, or whose number a <change> sets or unsets, frees its shipped number (as at Plan)
+            var freed = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (m != null)
+                foreach (MapEntityOp op in m.Ops)
+                {
+                    if (op.Id == null) continue;
+                    if (op.Kind == MapOpKind.Remove) freed.Add(op.Id);
+                    else if (op.Kind == MapOpKind.Change)
+                        foreach (MapSet set in op.Sets) if (set.Name == prop && set.Index == null) freed.Add(op.Id);
+                }
+            if (l != null)
+                foreach (XEntity e in l)
+                {
+                    if (e.Id != null && freed.Contains(e.Id)) continue;
+                    long v = Scalar(e, prop);
+                    if (v >= 0 && !other(e.Model)) used.Add(v);
+                }
             if (m == null) return used;
             Dictionary<string, XEntity> byId = null;
             foreach (MapEntityOp op in m.Ops)
@@ -896,7 +917,8 @@ namespace MS2.ModKit
                 return;
             }
             XProp p = op.Props.Find(delegate (XProp x) { return x.Name == name; });
-            if (op.Kind == MapOpKind.Add && p != null && Array.IndexOf(MapNumbers, name) >= 0)
+            // a set is checked also when a hand-written <add> does not have the property yet; only the unset needs it
+            if (op.Kind == MapOpKind.Add && (p != null || value != null) && Array.IndexOf(MapNumbers, name) >= 0)
             {
                 // the per-map number of an added NPC spawn, trigger box, ...: another number, never none
                 if (index != null) throw new ModKitException("the property " + name + " is a plain value; leave the index out");
@@ -905,7 +927,7 @@ namespace MS2.ModKit
                 RefuseUsed(mod, xblock, op, name, n);
                 value = D(n);
             }
-            if (op.Kind == MapOpKind.Add && p != null && name == "interactID" && HasMixin(op.Model, Interact.Mixin))
+            if (op.Kind == MapOpKind.Add && (p != null || value != null) && name == "interactID" && HasMixin(op.Model, Interact.Mixin))
             {
                 // the interact object row of an added interact object: another row, never none
                 if (index != null) throw new ModKitException("the property interactID is a plain value; leave the index out");
@@ -934,12 +956,13 @@ namespace MS2.ModKit
             }
             if (p != null && p.Items.Count > 0 && (index == null) != (p.Items[0].Index == null))
                 throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
+            long oldSum = name == "NpcList" ? NpcListSum(op) : -1;
             if (value == null)
             {
                 if (p == null) return;
                 p.Items.RemoveAll(delegate (XSet s) { return s.Index == index; });
                 if (p.Items.Count == 0) { op.Props.Remove(p); if (op.Order != null) op.Order.Remove(name); }
-                if (name == "NpcList") NpcCountInStep(op);
+                if (name == "NpcList") NpcCountInStep(op, oldSum);
                 return;
             }
             if (p == null)
@@ -949,23 +972,37 @@ namespace MS2.ModKit
             }
             int at = p.Items.FindIndex(delegate (XSet s) { return s.Index == index; });
             if (at >= 0) p.Items[at] = new XSet(index, value); else p.Items.Add(new XSet(index, value));
-            if (name == "NpcList") NpcCountInStep(op);
+            if (name == "NpcList") NpcCountInStep(op, oldSum);
         }
 
-        /// <summary>NpcCount of an added NPC spawn point is the sum of its NpcList counts (when it has one and they are numbers).</summary>
-        static void NpcCountInStep(MapEntityOp op)
+        /// <summary>
+        /// NpcCount of an added NPC spawn point follows the sum of its NpcList counts: it is rewritten after an NpcList edit
+        /// only when it was that sum before the edit (<paramref name="oldSum"/>), so a count set by hand (to spawn fewer
+        /// than the list holds) stays. With the whole list unset the sum is 0.
+        /// </summary>
+        static void NpcCountInStep(MapEntityOp op, long oldSum)
+        {
+            int at = op.Props.FindIndex(delegate (XProp x) { return x.Name == "NpcCount"; });
+            if (op.Kind != MapOpKind.Add || at < 0 || !op.Props[at].Scalar || oldSum < 0) return;
+            long count;
+            if (!long.TryParse(op.Props[at].Items[0].Value, NumberStyles.None, CultureInfo.InvariantCulture, out count) || count != oldSum) return;
+            long sum = NpcListSum(op);
+            if (sum < 0 || sum > int.MaxValue) return;
+            op.Props[at] = new XProp("NpcCount", D(sum));
+        }
+
+        /// <summary>The sum of the NpcList counts (0 without a list; -1 when one is not a number).</summary>
+        static long NpcListSum(MapEntityOp op)
         {
             XProp list = op.Props.Find(delegate (XProp x) { return x.Name == "NpcList"; });
-            int at = op.Props.FindIndex(delegate (XProp x) { return x.Name == "NpcCount"; });
-            if (op.Kind != MapOpKind.Add || list == null || at < 0 || !op.Props[at].Scalar) return;
             long sum = 0, v;
-            foreach (XSet s in list.Items)
-            {
-                if (!long.TryParse(s.Value, NumberStyles.None, CultureInfo.InvariantCulture, out v)) return;
-                sum += v;
-            }
-            if (sum > int.MaxValue) return;
-            op.Props[at] = new XProp("NpcCount", D(sum));
+            if (list != null)
+                foreach (XSet s in list.Items)
+                {
+                    if (!long.TryParse(s.Value, NumberStyles.None, CultureInfo.InvariantCulture, out v)) return -1;
+                    sum += v;
+                }
+            return sum;
         }
 
         /// <summary>The per-map numbers: an added entity that has one keeps it (it can be changed, not unset).</summary>

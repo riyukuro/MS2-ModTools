@@ -1246,7 +1246,8 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   the next free `SpawnPointID` and a trigger box the next free `TriggerObjectID` of the mod range (see
   [Reserved numbers](#reserved-numbers)). The model must have the kind's mixin. The entity is written as a plain
   `<add>`, listed as `new` and edited, removed and planned like the added spawn points and portals. On an NPC
-  spawn point `NpcCount` follows the sum of the `NpcList` values when they change; an interact object's
+  spawn point `NpcCount` follows the sum of the `NpcList` values when they change, as long as it was that sum (a
+  count set by hand, to spawn fewer than the list holds, stays); an interact object's
   `interactID` can be changed but not unset; a trigger box's size is three numbers from 0.001 to 1000000.
 
   ![The Maps view's Add other... dialog adding an NPC spawn point on a made-up data set](../../docs/shots/maps-add.png)

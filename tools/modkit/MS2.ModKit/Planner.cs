@@ -634,7 +634,7 @@ namespace MS2.ModKit
                     if (st.DeletedBy != mod) st.DeleteLeftOut.Add(mod);
                     return;
                 }
-                if (!st.Existed && st.Base == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "cannot delete the entry, the archive has none of that name (mod.xml line " + op.Line + ")"); return; }
+                if (!st.Existed && st.Base == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "cannot delete the entry, the archive has none of that name (" + ModLine.Of(op.Line) + ")"); return; }
                 if (st.BaseMod == mod) { plan.Msg(plan.Conflicts, mod, op.Archive, st.Name, "deletes the entry that the same mod " + (st.Existed ? "replaces" : "adds")); return; }
                 if (st.BaseMod != null)
                 {
@@ -663,7 +663,7 @@ namespace MS2.ModKit
                 if (mod.Dir == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": the mod has no folder"); return; }
                 string full = Mod.PathIn(mod.Dir, op.File);
                 if (full == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\" is outside of the mod folder"); return; }
-                if (!File.Exists(full)) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": no such file in the mod folder (mod.xml line " + op.Line + ")"); return; }
+                if (!File.Exists(full)) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "file=\"" + op.File + "\": no such file in the mod folder (" + ModLine.Of(op.Line) + ")"); return; }
                 bytes = File.ReadAllBytes(full);
                 from = "file " + op.File;
                 if (run.Mirror != null) bytes = MirrorStrip(run, mod, op.Archive, op.Name, bytes);
@@ -671,7 +671,7 @@ namespace MS2.ModKit
             else
             {
                 M2dEntry src = arch.Find(op.Copy);
-                if (src == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "copy=\"" + op.Copy + "\": the archive has no such entry (mod.xml line " + op.Line + ")"); return; }
+                if (src == null) { plan.Msg(plan.Errors, mod, op.Archive, op.Name, "copy=\"" + op.Copy + "\": the archive has no such entry (" + ModLine.Of(op.Line) + ")"); return; }
                 bytes = arch.Read(src);
                 from = "copy of " + src.Name;
             }
@@ -775,7 +775,7 @@ namespace MS2.ModKit
             if ((st.DeletedBy != null || st.DeleteLeftOut.Contains(mod)) && DeletedEntryStays(run, mod, st, "edits an entry that " + Who(st.DeleteLeftOut.Contains(mod) ? mod : st.DeletedBy, mod) + " deletes")) return;
             if (st.Base == null)
             {
-                plan.Msg(plan.Errors, mod, op.Archive, op.Entry, "the archive has no such entry (mod.xml line " + op.Line + ")" + Suggest(arch, op.Entry));
+                plan.Msg(plan.Errors, mod, op.Archive, op.Entry, "the archive has no such entry (" + ModLine.Of(op.Line) + ")" + Suggest(arch, op.Entry));
                 return;
             }
             if (run.Mirror == null) LintLater(st, mod);
@@ -817,7 +817,7 @@ namespace MS2.ModKit
                     string msg = x.Message;
                     string label = st.Doc.Label + ": ";
                     if (msg.StartsWith(label, StringComparison.Ordinal)) msg = msg.Substring(label.Length);
-                    plan.Msg(plan.Errors, mod, op.Archive, st.Name, msg + " (mod.xml line " + r.Line + ")");
+                    plan.Msg(plan.Errors, mod, op.Archive, st.Name, msg + " (" + ModLine.Of(r.Line) + ")");
                 }
             }
         }
