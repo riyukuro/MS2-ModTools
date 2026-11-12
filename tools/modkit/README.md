@@ -1803,6 +1803,48 @@ the `<change>` carries the new number as `iterations="..."`. Things a mod cannot
 entity, the same properties in another order, another file layout. A new spawn point comes without server rows,
 because a map file does not hold them: add its `<row .../>` lines by hand.
 
+## Sound and music
+
+The **MS2 Sound** view (menu **MS2 Mods > Sound**) shows the client's audio. It is read-only for now: there is no
+playback and no editing. The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
+folder:
+
+- `MS2Sound.fev` is the FMOD Ex event project. The client loads it at start, and it names the banks.
+- `MS2Sound_*.fsb` are the sound banks (FSB5, MPEG). Each sample in a bank has a name. Music is in `BGM`, `BGM2`,
+  `BGM3` and `BGM4`. Effects, voices and the rest are in the other banks.
+
+The view finds the folder at `MS2_SOUND_DATA` when that is set. Otherwise it looks for `Sound` or `Data/Sound` in the
+kms client data folder of the MS2 Tables view's settings.
+
+- **Music cues** lists the music cues of the project (id and name), plus any cue id that a map plays but the
+  project lacks. A map with such a cue plays nothing. The find box takes a part of a cue's id or name, or a map id;
+  a map id lists the cues that map plays. Select a cue to see every `<bgm>` row that plays it, with these columns:
+  - map: the map's id;
+  - name: the map's name;
+  - plays: `normal` for the `id` attribute, `boss` for `boss` (played in a boss fight);
+  - param, value: the event parameter set with the cue;
+  - side: where the row is. The kms client keeps it in `table/fielddata.xml`; the server and the global client keep
+    it in `map/<id>.xml`.
+
+  The rows are read as the mod being edited leaves them, as long as the mod replaces the whole file. Row edits to
+  `fielddata.xml` are not applied here.
+- **Banks** lists the bank files with their sample counts and sizes. Select a bank to see its samples: name, length
+  in seconds, channels, rate, bytes and whether it loops. A bank whose header hash is not in the project is flagged,
+  because the client is not expected to load it.
+
+What a mod can do with sound today:
+
+- **Point a map at another cue.** This is an XML edit of the map's `<bgm>` row on every side. For now the mod has to
+  replace the file with an `<entry>`. No view edits the row yet, and none has a cue pick.
+- **Replace a track.** This means rebuilding the bank with a sample swapped and the bank's header hash kept.
+  The mod kit cannot do it yet.
+- **Add a track.** This needs a new cue in the project's music data. That takes a writer for the `.fev` format, which
+  the mod kit does not have.
+
+Game audio never goes into a mod's repository or into these tests. The tests build made-up banks and projects byte
+by byte. `MS2_SOUND_DATA=<your Sound folder> dotnet test --filter Name=RealSoundFolder` checks that every bank in your
+folder reads and that its hash is in the project.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
