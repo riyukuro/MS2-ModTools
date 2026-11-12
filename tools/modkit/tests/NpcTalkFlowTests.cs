@@ -58,6 +58,22 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void ANewStepId_KeepsTheIdClass()
+        {
+            using (var f = new FakeTalks())
+            {
+                var ed = new TalkEditor(f.Data, NewMod());
+                NpcTalk t = ed.Open(90000001);
+                Assert.That(TalkEditor.NextStepId(t, 11), Is.EqualTo(12));
+                Assert.That(TalkEditor.NextStepId(t, 0), Is.EqualTo(12));
+                Assert.That(TalkEditor.NextStepId(t, 150), Is.EqualTo(100));
+                Assert.That(TalkEditor.NextStepId(t, 250), Is.EqualTo(12));
+                t = ed.AddStep(t, "script", "300", null);
+                Assert.That(TalkEditor.NextStepId(t, 301), Is.EqualTo(301));
+            }
+        }
+
+        [Test]
         public void ModNpcIds_AreTheNpcsTheModChangesOnAnyTarget()
         {
             using (var f = new FakeTalks())

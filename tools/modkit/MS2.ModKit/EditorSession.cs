@@ -183,6 +183,15 @@ namespace MS2.ModKit
             return ed;
         }
 
+        /// <summary>The NPC talk editor over the data and the mod being edited (see NpcTalk.cs). Ask again after the mod is replaced.</summary>
+        public TalkEditor Talks()
+        {
+            var ed = new TalkEditor(Data, Mod);
+            // the text ids the other enabled mods reserve are not taken for a new line
+            ed.Others = delegate { return OtherMods(); };
+            return ed;
+        }
+
         /// <summary>
         /// What the last look at the other mods could not read, one line per mod folder: the ids such a mod
         /// reserves are not known, so a new id may clash with it (the plan would say so).

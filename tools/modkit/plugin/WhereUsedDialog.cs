@@ -136,7 +136,7 @@ namespace MS2.Tables
             return v;
         }
 
-        static void Jump(UseHit h, long named)
+        internal static void Jump(UseHit h, long named)
         {
             switch (h.Kind)
             {

@@ -151,6 +151,21 @@ namespace MS2.ModKit
             });
         }
 
+        /// <summary>
+        /// The next step id no step of the talk has (on any side), in the id class of near: the client picks other
+        /// buttons for ids of 300 and more, of 100 to 199 and the rest, so a new step keeps the class (10 to 99 for
+        /// the rest). -1 when the class is full.
+        /// </summary>
+        public static long NextStepId(NpcTalk t, long near)
+        {
+            long from = near >= 300 ? 300 : near >= 100 && near < 200 ? 100 : 10, to = near >= 300 ? long.MaxValue : near >= 100 && near < 200 ? 199 : 99;
+            var used = new HashSet<long>();
+            foreach (TalkSide s in t.Sides)
+                foreach (TalkStep st in s.Steps) { long id; if (TryId(st.Id, out id)) used.Add(id); }
+            for (long id = from; id <= to; id++) if (!used.Contains(id)) return id;
+            return -1;
+        }
+
         /// <summary>The first line a step says in a language: its first content's text; "" when it has none.</summary>
         public string FirstLine(long npc, TalkStep s, string language)
         {
