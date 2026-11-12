@@ -30,38 +30,45 @@ namespace MS2.ModKit.Tests
                 Ch("smps", Ch("smph", new byte[] { 0 }, I(1)), Ch("smp ", I(name.Length), name, I(index))));
         }
 
-        static byte[] Link(int id, int to, byte[] cond) { return Ch("lnk ", Ch("lnkd", I(id), I(to), I(4)), Ch("cond", cond)); }
+        static byte[] Link(int id, int to, byte[] cond, int kind = 4) { return Ch("lnk ", Ch("lnkd", I(id), I(to), I(kind)), Ch("cond", cond)); }
 
-        static byte[] Theme(int id, int start, int fade)
+        public static byte[] Theme(int id, int start, int fade)
         {
             return Ch("thm ", Ch("thmd", I(id), new byte[] { 0, 2, 0, 0, 0, 0, 0 }, H(fade), new byte[4], H(1), I(start)), Ch("cond"));
         }
 
-        public static byte[] Comp()
+        /// <summary>The music chunk; <paramref name="edit"/> may give a top-level chunk other bytes (null: as it is).</summary>
+        public static byte[] Comp(Func<string, byte[]> edit = null)
         {
             byte[] names = A("Title\0Field\0");
-            return Ch("comp",
-                Ch("sett", F(0.5f), F(1f)),
-                Ch("cues", Ch("entl", H(2), H(names.Length), I(7), I(8), names)),
-                Ch("prms", Ch("prmh", H(1)), Ch("prmd", I(5)), Ch("entl", H(1), H(5), I(5), A("Loop\0"))),
-                Ch("lnks", Ch("lnkh", H(3)),
-                    Link(10, 4, Ch("cprm", H(0), I(5), I(0), F(10f), H(0))), Link(11, 4, new byte[0]), Link(12, 5, new byte[0]),
-                    Ch("lfsh", H(3)), Ch("lfsd", I(3), H(1), I(10)), Ch("lfsd", I(4), H(1), I(11)), Ch("lfsd", I(5), H(1), I(12))),
-                Ch("tlns", Ch("tlnh", H(1)), Ch("tlnd", I(2))),
-                Ch("sgms", Ch("sgmh", H(3)),
+            var parts = new List<KeyValuePair<string, byte[]>>
+            {
+                Kv("sett", Ch("sett", F(0.5f), F(1f))),
+                Kv("cues", Ch("cues", Ch("entl", H(2), H(names.Length), I(7), I(8), names))),
+                Kv("prms", Ch("prms", Ch("prmh", H(1)), Ch("prmd", I(5)), Ch("entl", H(1), H(5), I(5), A("Loop\0")))),
+                // the loop link of cue 7 is of kind 6, so a copied kind shows
+                Kv("lnks", Ch("lnks", Ch("lnkh", H(3)),
+                    Link(10, 4, Ch("cprm", H(0), I(5), I(0), F(10f), H(0))), Link(11, 4, new byte[0], 6), Link(12, 5, new byte[0]),
+                    Ch("lfsh", H(3)), Ch("lfsd", I(3), H(1), I(10)), Ch("lfsd", I(4), H(1), I(11)), Ch("lfsd", I(5), H(1), I(12)))),
+                Kv("tlns", Ch("tlns", Ch("tlnh", H(1)), Ch("tlnd", I(2)))),
+                Kv("sgms", Ch("sgms", Ch("sgmh", H(3)),
                     Seg(3, 1, 120, 5, "MS2Sound_Fake", 1), Seg(4, 1, 120, 60, "MS2Sound_Fake", 0), Seg(5, 2, 90, 30, "MS2Sound_Other", 2),
-                    Ch("smpf", Ch("str ", I(1), I(0), I(6), A("a.wav\0")), Ch("smpm", I(1), I(3), I(0), I(0)))),
-                Ch("thms", Ch("thmh", H(2)), Theme(1, 3, 2000), Theme(2, 5, 1000)),
-                Ch("scns", Ch("scnh", H(1)), Ch("scnd", I(1), H(2), I(7), I(1), I(8), I(2))));
+                    Ch("smpf", Ch("str ", I(2), I(0), I(6), I(12), A("a.wav\0b.wav\0")), Ch("smpm", I(2), I(3), I(0), I(0), I(4), I(0), I(1))))),
+                Kv("thms", Ch("thms", Ch("thmh", H(2)), Theme(1, 3, 2000), Theme(2, 5, 1000))),
+                Kv("scns", Ch("scns", Ch("scnh", H(1)), Ch("scnd", I(1), H(2), I(7), I(1), I(8), I(2)))),
+            };
+            return Ch("comp", parts.Select(p => (edit == null ? null : edit(p.Key)) ?? p.Value).ToArray());
         }
+
+        static KeyValuePair<string, byte[]> Kv(string k, byte[] v) { return new KeyValuePair<string, byte[]>(k, v); }
 
         public static readonly byte[] After = Encoding.ASCII.GetBytes("after the music");
 
         /// <summary>The project around a comp chunk; <paramref name="odd"/> gives the legacy chunk an odd length.</summary>
-        public static byte[] Project(bool odd = false)
+        public static byte[] Project(bool odd = false, byte[] comp = null, bool after = true)
         {
-            byte[] lgcy = Cat(I(0x0b1750), new byte[odd ? 3 : 4], Comp());
-            byte[] proj = Cat(A("PROJ"), Riff("OBCT", new byte[12]), Riff("PROP", A("MS2Sound\0")), Riff("LGCY", lgcy), Riff("EPRP", After));
+            byte[] lgcy = Cat(I(0x0b1750), new byte[odd ? 3 : 4], comp ?? Comp());
+            byte[] proj = Cat(A("PROJ"), Riff("OBCT", new byte[12]), Riff("PROP", A("MS2Sound\0")), Riff("LGCY", lgcy), after ? Riff("EPRP", After) : new byte[0]);
             byte[] body = Cat(A("FEV "), Riff("FMT ", I(0x450000)), Riff("LIST", proj));
             return Cat(A("RIFF"), I(body.Length), body);
         }
@@ -104,7 +111,7 @@ namespace MS2.ModKit.Tests
             byte[] d = FakeMusic.Project(odd);
             MusicGraph g = MusicGraph.Read(d, "x");
             MusicSample intro = introIndex == null ? null : new MusicSample { Bank = "MS2Sound_Fake", Index = introIndex.Value };
-            int cue = g.AddCue("My Tune", intro, new MusicSample { Bank = "MS2Sound_Fake", Index = 2 }, 4.5f, 33f, 7);
+            int cue = g.AddCue(0, "My Tune", intro, new MusicSample { Bank = "MS2Sound_Fake", Index = 2 }, 4.5f, 33f, 7);
             Assert.That(cue, Is.EqualTo(9));
             byte[] b = g.Bytes();
 
@@ -118,6 +125,10 @@ namespace MS2.ModKit.Tests
             Assert.That(p.Last().Seconds, Is.EqualTo(33f));
             Assert.That(p.Last().Bpm, Is.EqualTo(120f), "settings from the model cue's loop");
             Assert.That(p.All(s => s.Id > 5 && s.Theme == 3), Is.True, "new ids, past the highest");
+            Assert.That(p.SelectMany(s => s.NextKind), Is.All.EqualTo(6), "the link kind is the model loop's");
+            Assert.That(p.Select(s => s.Source), Is.EqualTo(introIndex == null ? new[] { "My Tune_loop" } : new[] { "My Tune_intro", "My Tune_loop" }), "a source file row per new segment");
+            Assert.That(r.Segments[3].Source, Is.EqualTo("a.wav"));
+            Assert.That(r.Segments[4].Source, Is.EqualTo("b.wav"));
             Assert.That(r.Play(7).Select(s => s.Id), Is.EqualTo(new[] { 3, 4 }), "the other cues play as before");
             Assert.That(r.Play(8).Select(s => s.Id), Is.EqualTo(new[] { 5 }));
 
@@ -135,10 +146,108 @@ namespace MS2.ModKit.Tests
         {
             MusicGraph g = MusicGraph.Read(FakeMusic.Project(), "x");
             var s = new MusicSample { Bank = "MS2Sound_Fake", Index = 0 };
-            Assert.That(() => g.AddCue("Title", null, s, 0, 1, 7), Throws.TypeOf<ModKitException>().With.Message.Contains("named Title already"));
-            Assert.That(() => g.AddCue("", null, s, 0, 1, 7), Throws.TypeOf<ModKitException>());
-            Assert.That(() => g.AddCue("New", null, null, 0, 1, 7), Throws.TypeOf<ModKitException>());
-            Assert.That(() => g.AddCue("New", null, s, 0, 1, 99), Throws.TypeOf<ModKitException>().With.Message.Contains("cue 99 plays nothing"));
+            Assert.That(() => g.AddCue(0, "Title", null, s, 0, 1, 7), Throws.TypeOf<ModKitException>().With.Message.Contains("named Title already"));
+            Assert.That(() => g.AddCue(0, "", null, s, 0, 1, 7), Throws.TypeOf<ModKitException>());
+            Assert.That(() => g.AddCue(0, "New", null, null, 0, 1, 7), Throws.TypeOf<ModKitException>());
+            Assert.That(() => g.AddCue(0, "New", null, s, 0, 1, 99), Throws.TypeOf<ModKitException>().With.Message.Contains("cue 99 plays nothing"));
+            Assert.That(() => g.AddCue(8, "New", null, s, 0, 1, 7), Throws.TypeOf<ModKitException>().With.Message.Contains("cue 8 already"));
+            Assert.That(g.Bytes(), Is.EqualTo(FakeMusic.Project()));
+        }
+
+        [Test]
+        public void AddCue_TakesTheIdItIsGiven()
+        {
+            MusicGraph g = MusicGraph.Read(FakeMusic.Project(), "x");
+            int cue = g.AddCue(5000, "Mine", null, new MusicSample { Bank = "MS2Sound_Fake", Index = 1 }, 0, 9, 8);
+            Assert.That(cue, Is.EqualTo(5000));
+            MusicGraph r = MusicGraph.Read(g.Bytes(), "x");
+            Assert.That(r.Play(5000).Single().Samples.Single().Index, Is.EqualTo(1));
+            Assert.That(r.Play(5000).Single().NextKind, Is.EqualTo(new[] { 4 }), "cue 8's loop link is of kind 4");
+            Assert.That(r.MaxCue, Is.EqualTo(5000));
+        }
+
+        [Test]
+        public void AddCue_ThatFailsHalfWay_LeavesTheGraphAsItWas()
+        {
+            // no thmh: the cue list and the scene are already changed when the theme count is not found
+            byte[] d = FakeMusic.Project(comp: FakeMusic.Comp(t => t != "thms" ? null : FakeMusic.Ch("thms",
+                FakeMusic.Theme(1, 3, 2000),
+                FakeMusic.Theme(2, 5, 1000))));
+            MusicGraph g = MusicGraph.Read(d, "x");
+            Assert.That(g.Play(7).Count, Is.EqualTo(2));
+            Assert.That(() => g.AddCue(0, "New", null, new MusicSample { Bank = "MS2Sound_Fake", Index = 0 }, 0, 1, 7), Throws.TypeOf<ModKitException>().With.Message.Contains("thmh"));
+            Assert.That(g.Bytes(), Is.EqualTo(d), "nothing was written into the graph");
+            Assert.That(g.Cues.Keys, Is.EquivalentTo(new[] { 7, 8 }));
+            Assert.That(g.ThemeOf.Count, Is.EqualTo(2));
+        }
+
+        static readonly string[] EmptyContainers = { "cues", "lnks", "sgms", "thms", "scns" };
+
+        [TestCaseSource(nameof(EmptyContainers))]
+        public void Read_AnEmptyContainer_IsReadOrAModKitException(string tag)
+        {
+            // an empty list is no error by itself; nothing may come out but a ModKitException
+            byte[] d = FakeMusic.Project(comp: FakeMusic.Comp(t => t == tag ? FakeMusic.Ch(tag) : null));
+            MusicGraph g = null;
+            try { g = MusicGraph.Read(d, "x"); }
+            catch (ModKitException) { return; }
+            Assert.That(g.Play(7).Count, Is.LessThan(2));
+            Assert.That(() => g.AddCue(0, "New", null, new MusicSample { Bank = "MS2Sound_Fake", Index = 0 }, 0, 1, 7), Throws.TypeOf<ModKitException>());
+        }
+
+        static readonly object[] ShortHeads =
+        {
+            new object[] { "cues", FakeMusic.Ch("cues", FakeMusic.Ch("entl", new byte[2])) },
+            new object[] { "scns", FakeMusic.Ch("scns", FakeMusic.Ch("scnh", new byte[2]), FakeMusic.Ch("scnd", new byte[4])) },
+            new object[] { "lnks", FakeMusic.Ch("lnks", FakeMusic.Ch("lnkh", new byte[2]), FakeMusic.Ch("lnk ", FakeMusic.Ch("lnkd", new byte[6]), FakeMusic.Ch("cond"))) },
+            new object[] { "lnks", FakeMusic.Ch("lnks", FakeMusic.Ch("lnkh", new byte[2]), FakeMusic.Ch("lfsd", new byte[4])) },
+            new object[] { "sgms", FakeMusic.Ch("sgms", FakeMusic.Ch("sgmh", new byte[2]), FakeMusic.Ch("sgmd", new byte[26])) },
+            new object[] { "sgms", FakeMusic.Ch("sgms", FakeMusic.Ch("sgmh", new byte[2]), FakeMusic.Ch("smpf", FakeMusic.Ch("str ", BitConverter.GetBytes(9)), FakeMusic.Ch("smpm", new byte[4]))) },
+        };
+
+        [TestCaseSource(nameof(ShortHeads))]
+        public void Read_AChunkCutShort_IsAModKitException(string tag, byte[] chunk)
+        {
+            byte[] d = FakeMusic.Project(comp: FakeMusic.Comp(t => t == tag ? chunk : null));
+            Assert.That(() => MusicGraph.Read(d, "x"), Throws.TypeOf<ModKitException>());
+        }
+
+        [Test]
+        public void AddCue_ACountOfTheWrongSize_IsAModKitException()
+        {
+            // a thmh of one byte is read (Read does not need it), but AddCue cannot count it up
+            MusicGraph g = MusicGraph.Read(FakeMusic.Project(comp: FakeMusic.Comp(t => t != "thms" ? null
+                : FakeMusic.Ch("thms", FakeMusic.Ch("thmh", new byte[1]), FakeMusic.Theme(1, 3, 2000), FakeMusic.Theme(2, 5, 1000)))), "x");
+            Assert.That(() => g.AddCue(0, "New", null, new MusicSample { Bank = "MS2Sound_Fake", Index = 0 }, 0, 1, 7), Throws.TypeOf<ModKitException>());
+            // an empty container the graph does not use is read
+            Assert.That(MusicGraph.Read(FakeMusic.Project(comp: FakeMusic.Comp(t => t != "tlns" ? null : FakeMusic.Ch("tlns"))), "x").Cues.Count, Is.EqualTo(2));
+        }
+
+        [Test]
+        public void Read_ChunksNestedTooDeep_IsAModKitException()
+        {
+            // 2000 cond chunks in one another inside lnks: not deep enough to overflow the stack, deep enough for the cap
+            var nest = new MemoryStream();
+            const int depth = 2000;
+            for (int i = 0; i < depth; i++) { nest.Write(BitConverter.GetBytes(8 * (depth - i)), 0, 4); nest.Write(Encoding.ASCII.GetBytes("cond"), 0, 4); }
+            byte[] deep = nest.ToArray();
+            byte[] d = FakeMusic.Project(comp: FakeMusic.Comp(t => t != "tlns" ? null : FakeMusic.Ch("tlns", deep)));
+            Assert.That(() => MusicGraph.Read(d, "x"), Throws.TypeOf<ModKitException>().With.Message.Contains("nest"));
+        }
+
+        [Test]
+        public void Read_AnOddLastChunkWithoutItsPadByte_IsAModKitException()
+        {
+            byte[] d = FakeMusic.Project(odd: true, after: false);
+            if (BitConverter.ToInt32(d, 78) % 2 == 0) d = FakeMusic.Project(odd: false, after: false);
+            Assert.That(Encoding.ASCII.GetString(d, 74, 4), Is.EqualTo("LGCY"));
+            Assert.That(BitConverter.ToInt32(d, 78) % 2, Is.EqualTo(1), "LGCY of an odd length, the last chunk");
+            Assert.That(MusicGraph.Read(d, "x").Bytes(), Is.EqualTo(d), "with the pad byte it reads");
+            byte[] e = d.Take(d.Length - 1).ToArray();
+            Buffer.BlockCopy(BitConverter.GetBytes(e.Length - 8), 0, e, 4, 4);
+            Buffer.BlockCopy(BitConverter.GetBytes(BitConverter.ToInt32(d, 28) - 1), 0, e, 28, 4);
+            Assert.That(Encoding.ASCII.GetString(e, 24, 4), Is.EqualTo("LIST"));
+            Assert.That(() => MusicGraph.Read(e, "x"), Throws.TypeOf<ModKitException>().With.Message.Contains("pad"));
         }
 
         [Test]
@@ -196,8 +305,12 @@ namespace MS2.ModKit.Tests
             Assert.That(g.Cues.Count, Is.EqualTo(sp.Cues.Count));
             int any = g.Cues.Keys.Count(c => g.Play(c).Count > 0);
             Assert.That(any, Is.EqualTo(g.Cues.Count), "every cue plays a segment");
-            int cue = g.AddCue("ModKit Test", null, g.Play(g.Cues.Keys.First()).Last().Samples[0], 0, 10, g.Cues.Keys.First());
+            int cue = g.AddCue(0, "ModKit Test", null, g.Play(g.Cues.Keys.First()).Last().Samples[0], 0, 10, g.Cues.Keys.First());
             Assert.That(SoundProject.Read(g.Bytes(), path).Cue(cue), Is.Not.Null);
+            MusicGraph r = MusicGraph.Read(g.Bytes(), path);
+            Assert.That(r.Play(cue).Single().Source, Is.EqualTo("ModKit Test_loop"));
+            Assert.That(r.Segments.Values.Count(x => x.Source == null), Is.EqualTo(0), "every segment, the new one too, has a source file row");
+            Assert.That(r.Play(cue).Single().NextKind, Is.EqualTo(g.Play(g.Cues.Keys.First()).Last().NextKind));
         }
     }
 }
