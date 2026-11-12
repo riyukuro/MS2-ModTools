@@ -399,6 +399,39 @@ namespace MS2.ModKit
             return now;
         }
 
+        /// <summary>
+        /// Takes out of the mod the rows and the reservations of the NPC's own text ids that no line of its talk (now,
+        /// on any side) names any more: after a revert, a removed page or choice, or a line set to another text. Rows
+        /// of other ids and of other NPCs stay. The ids dropped, ascending.
+        /// </summary>
+        public List<long> DropUnusedOwnTexts(long npc, NpcTalk now)
+        {
+            var named = new HashSet<long>();
+            if (now != null) foreach (TalkSide s in now.Sides) Walk(s.Root, named);
+            var dropped = new SortedDictionary<long, bool>();
+            foreach (KeyValuePair<string, bool> a in Archives())
+                foreach (TextDoc d in NpcTextDocs(a.Key))
+                {
+                    EditOp ed = EditOf(a.Key, d.Name, false);
+                    if (ed == null) continue;
+                    int before = ed.Rows.Count;
+                    ed.Rows.RemoveAll(delegate(RowOp r)
+                    {
+                        long id = AddedId(r);
+                        if (id < 0 || !InOwnRange(npc, id) || named.Contains(id)) return false;
+                        dropped[id] = true;
+                        return true;
+                    });
+                    if (before > 0 && ed.Rows.Count == 0) Mod.Ops.Remove(ed);
+                }
+            long first = npc * 1000 + 1, last = npc * 1000 + MaxOwnTexts;
+            foreach (IdRange r in Mod.Ids)
+                if (r.Space == TextIdSpace)
+                    for (long v = Math.Max(r.From, first); v <= Math.Min(r.To, last); v++) if (!named.Contains(v)) dropped[v] = true;
+            foreach (long v in dropped.Keys) IdSpaces.Unreserve(Mod, TextIdSpace, v);
+            return new List<long>(dropped.Keys);
+        }
+
         static string NewRowXml(long id, string text)
         {
             return "<key id=\"" + id.ToString(CultureInfo.InvariantCulture) + "\" name=\"" + XmlDoc.EscapeAttr(text ?? "", '"') + "\" />";

@@ -387,6 +387,55 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        [Test]
+        public void TheOwnTextsNoLineNames_LeaveTheMod_OnRemoveSetAndRevert()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                var first = new TalkPath("select 0").Then("content", 0);
+                NpcTalk t = ed.SetText(ed.Open(90000001), Line5, "en", "five", null);
+                t = ed.SetText(t, first, "en", "one", null);
+                ed.SetText(ed.Open(90000002), first, "en", "other npc", null);
+                Assert.That(ed.Text(90000001, 90000001008, "en"), Is.Not.Null);
+                Assert.That(ed.Text(90000001, 90000001009, "en"), Is.Not.Null);
+
+                // a removed line takes its own text along; the other line's text and the other NPC's stay
+                t = ed.Remove(t, Line5, null);
+                Assert.That(ed.Text(90000001, 90000001008, "en"), Is.Null);
+                Assert.That(ed.Text(90000001, 90000001008, "ko"), Is.Null);
+                Assert.That(ed.Text(90000001, 90000001009, "en").Text, Is.EqualTo("one"));
+                Assert.That(ed.Text(90000002, 90000002006, "en").Text, Is.EqualTo("other npc"));
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                foreach (string a in new[] { G, S })
+                {
+                    Assert.That(Fake.Text(p, a, "string/en/scriptnpcfunction.xml"), Does.Not.Contain("90000001008"), a);
+                    Assert.That(Fake.Text(p, a, "string/en/scriptnpcfunction.xml"), Does.Contain("<key id=\"90000001009\" name=\"one\" />"), a);
+                }
+                Assert.That(Fake.Text(p, K, "string/ko/scriptnpc.xml"), Does.Not.Contain("90000001008"));
+                // the freed id is taken again by the next own text
+                t = ed.SetText(t, new TalkPath("script 11").Then("content", 0), "en", "four", null);
+                Assert.That(new TalkPath("script 11").Then("content", 0).Resolve(t.Side(K)).Attr("text"), Is.EqualTo("$script:90000001008$"));
+
+                // a line set to another text by its attribute drops the own one it named
+                t = ed.SetAttr(t, first, "text", "$script:90000001001$", null);
+                Assert.That(ed.Text(90000001, 90000001009, "en"), Is.Null);
+
+                // a revert takes every own text of the NPC and its reservation; the other NPC keeps its own
+                ed.Revert(90000001);
+                Assert.That(ed.Text(90000001, 90000001008, "en"), Is.Null);
+                foreach (IdRange r in m.Ids) Assert.That(r.From > 90000001999 || r.To < 90000001001, Is.True, r.From + "-" + r.To);
+                Assert.That(m.Ids.Count, Is.EqualTo(1));
+                Assert.That(ed.Text(90000002, 90000002006, "en").Text, Is.EqualTo("other npc"));
+                p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Text(p, K, FakeTalks.Combined), Does.Not.Contain("90000001008"));
+                foreach (string a in new[] { G, S }) Assert.That(Fake.Text(p, a, "string/en/scriptnpcfunction.xml") ?? "", Does.Not.Contain("9000000100"), a);
+            }
+        }
+
         static readonly TalkPath Choice = new TalkPath("script 10").Then("content", 0).Then("distractor", 0);
 
         static List<string> Texts(List<PlanMessage> l, string archive)

@@ -423,6 +423,8 @@ namespace MS2.ModKit
                     if (ed.Rows.Count == 0) Mod.Ops.Remove(ed);
                 }
             }
+            // the texts the mod gave the NPC go with its talk
+            DropUnusedOwnTexts(npc, Open(npc));
         }
 
         // ---- edits; each is made on every side where the place is found ----
@@ -562,7 +564,10 @@ namespace MS2.ModKit
             }
             if (made.Count == 0) throw new ModKitException("no target has " + (at == null ? "the talk" : at.ToString()));
             foreach (KeyValuePair<TalkSide, string> m in made) Store(m.Key, t.NpcId, m.Value);
-            return Open(t.NpcId);
+            NpcTalk now = Open(t.NpcId);
+            // a removed line or a line set to another text may leave a text of the NPC's own that nothing names
+            DropUnusedOwnTexts(t.NpcId, now);
+            return now;
         }
     }
 }
