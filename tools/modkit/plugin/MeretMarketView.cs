@@ -44,6 +44,9 @@ namespace MS2.Tables
         readonly TextBox bPriceBox = new TextBox { Width = 70 };
         readonly TextBox bSaleBox = new TextBox { Width = 70, Text = "0" };
         readonly TextBox bDaysBox = new TextBox { Width = 40, Text = "0" };
+        readonly ComboBox bShowField = new ComboBox { Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+        readonly TextBox bShowBox = new TextBox { Width = 160 };
+        static readonly string[] BundleShows = { "banner", "bannerTag", "saleTag", "showSaleTime", "promoName" };
         readonly TextBox newIdBox = new TextBox { Width = 80 };
         readonly TextBox newItemBox = new TextBox { Width = 90 };
         readonly TextBox newTabBox = new TextBox { Width = 50 };
@@ -170,11 +173,22 @@ namespace MS2.Tables
             bundleBar.Controls.Add(Btn("Set bundle", "Sets the chosen bundle's quantity, bonus, price, sale price and days", delegate { EditBundle('s'); }));
             bundleBar.Controls.Add(Btn("Remove bundle", "Removes the chosen bundle (a shipped one: a delete line in the mod)", delegate { EditBundle('r'); }));
 
+            FlowLayoutPanel showBar = Bar();
+            showBar.Dock = DockStyle.Bottom;
+            showBar.Controls.Add(Lbl("Bundle shows"));
+            bShowField.Items.AddRange(BundleShows);
+            bShowField.SelectedIndex = 0;
+            showBar.Controls.Add(bShowField);
+            tips.SetToolTip(bShowField, "The chosen bundle's own banner, tags, sale-time display and promo name (the server reads them from the bundle, not its sale)");
+            showBar.Controls.Add(bShowBox);
+            showBar.Controls.Add(Btn("Set", "Sets the chosen bundle's field to the value", delegate { SetBundleShow(); }));
+
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(fieldList);
             right.Controls.Add(setBar);
             right.Controls.Add(bundleList);
             right.Controls.Add(bundleBar);
+            right.Controls.Add(showBar);
             right.Controls.Add(head);
 
             var split = new SplitContainer { Dock = DockStyle.Fill, Orientation = Orientation.Vertical };
@@ -217,7 +231,9 @@ namespace MS2.Tables
                 ListViewItem it = bundleList.SelectedItems[0];
                 TextBox[] boxes = { bIdBox, bQtyBox, bBonusBox, bPriceBox, bSaleBox, bDaysBox };
                 for (int i = 0; i < boxes.Length; i++) boxes[i].Text = it.SubItems[i].Text;
+                Guard(delegate { ShowBundleShow(); });
             };
+            bShowField.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { ShowBundleShow(); }); };
             VisibleChanged += delegate { if (Visible && !read && TablesView.Open != null) Guard(delegate { ShowTable(); }); };
         }
 
@@ -581,6 +597,31 @@ namespace MS2.Tables
                     Edited("sale " + sale.Id + ": bundle " + id + " removed");
                     return;
             }
+        }
+
+        MeretBundle ChosenBundle(MeretItem sale)
+        {
+            int id;
+            if (!int.TryParse(bIdBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out id)) return null;
+            foreach (MeretBundle b in mm.Bundles(sale)) if (b.Id == id) return b;
+            return null;
+        }
+
+        void ShowBundleShow()
+        {
+            MeretItem sale = mm == null || !read || shown < 0 ? null : mm.Find(shown);
+            MeretBundle b = sale == null ? null : ChosenBundle(sale);
+            bShowBox.Text = b == null ? "" : mm.BundleGet(sale, b, (string)bShowField.SelectedItem) ?? "";
+        }
+
+        void SetBundleShow()
+        {
+            MeretItem sale = Shown();
+            MeretBundle b = ChosenBundle(sale);
+            if (b == null) throw new ModKitException("choose a bundle");
+            string f = (string)bShowField.SelectedItem;
+            bool changed = mm.SetBundle(sale, b.Id, f, bShowBox.Text);
+            Edited("sale " + sale.Id + " bundle " + b.Id + ": " + f + (changed ? " = " + bShowBox.Text.Trim() : " as it was"));
         }
 
         void NewSale(bool copy)

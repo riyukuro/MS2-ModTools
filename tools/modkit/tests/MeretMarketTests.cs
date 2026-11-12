@@ -18,7 +18,7 @@ namespace MS2.ModKit.Tests
         const string Head = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
         const string Jobs = "1,10,20,30,40,50,60,70,80,90,100,110";
 
-        static string ItemRow(int id, int tab, int item, string price, string extra, string end = "")
+        internal static string ItemRow(int id, int tab, int item, string price, string extra, string end = "")
         {
             return "\t<item id=\"" + id + "\" tabID=\"" + tab + "\" banner=\"\" bannerTag=\"0\" itemID=\"" + item + "\" grade=\"1\" quantity=\"1\" bonusQuantity=\"0\" durationDay=\"0\" saleTag=\"0\" paymentType=\"1\" price=\"" + price + "\" salePrice=\"0\" saleStartTime=\"\" saleEndTime=\"" + end + "\" jobRequire=\"" + Jobs + "\" noRestock=\"false\" minLevel=\"0\" maxLevel=\"0\" achieveID=\"0\" achieveGrade=\"0\" pcCafe=\"false\" giftable=\"true\" showSaleTime=\"false\" promoName=\"\" promoSaleStartTime=\"\" promoSaleEndTime=\"\"" + extra;
         }
@@ -121,8 +121,10 @@ namespace MS2.ModKit.Tests
                 var fin = p.Errors.Concat(p.Warnings).Select(x => x.Text).Where(t => t.Contains("Meret Market") && !t.Contains("item 101")).ToList();
                 Assert.That(fin, Is.Empty);
                 // the set line under the row reaches the shipped bundle
-                s.SetBundle(two, 103, "salePrice", "-5");
+                s.SetBundle(two, 103, "salePrice", "0");
+                s.SetBundle(two, 103, "price", "-5");
                 Assert.That(Texts(f.Plan(m).Errors, "Meret Market item 101: bundle 103: the price is below 0"), Has.Count.EqualTo(1));
+                s.SetBundle(two, 103, "price", "5000");
                 s.SetBundle(two, 103, "salePrice", "4000");
                 // a sale the game server leaves out takes its bundles with it
                 s.SetField(two, "itemID", "39999999");
@@ -247,6 +249,113 @@ namespace MS2.ModKit.Tests
                 // rows the mod leaves as shipped are not checked (item 105's two rows, item 104's end before the edit)
                 Assert.That(Texts(p.Errors, "Meret Market item 105"), Is.Empty);
                 Assert.That(Texts(p.Warnings, "Meret Market item 101"), Is.Empty);
+            }
+        }
+
+        static Mod HandMod(string lines)
+        {
+            return Mod.Parse("<mod id=\"shop.hand\" name=\"t\" version=\"1\"><edit archive=\"server:Server.m2d\" entry=\"" + MeretMarket.Entry + "\">" + lines + "</edit></mod>", "hand mod");
+        }
+
+        static string Sale(int id, string attrs, string children = "")
+        {
+            return "<add><xml><item id=\"" + id + "\" tabID=\"21\" itemID=\"39000001\" grade=\"1\" quantity=\"1\" paymentType=\"1\" price=\"10\" jobRequire=\"10\" " + attrs +
+                (children.Length == 0 ? " />" : ">" + children + "</item>") + "</xml></add>";
+        }
+
+        [Test]
+        public void JobListsAsTheIngestReadsThem()
+        {
+            using (var f = new FakeShop())
+            {
+                Plan p = f.Plan(HandMod(
+                    Sale(110, "jobRequire2=\"\"").Replace("jobRequire=\"10\" jobRequire2=\"\"", "jobRequire=\"1,,10\"") +
+                    Sale(111, "").Replace("jobRequire=\"10\"", "jobRequire=\"1, ,10\"") +
+                    Sale(112, "", "<additionalQuantity id=\"113\" quantity=\"1\" price=\"1\" jobRequire=\"15\" />") +
+                    Sale(114, "", "<additionalQuantity id=\"115\" quantity=\"1\" price=\"1\" jobRequire=\"x\" />")));
+                // empty parts are skipped; a part of only spaces is not a number
+                Assert.That(Texts(p.Errors, "Meret Market item 110"), Is.Empty);
+                Assert.That(Texts(p.Errors, "Meret Market item 111: jobRequire part \" \" is not a whole number"), Has.Count.EqualTo(1));
+                // a bundle's jobs are only read as numbers (the sale's are the ones used)
+                Assert.That(Texts(p.Errors, "Meret Market item 112"), Is.Empty);
+                Assert.That(Texts(p.Errors, "Meret Market item 114: bundle 115: jobRequire part \"x\""), Has.Count.EqualTo(1));
+            }
+        }
+
+        [Test]
+        public void ValuesAreCheckedAsWritten()
+        {
+            using (var f = new FakeShop())
+            {
+                Plan p = f.Plan(HandMod(
+                    Sale(110, "quantity2=\"\"").Replace("price=\"10\" ", "price=\" \" ").Replace(" quantity2=\"\"", " giftable=\" \" minLevel=\" 5 \" pcCafe=\" true \"") +
+                    Sale(111, "saleEndTime=\" 2099-01-01-00-00-00\"") +
+                    Sale(112, "saleEndTime=\"2099-01-01-00-00-00\"", "<additionalQuantity id=\"113\" quantity=\"1\" price=\"1\" saleEndTime=\"bad\" saleStartTime=\"2001-01-01-00-00-00 \" />")));
+                Assert.That(Texts(p.Errors, "Meret Market item 110: price \" \" is only spaces"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "Meret Market item 110: giftable \" \" is only spaces"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "Meret Market item 110: minLevel"), Is.Empty);
+                Assert.That(Texts(p.Errors, "Meret Market item 110: pcCafe"), Is.Empty);
+                Assert.That(Texts(p.Errors, "Meret Market item 111: saleEndTime \" 2099-01-01-00-00-00\" is not a time"), Has.Count.EqualTo(1));
+                // a bundle's time is read only when its sale's is empty
+                Assert.That(Texts(p.Errors, "Meret Market item 112: bundle 113: saleEndTime"), Is.Empty);
+                Assert.That(Texts(p.Errors, "Meret Market item 112: bundle 113: saleStartTime \"2001-01-01-00-00-00 \" is not a time"), Has.Count.EqualTo(1));
+            }
+        }
+
+        [Test]
+        public void TheGameSellsAtTheSalePriceOnlyAboveZero()
+        {
+            using (var f = new FakeShop())
+            {
+                Plan p = f.Plan(HandMod(
+                    Sale(110, "salePrice=\"-5\"", "<additionalQuantity id=\"111\" quantity=\"1\" price=\"3\" salePrice=\"-2\" />") +
+                    Sale(112, "salePrice=\"0\"").Replace("price=\"10\" ", "price=\"-1\" ") +
+                    Sale(113, "salePrice=\"4\"").Replace("price=\"10\" ", "price=\"-1\" ")));
+                Assert.That(Texts(p.Errors, "Meret Market item 110"), Is.Empty);
+                Assert.That(Texts(p.Errors, "Meret Market item 112: the price is below 0"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "Meret Market item 113"), Is.Empty);
+            }
+        }
+
+        [Test]
+        public void DuplicateIdsAsTheIngestReadsThem()
+        {
+            using (var f = new FakeShop())
+            {
+                // " 0101" reads as 101; an add that copies shipped row 100 as it is still adds a second id 100
+                string copy = FakeShop.ItemRow(100, 21, 39000001, "50", " />").Trim();
+                Plan p = f.Plan(HandMod(Sale(120, "").Replace("id=\"120\"", "id=\" 0101\"") + "<add><xml>" + copy + "</xml></add>" + Sale(121, "", "<additionalQuantity id=\"+102\" quantity=\"1\" price=\"1\" />")));
+                Assert.That(Texts(p.Errors, "Meret Market item 0101: id 0101 is used by 2 rows"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "Meret Market item 100: id 100 is used by 2 rows"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "Meret Market item 121: bundle +102: id +102 is used by 2 rows"), Has.Count.EqualTo(1));
+                // the shipped rows of id 105 stay as shipped
+                Assert.That(Texts(p.Errors, "Meret Market item 105"), Is.Empty);
+            }
+        }
+
+        [Test]
+        public void BundlesEditTheirOwnShowFields()
+        {
+            using (var f = new FakeShop())
+            {
+                Mod m = FakeShop.NewMod();
+                var s = new MeretMarket(f.Data, m);
+                MeretItem two = s.Find(101);
+                Assert.That(s.SetBundle(two, 103, "bannerTag", "2"), Is.True);
+                Assert.That(s.SetBundle(two, 103, "saleTag", "4"), Is.True);
+                Assert.That(s.SetBundle(two, 103, "promoName", "Spring"), Is.True);
+                Assert.That(s.SetBundle(two, 103, "showSaleTime", "true"), Is.True);
+                Assert.That(s.SetBundle(two, 103, "banner", "b.png"), Is.True);
+                Assert.Throws<ModKitException>(() => s.SetBundle(two, 103, "showSaleTime", "yes"));
+                Assert.Throws<ModKitException>(() => s.SetBundle(two, 103, "saleEndTime", "2099-01-01-00-00-00"));
+                var back = new MeretMarket(f.Data, Mod.Parse(m.ToXml(), "round trip"));
+                MeretItem b = back.Find(101);
+                Assert.That(back.BundleGet(b, back.Bundles(b)[1], "saleTag"), Is.EqualTo("4"));
+                Assert.That(back.BundleGet(b, back.Bundles(b)[1], "promoName"), Is.EqualTo("Spring"));
+                Plan p = f.Plan(m);
+                Assert.That(Texts(p.Errors, "Meret Market item 101"), Is.Empty);
+                s.SetBundle(two, 103, "saleTag", "9");
+                Assert.That(Texts(f.Plan(m).Warnings, "Meret Market item 101: bundle 103: saleTag 9 is not 0 to 5"), Has.Count.EqualTo(1));
             }
         }
 

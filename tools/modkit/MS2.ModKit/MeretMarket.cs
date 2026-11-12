@@ -15,11 +15,15 @@
 // - jobRequire: the job codes that may buy, a comma list (empty: nobody); minLevel, maxLevel (0: no limit);
 //   achieveID (above 0: a player who has that trophy may not buy), achieveGrade, noRestock, pcCafe, giftable.
 // - <additionalQuantity id quantity bonusQuantity price salePrice /> children: bundles of the same item (more of it
-//   for another price). A bundle takes its item's tab, item, grade, payment, jobs, levels and sale times; it has its
-//   own id, quantity, bonusQuantity, price, salePrice and durationDay.
+//   for another price). A bundle takes its item's tab, item, grade, payment, jobs, levels, restock, trophy, pcCafe and
+//   giftable; it has its own id, quantity, bonusQuantity, price, salePrice, durationDay, banner, bannerTag, saleTag,
+//   showSaleTime and promoName. Its sale and promo times are its item's, or its own only when the item's are empty.
 //
-// The ingest reads the attributes as numbers and booleans (true/false/1/0): a value it cannot read stops it, as do a
-// job code that is not a job and a time that is not yyyy-MM-dd-HH-mm-ss. An empty attribute reads as 0 (or no limit).
+// The ingest reads every attribute of a row and of a bundle as a number or a boolean (true/false/1/0) as written: a
+// number may have spaces around it, a time may not, and a value of only spaces is not a number or a boolean. A value it
+// cannot read stops it, as do a job code of an item that is not a job and a time it uses that is not
+// yyyy-MM-dd-HH-mm-ss (a bundle's job codes are only read as numbers). An exactly empty attribute reads as 0 (or no
+// limit); empty parts of a job list are skipped.
 // The edits refuse such values; the plan's checks (PlannerMeret.cs) catch them in rows edited by hand.
 //
 // A shipped item is edited with a <change> of its row (item[id=N]) with set attributes; a shipped bundle's attributes
@@ -92,7 +96,9 @@ namespace MS2.ModKit
         public static readonly string[] Fields = ("id tabID banner bannerTag itemID grade quantity bonusQuantity durationDay saleTag paymentType price salePrice " +
             "saleStartTime saleEndTime jobRequire noRestock minLevel maxLevel achieveID achieveGrade pcCafe giftable showSaleTime promoName promoSaleStartTime promoSaleEndTime").Split(' ');
         /// <summary>The attributes of a bundle the server reads as the bundle's own.</summary>
-        public static readonly string[] BundleFields = { "id", "quantity", "bonusQuantity", "price", "salePrice", "durationDay" };
+        public static readonly string[] BundleFields = { "id", "quantity", "bonusQuantity", "price", "salePrice", "durationDay", "banner", "bannerTag", "saleTag", "showSaleTime", "promoName" };
+        /// <summary>The times of a bundle the server reads only when its item's is empty.</summary>
+        public static readonly string[] BundleTimes = { "saleStartTime", "saleEndTime", "promoSaleStartTime", "promoSaleEndTime" };
         /// <summary>The job codes the server knows (jobRequire), and their names.</summary>
         public static readonly int[] JobCodes = { 1, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 999 };
         public static readonly string[] JobNames = { "Beginner", "Knight", "Berserker", "Wizard", "Priest", "Archer", "Heavy Gunner", "Thief", "Assassin", "Rune Blade", "Striker", "Soul Binder", "GM" };
@@ -346,13 +352,19 @@ namespace MS2.ModKit
         }
 
         /// <summary>Why the server's ingest cannot read a value of an attribute (null: it reads it).</summary>
-        public static string FieldProblem(string attr, string value)
+        public static string FieldProblem(string attr, string value) { return FieldProblem(attr, value, false); }
+
+        /// <summary>Why the server's ingest cannot read a value of an attribute of an item or (bundle) of a bundle
+        /// (null: it reads it). The value is checked as written: the ingest does not trim times.</summary>
+        public static string FieldProblem(string attr, string value, bool bundle)
         {
             char k;
             if (!Kinds.TryGetValue(attr, out k)) return null;
-            string v = (value ?? "").Trim();
-            if (v.Length == 0)
+            value = value ?? "";
+            if (value.Length == 0)
                 return attr == "id" ? "the id is empty" : null;      // an empty attribute reads as 0
+            string v = value.Trim(XmlSpace);                           // numbers and booleans may have spaces around
+            if (v.Length == 0 && k != 's' && k != 't' && k != 'j') return attr + " \"" + value + "\" is only spaces, not a value (the server's ingest stops)";
             long n;
             bool num = long.TryParse(v, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n);
             switch (k)
@@ -362,21 +374,25 @@ namespace MS2.ModKit
                 case 'b': if (!num || n < 0 || n > 255) return attr + " \"" + value + "\" is not a whole number from 0 to 255 (the server's ingest stops)"; break;
                 case 'l': if (!num) return attr + " \"" + value + "\" is not a whole number (the server's ingest stops)"; break;
                 case 'o': if (v != "0" && v != "1" && v != "true" && v != "false") return attr + " \"" + value + "\" is not 0, 1, true or false (the server's ingest stops)"; break;
-                case 't': if (ParseTime(v) == null) return attr + " \"" + value + "\" is not a time as " + TimeFormat + " (the server's ingest stops)"; break;
-                case 'j': return JobProblem(value);
+                case 't': if (ParseTime(value) == null) return attr + " \"" + value + "\" is not a time as " + TimeFormat + " (the server's ingest stops)"; break;
+                case 'j': return JobProblem(value, !bundle);
             }
             return null;
         }
 
-        static string JobProblem(string value)
+        static readonly char[] XmlSpace = { ' ', '\t', '\r', '\n' };
+
+        // The ingest splits the list at commas, skips empty parts and reads each part as a number (spaces around it are
+        // fine, a part of only spaces is not); the job codes are checked only for the item's own list.
+        static string JobProblem(string value, bool codes)
         {
-            if ((value ?? "").Trim().Length == 0) return null;     // no job: nobody may buy (Check says so)
             foreach (string part in (value ?? "").Split(','))
             {
+                if (part.Length == 0) continue;
                 int n;
                 string p = part.Trim();
-                if (!int.TryParse(p, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out n)) return "jobRequire part \"" + p + "\" is not a whole number (the server's ingest stops)";
-                if (n != 0 && Array.IndexOf(JobCodes, n) < 0) return "jobRequire " + n + " is not a job code (" + string.Join(", ", Array.ConvertAll(JobCodes, Inv2)) + "): the server's ingest stops";
+                if (!int.TryParse(p, NumberStyles.AllowLeadingSign | NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite, CultureInfo.InvariantCulture, out n)) return "jobRequire part \"" + part + "\" is not a whole number (the server's ingest stops)";
+                if (codes && n != 0 && Array.IndexOf(JobCodes, n) < 0) return "jobRequire " + n + " is not a job code (" + string.Join(", ", Array.ConvertAll(JobCodes, Inv2)) + "): the server's ingest stops";
             }
             return null;
         }
@@ -492,7 +508,7 @@ namespace MS2.ModKit
         static void CheckBundleValue(MeretItem it, string attr, string value)
         {
             if (Array.IndexOf(BundleFields, attr) < 0) throw new ModKitException("a bundle has no attribute \"" + attr + "\" of its own (it takes the others from its item)");
-            string bad = FieldProblem(attr, value);
+            string bad = FieldProblem(attr, value, true);
             if (bad != null) throw new ModKitException("item " + it.Id + " bundle: " + bad);
         }
 
@@ -755,11 +771,11 @@ namespace MS2.ModKit
 
         // ---- checks (the plan's, on a row as the mods leave it) ----
 
-        /// <summary>A sale time as the server reads it (null: not one).</summary>
+        /// <summary>A sale time as the server reads it, as written (null: not one; the server does not trim it).</summary>
         public static DateTime? ParseTime(string text)
         {
             DateTime t;
-            return DateTime.TryParseExact((text ?? "").Trim(), TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out t) ? t : (DateTime?)null;
+            return DateTime.TryParseExact(text ?? "", TimeFormat, CultureInfo.InvariantCulture, DateTimeStyles.None, out t) ? t : (DateTime?)null;
         }
 
         public static string FormatTime(DateTime t) { return t.ToString(TimeFormat, CultureInfo.InvariantCulture); }
@@ -791,11 +807,11 @@ namespace MS2.ModKit
             long tab = Num(at("tabID"));
             if (tabKnown != null && tab != 1 && (tab < int.MinValue || tab > int.MaxValue || !tabKnown((int)tab)))
                 warnings.Add("tabID " + at("tabID") + " is not a tab of " + TabEntry + ": the shop shows the item in no tab");
-            if (JobProblem(at("jobRequire")) == null && JobsText(at("jobRequire")) == "nobody") errors.Add("jobRequire names no job: nobody can buy it");
+            if (JobProblem(at("jobRequire"), true) == null && JobsText(at("jobRequire")) == "nobody") errors.Add("jobRequire names no job: nobody can buy it");
             long pay = Num(at("paymentType"));
             if (pay < 0 || pay > 2) errors.Add("paymentType " + pay + " is not 0 (meso), 1 (meret) or 2 (red meret): nobody can pay for it");
             long price = Num(at("price")), sale = Num(at("salePrice"));
-            if ((sale != 0 ? sale : price) < 0) errors.Add("the price is below 0: the server refuses the purchase");
+            if ((sale > 0 ? sale : price) < 0) errors.Add("the price is below 0: the server refuses the purchase");
             long grade = Num(at("grade"));
             if (grade < 1 || grade > 6) warnings.Add("grade " + grade + " is not 1 (normal) to 6");
             if (Num(at("quantity")) + Num(at("bonusQuantity")) <= 0) warnings.Add("quantity and bonusQuantity give no item");
@@ -816,11 +832,16 @@ namespace MS2.ModKit
                 string what = "bundle " + (c.Attr("id") ?? "(no id)") + ": ";
                 foreach (XmlAttr a in c.Attrs)
                 {
-                    string bad = FieldProblem(a.Name, a.Value);
+                    // a bundle's time is read only when its item's is empty
+                    if (Array.IndexOf(BundleTimes, a.Name) >= 0 && (item.Attr(a.Name) ?? "").Length > 0) continue;
+                    string bad = FieldProblem(a.Name, a.Value, true);
                     if (bad != null) errors.Add(what + bad);
                 }
                 long bp = Num(c.Attr("price")), bs = Num(c.Attr("salePrice"));
-                if ((bs != 0 ? bs : bp) < 0) errors.Add(what + "the price is below 0: the server refuses the purchase");
+                long cbt = Num(c.Attr("bannerTag")), cst = Num(c.Attr("saleTag"));
+                if (cbt < 0 || cbt >= BannerTags.Length) warnings.Add(what + "bannerTag " + cbt + " is not 0 to " + (BannerTags.Length - 1) + ": the shop shows none");
+                if (cst < 0 || cst >= SaleTags.Length) warnings.Add(what + "saleTag " + cst + " is not 0 to " + (SaleTags.Length - 1) + ": the shop shows none");
+                if ((bs > 0 ? bs : bp) < 0) errors.Add(what + "the price is below 0: the server refuses the purchase");
                 if (Num(c.Attr("quantity")) + Num(c.Attr("bonusQuantity")) <= 0) warnings.Add(what + "quantity and bonusQuantity give no item");
             }
             // The game server puts each bundle under its sale (any order) and gives the sale's item; a bundle whose
