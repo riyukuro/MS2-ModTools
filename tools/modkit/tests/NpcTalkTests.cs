@@ -180,6 +180,36 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void APageMovesUpOrDown_TheOtherRowsStayByteEqual()
+        {
+            using (var f = new FakeTalks())
+            {
+                Mod m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                var missed = new List<string>();
+                NpcTalk t = ed.Move(ed.Open(90000001), new TalkPath("script 11").Then("content", 1), -1, missed);
+                Assert.That(missed, Is.Empty);
+                Assert.That(t.Side(K).Step("script 11").Elem.Children[0].Attr("text"), Is.EqualTo("$script:90000001005$"));
+
+                Mod again = Mod.Parse(m.ToXml(), "round trip");
+                foreach (KeyValuePair<string, byte[]> kv in m.Files) again.Files[kv.Key] = kv.Value;
+                Plan p = PlanOf(f, again);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string a = "<content text=\"$script:90000001004$\" />", b = "<content text=\"$script:90000001005$\" />";
+                string kms = FakeTalks.Kms, swapped = kms.Replace("\t\t\t" + a + "\n\t\t\t" + b, "\t\t\t" + b + "\n\t\t\t" + a);
+                Assert.That(swapped, Is.Not.EqualTo(kms));
+                Assert.That(Fake.Text(p, K, FakeTalks.Combined), Is.EqualTo(swapped), "only the pages of 90000001 change places");
+                Assert.That(Lf(Fake.Text(p, G, F1)), Is.EqualTo(FakeTalks.File(90000001).Replace("\t\t" + a + "\n\t\t" + b, "\t\t" + b + "\n\t\t" + a)));
+
+                // the first page cannot move up; moving it back down takes the talk out of the mod
+                Assert.Throws<ModKitException>(() => ed.Move(t, new TalkPath("script 11").Then("content", 0), -1, missed));
+                Assert.Throws<ModKitException>(() => ed.Move(t, new TalkPath("script 11"), 1, missed), "a step does not move");
+                ed.Move(t, new TalkPath("script 11").Then("content", 0), 1, missed);
+                Assert.That(m.IsEmpty, Is.True);
+            }
+        }
+
+        [Test]
         public void TheLastNpcOfTheCombinedFile_StaysInPlace()
         {
             using (var f = new FakeTalks())

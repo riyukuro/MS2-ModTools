@@ -157,6 +157,8 @@ namespace MS2.Tables
             lineBar.Controls.Add(Btn("Add page", "Adds an empty page (content) after the last page of the step, on every target", delegate { AddPage(); }));
             lineBar.Controls.Add(Btn("Add choice", "Adds an empty choice (distractor) to the chosen page, on every target", delegate { AddChoice(); }));
             lineBar.Controls.Add(Btn("Remove line", "Removes the chosen page, choice or event on every target", delegate { RemoveLine(); }));
+            lineBar.Controls.Add(Btn("Move up", "Moves the chosen page, choice or event one place up on every target", delegate { MoveLine(-1); }));
+            lineBar.Controls.Add(Btn("Move down", "Moves the chosen page, choice or event one place down on every target", delegate { MoveLine(1); }));
             lineBar.Controls.Add(Btn("Pick step", "Picks the step the chosen goto or gotoFail cell jumps to, or a new script step (F4 in the cell does the same)", delegate { PickStep(); }));
             lineBar.Controls.Add(stepLabel);
 
@@ -1007,6 +1009,29 @@ namespace MS2.Tables
             EndEdits();
             var missed = new List<string>();
             Edited(Editor().Remove(Talk(), l.Path, missed), l.Path + " removed", missed);
+        }
+
+        void MoveLine(int by)
+        {
+            Line l = ChosenLine();
+            if (l == null || l.Path.Below.Count == 0) throw new ModKitException("choose a page, choice or event first (a step does not move)");
+            EndEdits();
+            int col = lineGrid.CurrentCell != null ? lineGrid.CurrentCell.ColumnIndex : 0;
+            var to = new TalkPath(l.Path.Step);
+            for (int i = 0; i < l.Path.Below.Count; i++)
+            {
+                KeyValuePair<string, int> b = l.Path.Below[i];
+                to = to.Then(b.Key, i == l.Path.Below.Count - 1 ? b.Value + by : b.Value);
+            }
+            var missed = new List<string>();
+            Edited(Editor().Move(Talk(), l.Path, by, missed), l.Path + " moved " + (by < 0 ? "up" : "down"), missed);
+            // the moved line keeps the selection
+            string want = to.ToString();
+            for (int r = 0; r < lineGrid.RowCount; r++)
+            {
+                Line x = LineAt(r);
+                if (x != null && x.Path.ToString() == want) { WhereUsedJump.SelectCell(lineGrid, col, r); break; }
+            }
         }
 
         bool IsJumpCell(DataGridViewCell c)

@@ -446,6 +446,29 @@ namespace MS2.ModKit
         }
 
         /// <summary>
+        /// Moves the element at the place (a page, a choice or an event) one place up (by -1) or down (by 1) among the
+        /// siblings of its name, on every side that has it and the sibling; the other sides are missed. A step cannot move:
+        /// its place in the file means nothing to the client.
+        /// </summary>
+        public NpcTalk Move(NpcTalk t, TalkPath at, int by, List<string> missed)
+        {
+            if (at == null || at.Below.Count == 0) throw new ModKitException("only a page, a choice or an event moves, not a step");
+            if (by != -1 && by != 1) throw new ModKitException("an element moves one place up or down");
+            return Each(t, at, missed, (side, ed, e) =>
+            {
+                var same = new List<XmlElem>();
+                foreach (XmlElem c in e.Parent.Children) if (c.Name == e.Name) same.Add(c);
+                int i = same.IndexOf(e) + by;
+                if (i < 0 || i >= same.Count) throw new NotFound();
+                XmlElem other = same[i];
+                string text = e.OuterText, from = side.Doc.IsFirstOnLine(e.Start) ? side.Doc.IndentOf(e.Start) : XmlEditor.CommonIndent(text);
+                ed.Delete(e);
+                if (by > 0) ed.InsertAfter(other, text, from);
+                else ed.InsertBefore(other, text, from);
+            });
+        }
+
+        /// <summary>
         /// Adds an element (literal XML, one element) under the place: as its last child, or after the child
         /// "after" (a name and number under the place) when one is given. A null place adds a step to the talk.
         /// </summary>
