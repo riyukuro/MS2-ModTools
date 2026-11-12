@@ -172,9 +172,13 @@ namespace MS2.ModKit
                 Dictionary<string, XmlElem> opts = SetOptions(s.Opt), optsOrig = SetOptions(s.OptOrig);
                 var orig = new Dictionary<string, string>();
                 var origIds = new HashSet<string>();
+                var seenOrig = new Dictionary<string, int>();
                 foreach (XmlElem e in s.InfoOrig.Root.Children)
                 {
                     if (e.Name != ItemSetRules.Rows) continue;
+                    int was0;
+                    seenOrig.TryGetValue(e.Attr("id") ?? "", out was0);
+                    seenOrig[e.Attr("id") ?? ""] = was0 + 1;
                     XmlElem h = e;
                     if (!s.Kms) optsOrig.TryGetValue(e.Attr("optionID") ?? "", out h);
                     orig[SetKey(e)] = SetText(e, h);
@@ -234,8 +238,13 @@ namespace MS2.ModKit
                 }
                 if (s.Kms)
                     foreach (KeyValuePair<string, int> kv in seen)
+                    {
+                        // an id the shipped table already has that often is not this plan's doing: it does not block Apply
+                        int shipped;
+                        seenOrig.TryGetValue(kv.Key, out shipped);
                         if (kv.Value > 1)
-                            plan.Msg(plan.Errors, SetMod(run, kv.Key), s.Archive, ItemSetRules.InfoEntry, "set " + kv.Key + " is in the table " + kv.Value + " times" + ItemSetRules.TableFails);
+                            plan.Msg(kv.Value > shipped ? plan.Errors : plan.Warnings, SetMod(run, kv.Key), s.Archive, ItemSetRules.InfoEntry, "set " + kv.Key + " is in the table " + kv.Value + " times" + ItemSetRules.TableFails);
+                    }
             }
 
             for (int i = 0; i < sides.Count; i++)

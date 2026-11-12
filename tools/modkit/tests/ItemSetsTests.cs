@@ -55,7 +55,10 @@ namespace MS2.ModKit.Tests
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
-        public FakeSets()
+        public FakeSets() : this(null) { }
+
+        /// <summary>kmsInfo: another shipped set table of the kms client.</summary>
+        public FakeSets(string kmsInfo)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-sets-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
@@ -64,7 +67,7 @@ namespace MS2.ModKit.Tests
             foreach (long i in new long[] { 5001, 5002, 5003 }) rows.Append("\t<item id=\"" + i + "\" />\n");
             M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                E(ItemSetRules.InfoEntry, KmsInfo), E("itemdata/005.xml", rows.Append("</ms2>\n").ToString()),
+                E(ItemSetRules.InfoEntry, kmsInfo ?? KmsInfo), E("itemdata/005.xml", rows.Append("</ms2>\n").ToString()),
                 E("additional/700.xml", Head + "<ms2>\n\t<additional id=\"70000001\" />\n</ms2>\n"),
                 E("string/kr/setitemname.xml", Keys("8100001", "Tin Set")),
             });
@@ -503,6 +506,26 @@ namespace MS2.ModKit.Tests
                 ed.Restore(a);
                 ed.Revert(a);
                 Assert.That(Body(mod).Trim(), Is.Empty);
+            }
+        }
+
+        [Test]
+        public void AShippedDoubleIdDoesNotBlockApply()
+        {
+            // the shipped kms table has an id twice: a mod that adds another set gets a warning, not an error
+            string twice = FakeSets.KmsInfo.Replace("</ms2>", "\t<set id=\"8100077\" itemIDs=\"5001\" />\n\t<set id=\"8100077\" itemIDs=\"5002\" />\n</ms2>");
+            using (var f = new FakeSets(twice))
+            {
+                Mod mod = FakeSets.ModOf(
+                    "<edit archive=\"" + K + "\" entry=\"" + ItemSetRules.InfoEntry + "\">\n" +
+                    "<add><xml><set id=\"99000001\" itemIDs=\"5001\"><part count=\"2\" str=\"1\" /></set></xml></add>\n</edit>\n");
+                Plan p = PlanOf(f, mod);
+                var errors = new List<string>();
+                foreach (PlanMessage m in p.Errors) errors.Add(m.ToString());
+                Assert.That(errors, Is.Empty);
+                var w = new List<string>();
+                foreach (PlanMessage m in p.Warnings) w.Add(m.ToString());
+                Assert.That(w, Has.Some.Contains("set 8100077 is in the table 2 times"));
             }
         }
 
