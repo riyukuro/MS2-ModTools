@@ -158,11 +158,28 @@ namespace MS2.ModKit.Xml
             return new List<XmlElem>(d.Top[0].Children);
         }
 
+        /// <summary>How often a table held as rows was parsed whole (tests count it; no editor path should need it).</summary>
+        internal static long FullParses;
+
+        /// <summary>The rows whose attributes have these values, parsed (Parse); every row when there is no test.</summary>
+        internal List<XmlElem> Where(List<KeyValuePair<string, string>> tests)
+        {
+            var rows = new List<int>();
+            for (int i = 0; i < Count; i++)
+            {
+                bool ok = true;
+                foreach (KeyValuePair<string, string> t in tests)
+                    if (Attr(i, t.Key) != t.Value) { ok = false; break; }
+                if (ok) rows.Add(i);
+            }
+            return rows.Count > 0 ? Parse(rows) : new List<XmlElem>();
+        }
+
         /// <summary>The whole file parsed; held only as long as someone uses it.</summary>
         internal XmlDoc Full()
         {
             XmlDoc d = full == null ? null : (XmlDoc)full.Target;
-            if (d == null) full = new WeakReference(d = XmlDoc.Parse(b, label));
+            if (d == null) { full = new WeakReference(d = XmlDoc.Parse(b, label)); System.Threading.Interlocked.Increment(ref FullParses); }
             return d;
         }
     }

@@ -445,7 +445,7 @@ namespace MS2.ModKit
                         foreach (XmlElem c in RowsOf(key, n)) if (c.Attr(key) == value) l.Add(c);
                     }
                     else
-                        foreach (XmlElem c in Doc.Root.Children) if (c.Attr(key) == value) l.Add(c);
+                        l = Sparse.Where(new List<KeyValuePair<string, string>> { new KeyValuePair<string, string>(key, value) });
                     return l;
                 }
                 Dictionary<string, List<XmlElem>> ix;
@@ -473,10 +473,11 @@ namespace MS2.ModKit
                     List<XmlElem> got;
                     if (key != "id")
                     {
-                        got = new List<XmlElem>();
+                        // rare (the string files are keyed by id): the rows are picked on their bytes, not on a whole parse
+                        var at = new List<int>();
                         long n;
-                        foreach (XmlElem c in Doc.Root.Children) if (TryId(c.Attr(key), out n) && n == id) got.Add(c);
-                        return got;
+                        for (int i = 0; i < Sparse.Count; i++) if (TryId(Sparse.Attr(i, key), out n) && n == id) at.Add(i);
+                        return at.Count > 0 ? Sparse.Parse(at) : new List<XmlElem>();
                     }
                     // every row of the id is parsed together: a selector of one of them (RowPath.Canonical tests the
                     // id first) is then the selector the whole file gives
@@ -769,7 +770,17 @@ namespace MS2.ModKit
         {
             if (add.Copy == null) return Literal(add);
             string err;
-            return RowPath.Parse(add.Copy).TryResolve(doc.Doc.Root, out err);
+            RowPath path = RowPath.Parse(add.Copy);
+            if (doc.Sparse == null) return path.TryResolve(doc.Doc.Root, out err);
+            // a table held as rows: the selector is resolved on the rows its first step names (those of the id, as a
+            // rule), under a root like the file's, so the table is not parsed whole for a clone's name row
+            if (path.Steps.Count == 0) return null;
+            List<XmlElem> rows = null;
+            long id;
+            foreach (KeyValuePair<string, string> t in path.Steps[0].Tests)
+                if (t.Key == "id" && TryId(t.Value, out id)) { rows = doc.RowsOf("id", id); break; }
+            if (rows == null) rows = doc.Sparse.Where(path.Steps[0].Tests);
+            return rows.Count == 0 ? null : path.TryResolve(rows[0].Parent, out err);
         }
 
         EntryOp FileAdd(long id)

@@ -453,6 +453,28 @@ namespace MS2.ModKit.Tests
         [TearDown] public void AsDocuments() { FakeItems.RowsFrom = -1; }
 
         [Test]
+        public void AClonedId_IsOpenedWithoutParsingATableWhole()
+        {
+            using (var f = new FakeItems(true))
+            {
+                ItemEditor ed = f.Editor();
+                long before = DataSet.RowTablesParsedWhole;
+                ed.Open(1200001);
+                ItemDraft n = ed.Clone(1200001, 1250000, "Glass Whistle", "It hums.");
+                Assert.That(n.Name, Is.EqualTo("Glass Whistle"));
+                // the clone's name rows are copies of the source's rows: they resolve on the rows of that id
+                for (int i = 0; i < 3; i++)
+                {
+                    ed.Look(1250000, x => Assert.That(x.Name, Is.EqualTo("Glass Whistle")));
+                    Assert.That(ed.Open(1250000).Tooltip, Is.EqualTo("It hums."));
+                    ed.Look(1200002, x => Assert.That(x.Id, Is.EqualTo(1200002)));
+                }
+                Assert.That(ed.Find("whistle", 9).Count, Is.GreaterThan(0));
+                Assert.That(DataSet.RowTablesParsedWhole, Is.EqualTo(before));
+            }
+        }
+
+        [Test]
         public void RowsAreHeldAsBytes_AndOpeningAgainReadsNothingNew()
         {
             long asDocs, asRows;

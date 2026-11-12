@@ -25,6 +25,8 @@ namespace MS2.ModKit
         // fit the budget together with the tables a shop or drop box view keeps parsed, and an Open reads none again.
         public long DocBudget = 48L * 1024 * 1024;
         public long RowsFrom = 1024 * 1024;
+        /// <summary>How often a table held as rows had to be parsed whole, in this process (0 on every editor path).</summary>
+        public static long RowTablesParsedWhole { get { return System.Threading.Interlocked.Read(ref Xml.XmlRows.FullParses); } }
         readonly LinkedList<string> docOrder = new LinkedList<string>();
         readonly Dictionary<string, KeyValuePair<LinkedListNode<string>, long>> docs = new Dictionary<string, KeyValuePair<LinkedListNode<string>, long>>(StringComparer.Ordinal);
         long docBytes;
