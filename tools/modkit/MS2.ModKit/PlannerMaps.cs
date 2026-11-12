@@ -311,7 +311,7 @@ namespace MS2.ModKit
                     if (existing != (pass == 0)) continue;
                     try
                     {
-                        if (existing) Existing(run, mr, mod, ms, op);
+                        if (existing) Existing(run, mr, mod, mop, ms, op);
                         else AddEntity(run, mr, mod, mop, ms, op);
                     }
                     catch (ModKitException x) { plan.Msg(plan.Errors, mod, ar, st.Name, x.Message + " (" + ModLine.Of(op.Line) + ")"); }
@@ -414,7 +414,7 @@ namespace MS2.ModKit
             plan.Changes.Add(new PlanChange { Kind = ChangeKind.AddRow, ModId = mod.Id, Archive = ms.ArchiveRef, Entry = st.Name, Row = EntRow(id), NewValue = "<entity modelName=\"" + op.Model + "\" name=\"" + op.EntityName + "\"> (" + props.Count + " properties)", OwnSides = true });
         }
 
-        static void Existing(Run run, MapRun mr, Mod mod, MapState ms, MapEntityOp op)
+        static void Existing(Run run, MapRun mr, Mod mod, MapOp mop, MapState ms, MapEntityOp op)
         {
             Plan plan = run.Plan;
             EntryState st = ms.St;
@@ -422,6 +422,16 @@ namespace MS2.ModKit
             MapEnt me;
             if (!ms.ById.TryGetValue(op.Id, out me))
             {
+                // the adds run in the second pass: an id one of them makes is the mod's own new entity, not a missing one
+                foreach (MapEntityOp a in mop.Ops)
+                {
+                    if (a.Kind == MapOpKind.Remove || a.Kind == MapOpKind.Change) continue;
+                    if (string.Equals(a.NewId ?? MapValues.NewEntityId(mod.Id, mop.XBlock, a.Name), op.Id, StringComparison.OrdinalIgnoreCase))
+                    {
+                        plan.Msg(plan.Errors, mod, ms.ArchiveRef, st.Name, verb + " entity " + op.Id + " that " + Who(mod, mod) + " adds");
+                        return;
+                    }
+                }
                 plan.Msg(plan.Warnings, mod, ms.ArchiveRef, st.Name, "has no entity " + op.Id + "; the " + (op.Kind == MapOpKind.Remove ? "remove" : "change") + " is skipped on " + ms.Target.Name + " (" + ModLine.Of(op.Line) + ")");
                 return;
             }

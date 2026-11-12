@@ -873,6 +873,18 @@ namespace MS2.ModKit.Tests
                 // one mod, the same op name in two <map> blocks of one map: the same id (inside one block the mod does not load)
                 p = f.Plan(f.Mod("j", Map(AddCrate) + Map(AddCrate)));
                 Assert.That(Lines(p.Errors).Count(x => x.Contains("which is already in the map")), Is.EqualTo(3), Fake.Dump(p));
+
+                // a change or remove of the entity the same <map> adds is an error, wherever it stands in mod.xml (the
+                // adds are planned after the edits of shipped entities)
+                string own = MapValues.NewEntityId("k", FakeMaps.MapA, "crate-1");
+                string ownChange = "<change id=\"" + own + "\" model=\"Crate_A\" position=\"150, 300, 450\"><set name=\"Position\" value=\"1, 2, 3\" /></change>";
+                foreach (string body in new[] { AddCrate + ownChange, ownChange + AddCrate, "<remove id=\"" + own + "\" model=\"Crate_A\" position=\"150, 300, 450\" />" + AddCrate })
+                {
+                    p = f.Plan(f.Mod("k", Map(body)));
+                    string verb = body.StartsWith("<remove") ? "removes" : "changes";
+                    Assert.That(Lines(p.Errors).Count(x => x.Contains(verb + " entity " + own + " that the same mod again adds")), Is.EqualTo(3), Fake.Dump(p));
+                    Assert.That(Lines(p.Warnings).Any(x => x.Contains("has no entity " + own)), Is.False, Fake.Dump(p));
+                }
             }
         }
 
