@@ -530,6 +530,7 @@ namespace MS2.ModKit
             GroupChecks(run);
             RecipeChecks(run);
             TalkNameCheck(run);
+            NpcTalkCheck(run);
 
             // a fixed order of the outputs, whatever the order of the ops
             plan.Archives.Sort(delegate (PlanArchive x, PlanArchive y) { return string.CompareOrdinal(x.Archive, y.Archive); });

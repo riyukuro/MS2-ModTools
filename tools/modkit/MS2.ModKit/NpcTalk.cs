@@ -106,11 +106,14 @@ namespace MS2.ModKit
         }
 
         /// <summary>The path of an element of the side (a step or an element under one); null when it is not under a step.</summary>
-        public static TalkPath Of(TalkSide side, XmlElem e)
+        public static TalkPath Of(TalkSide side, XmlElem e) { return Of(side.Root, e); }
+
+        /// <summary>The path of an element under root (an &lt;npc&gt; or a talk file's root); null when it is not under a step.</summary>
+        public static TalkPath Of(XmlElem root, XmlElem e)
         {
             var chain = new List<XmlElem>();
-            for (XmlElem x = e; x != null && x != side.Root; x = x.Parent) chain.Insert(0, x);
-            if (chain.Count == 0 || chain[0].Parent != side.Root) return null;
+            for (XmlElem x = e; x != null && x != root; x = x.Parent) chain.Insert(0, x);
+            if (chain.Count == 0 || chain[0].Parent != root) return null;
             var p = new TalkPath(new TalkStep(chain[0]).Key);
             for (int i = 1; i < chain.Count; i++)
             {

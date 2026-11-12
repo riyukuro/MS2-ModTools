@@ -351,5 +351,93 @@ namespace MS2.ModKit.Tests
                 Assert.Throws<ModKitException>(() => ed.SetText(t, new TalkPath("script 10"), "en", "no", null));
             }
         }
+
+        static readonly TalkPath Choice = new TalkPath("script 10").Then("content", 0).Then("distractor", 0);
+
+        static List<string> Texts(List<PlanMessage> l, string archive)
+        {
+            var r = new List<string>();
+            foreach (PlanMessage m in l) if (archive == null || m.Archive == archive) r.Add(m.Text);
+            return r;
+        }
+
+        [Test]
+        public void TheShippedTalk_HasOnlyShippedProblems_AndAPlainPlanHasNone()
+        {
+            using (var f = new FakeTalks())
+            {
+                var ed = new TalkEditor(f.Data, NewMod());
+                List<TalkProblem> l = ed.Problems(ed.Open(90000001));
+                Assert.That(l.TrueForAll(p => p.Shipped), Is.True, string.Join("\n", l.ConvertAll(p => p.ToString()).ToArray()));
+                Assert.That(l.Exists(p => p.Archive == K && p.Text == "select 0 / content 1: talk text 90000001001 has no en row"), Is.True);
+
+                var m = NewMod();
+                ed = new TalkEditor(f.Data, m);
+                ed.SetAttr(ed.Open(90000001), Choice, "voiceID", "x/1", null);
+                Plan p0 = PlanOf(f, m);
+                Assert.That(p0.Errors, Is.Empty, Fake.Dump(p0));
+                Assert.That(p0.Warnings, Is.Empty, Fake.Dump(p0));
+            }
+        }
+
+        [Test]
+        public void AJumpToNoStep_IsAnError_OnEverySide()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                NpcTalk t = ed.SetAttr(ed.Open(90000001), Choice, "goto", "11,99", null);
+                const string want = "script 10 / content 1 / distractor 1: goto names step 99, which the NPC has not";
+                List<TalkProblem> l = ed.Problems(t).FindAll(x => !x.Shipped);
+                Assert.That(l.ConvertAll(x => x.Archive + " " + x), Is.EquivalentTo(new[] { K + " error: " + want, G + " error: " + want, S + " error: " + want }));
+                Plan p = PlanOf(f, m);
+                foreach (string a in new[] { K, G, S })
+                    Assert.That(Texts(p.Errors, a), Is.EqualTo(new[] { "NPC 90000001 talk, " + want }), a);
+                Assert.That(p.Errors[0].ModId, Is.EqualTo("talk.test"));
+            }
+        }
+
+        [Test]
+        public void ANewUnreachableStep_AnUnknownButtonSetAndATextWithNoRow_AreWarnings()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                NpcTalk t = ed.AddStep(ed.Open(90000002), "script", "12", null);
+                t = ed.SetAttr(t, new TalkPath("select 0").Then("content", 0), "buttonSet", "2", null);
+                t = ed.SetAttr(t, new TalkPath("script 11").Then("content", 0), "text", "$script:90000002999$", null);
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Texts(p.Warnings, G), Is.EquivalentTo(new[]
+                {
+                    "NPC 90000002 talk, select 0 / content 1: buttonSet 2 is none the client shows (known: 1, 3, 4, 5, 6, 7, 8, 9, 16, 17, 19)",
+                    "NPC 90000002 talk, script 11 / content 1: talk text 90000002999 has no en row",
+                    "NPC 90000002 talk, script 12 is reached from no step: no jump names it and it is no random pick",
+                }));
+                Assert.That(Texts(p.Warnings, K), Has.Member("NPC 90000002 talk, script 11 / content 1: talk text 90000002999 has no ko row"));
+                Assert.That(Texts(p.Warnings, K), Has.Member("NPC 90000002 talk, script 11 / content 1: talk text 90000002999 has no en row"));
+            }
+        }
+
+        [Test]
+        public void ATalkChangedOnOneTargetOnly_IsAWarning()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                NpcTalk t = ed.SetAttr(ed.Open(90000002), Choice, "voiceID", "x/2", null);
+                m.Ops.RemoveAll(o => o.Archive != K);
+                t = ed.Open(90000002);
+                Assert.That(ed.Problems(t).Exists(x => !x.Shipped && x.Text.StartsWith("script 10 differs from the ", StringComparison.Ordinal)), Is.True);
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Warnings.Count, Is.EqualTo(2), Fake.Dump(p));
+                foreach (PlanMessage w in p.Warnings)
+                    Assert.That(w.Text, Does.StartWith("NPC 90000002 talk is changed for the ").And.Contains(" has it as shipped"));
+            }
+        }
     }
 }
