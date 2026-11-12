@@ -401,8 +401,8 @@ namespace MS2.ModKit
 
         /// <summary>
         /// The maps' cue uses of every side the data has, as the mod leaves the files: the kms client's fielddata.xml,
-        /// the server's and the global client's map/&lt;id&gt;.xml. A file the mod replaces whole is read from the mod;
-        /// row edits of fielddata.xml are not applied (the rows as shipped).
+        /// the server's and the global client's map/&lt;id&gt;.xml. A file the mod replaces whole is read from the mod; the
+        /// maps whose row or map file the mod edits get their cues as MapMusic reads them (the mod's bgm id and boss).
         /// </summary>
         public static List<CueUse> MapUses(DataSet data, Mod mod)
         {
@@ -437,6 +437,8 @@ namespace MS2.ModKit
                     l.AddRange(FromMapFile(Text(b), map, archive));
                 }
             }
+            // the mod's row edits (the bgm cues it sets): MapMusic.cs
+            if (mod != null) new MapMusic(data, mod).Overlay(l);
             return l;
         }
 

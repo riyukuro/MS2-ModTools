@@ -131,6 +131,11 @@ namespace MS2.ModKit.Tests
                 Assert.That(t.States.Select(x => x.Name), Is.EqualTo(new[] { "Ring" }));
                 Assert.That(ed.Added(S, "fake_meadow"), Is.EqualTo(new[] { "trigger/fake_meadow/bell.xml" }));
                 Assert.That(ed.Added(S, "fake_far_shore"), Is.Empty);
+                // a mod written by hand may name the archive in another case: the planner and OpOf ignore it, so does the list
+                EntryOp bell = m.Ops.OfType<EntryOp>().Single(x => x.Name == "trigger/fake_meadow/bell.xml");
+                bell.Archive = S.ToUpperInvariant();
+                Assert.That(ed.Added(S, "fake_meadow"), Is.EqualTo(new[] { "trigger/fake_meadow/bell.xml" }), "archive in another case");
+                bell.Archive = S;
                 t = ed.Add(t, t.State("Ring").Children[0], TriggerKind.Action, "set_mesh", null);
                 t = ed.SetAttr(t, t.State("Ring").Children[0].Children[0], "arg1", "3001");
                 Assert.That(Errors(t), Is.Empty);

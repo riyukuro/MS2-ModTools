@@ -43,8 +43,12 @@ namespace MS2.Tables
         /// <summary>Whether a cell holds a comma list of ids.</summary>
         internal delegate bool ListOf(int row, int column);
 
-        /// <summary>Puts the picker on the cells of a grid that kindOf names; session gives the session to search in.</summary>
-        internal static void Attach(DataGridView grid, KindOf kindOf, Func<EditorSession> session, ListOf listOf = null)
+        /// <summary>Searches the ids of a kind by id or name, at most max hits; for a kind IdLookup does not know (a music cue).</summary>
+        internal delegate List<EntityHit> Finder(string kind, string text, int max);
+
+        /// <summary>Puts the picker on the cells of a grid that kindOf names; session gives the session to search in, or
+        /// finder, when given, searches instead of IdLookup.</summary>
+        internal static void Attach(DataGridView grid, KindOf kindOf, Func<EditorSession> session, ListOf listOf = null, Finder finder = null)
         {
             grid.CellFormatting += delegate(object sender, DataGridViewCellFormattingEventArgs e)
             {
@@ -74,7 +78,7 @@ namespace MS2.Tables
                 if (kind == null) return;
                 Rectangle cell = grid.GetCellDisplayRectangle(e.ColumnIndex, e.RowIndex, false);
                 if (e.X < cell.Width - ButtonWidth - 2) return;
-                Open(grid, e.RowIndex, e.ColumnIndex, kind, session, listOf);
+                Open(grid, e.RowIndex, e.ColumnIndex, kind, session, listOf, finder);
             };
             grid.KeyDown += delegate(object sender, KeyEventArgs e)
             {
@@ -82,14 +86,14 @@ namespace MS2.Tables
                 string kind = kindOf(grid.CurrentCell.RowIndex, grid.CurrentCell.ColumnIndex);
                 if (kind == null) return;
                 e.Handled = true;
-                Open(grid, grid.CurrentCell.RowIndex, grid.CurrentCell.ColumnIndex, kind, session, listOf);
+                Open(grid, grid.CurrentCell.RowIndex, grid.CurrentCell.ColumnIndex, kind, session, listOf, finder);
             };
             // F4 while the cell is being typed in: the editing box has the keys
             grid.EditingControlShowing += delegate(object sender, DataGridViewEditingControlShowingEventArgs e)
             {
                 e.Control.KeyDown -= OnEditKey;
                 e.Control.KeyDown += OnEditKey;
-                e.Control.Tag = new object[] { kindOf, session, listOf };
+                e.Control.Tag = new object[] { kindOf, session, listOf, finder };
             };
         }
 
@@ -108,7 +112,7 @@ namespace MS2.Tables
             string typed = c.Text;
             grid.CancelEdit();
             grid.EndEdit();
-            Open(grid, row, column, kind, (Func<EditorSession>)tag[1], (ListOf)tag[2], typed);
+            Open(grid, row, column, kind, (Func<EditorSession>)tag[1], (ListOf)tag[2], (Finder)tag[3], typed);
         }
 
         static Rectangle ButtonOf(Rectangle cell)
@@ -116,20 +120,24 @@ namespace MS2.Tables
             return new Rectangle(cell.Right - ButtonWidth - 1, cell.Top + 1, ButtonWidth, cell.Height - 3);
         }
 
-        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, ListOf listOf)
+        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, ListOf listOf, Finder finder)
         {
             object v = grid[column, row].Value;
-            Open(grid, row, column, kind, session, listOf, v == null ? "" : v.ToString());
+            Open(grid, row, column, kind, session, listOf, finder, v == null ? "" : v.ToString());
         }
 
-        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, ListOf listOf, string current)
+        static void Open(DataGridView grid, int row, int column, string kind, Func<EditorSession> session, ListOf listOf, Finder finder, string current)
         {
-            IdLookup l;
-            try { l = Lookup(session()); }
-            catch (ModKitException ex) { MessageBox.Show(grid.FindForm(), ex.Message, "Pick " + Article(kind) + " " + kind, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+            if (finder == null)
+            {
+                IdLookup l;
+                try { l = Lookup(session()); }
+                catch (ModKitException ex) { MessageBox.Show(grid.FindForm(), ex.Message, "Pick " + Article(kind) + " " + kind, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
+                finder = l.Find;
+            }
             bool isList = listOf != null && listOf(row, column);
             string picked;
-            using (var d = new PickDialog(l, kind, current, isList))
+            using (var d = new PickDialog(finder, kind, current, isList))
             {
                 if (d.ShowDialog(grid.FindForm()) != DialogResult.OK) return;
                 picked = d.Picked;
@@ -153,7 +161,7 @@ namespace MS2.Tables
                 IdLookup l;
                 try { l = Lookup(session()); }
                 catch (ModKitException ex) { MessageBox.Show(box.FindForm(), ex.Message, "Pick " + Article(kind) + " " + kind, MessageBoxButtons.OK, MessageBoxIcon.Warning); return; }
-                using (var d = new PickDialog(l, kind, box.Text, false))
+                using (var d = new PickDialog(l.Find, kind, box.Text, false))
                     if (d.ShowDialog(box.FindForm()) == DialogResult.OK && d.Picked != null) box.Text = d.Picked;
             };
             b.Click += open;
@@ -170,7 +178,7 @@ namespace MS2.Tables
         sealed class PickDialog : Form
         {
             const int Max = 300;
-            readonly IdLookup lookup;
+            readonly Finder lookup;
             readonly string kind;
             readonly long current;
             readonly TextBox searchBox = new TextBox { Dock = DockStyle.Fill };
@@ -185,7 +193,7 @@ namespace MS2.Tables
             /// <summary>A list cell: true = the id goes at the end of the list (Add), false = it replaces the list (Set).</summary>
             internal bool Append { get; private set; }
 
-            internal PickDialog(IdLookup lookup, string kind, string currentText, bool isList)
+            internal PickDialog(Finder lookup, string kind, string currentText, bool isList)
             {
                 this.lookup = lookup;
                 this.kind = kind;
@@ -286,14 +294,14 @@ namespace MS2.Tables
             void Search()
             {
                 List<EntityHit> hits;
-                try { hits = lookup.Find(kind, searchBox.Text, Max); }
+                try { hits = lookup(kind, searchBox.Text, Max); }
                 catch (ModKitException ex) { status.Text = ex.Message; return; }
                 catch (System.IO.IOException ex) { status.Text = ex.Message; return; }
                 bool empty = searchBox.Text.Trim().Length == 0;
                 // on the first list the current id is shown even when it is not among the first ids
                 if (empty && current != 0 && !hits.Exists(delegate(EntityHit h) { return h.Id == current; }))
                 {
-                    List<EntityHit> c = lookup.Find(kind, current.ToString(CultureInfo.InvariantCulture), 20);
+                    List<EntityHit> c = lookup(kind, current.ToString(CultureInfo.InvariantCulture), 20);
                     EntityHit same = c.Find(delegate(EntityHit h) { return h.Id == current; });
                     if (same != null) hits.Insert(0, same);
                 }

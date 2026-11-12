@@ -1805,8 +1805,8 @@ because a map file does not hold them: add its `<row .../>` lines by hand.
 
 ## Sound and music
 
-The **MS2 Sound** view (menu **MS2 Mods > Sound**) shows the client's audio. It is read-only for now: there is no
-playback and no editing. The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
+The **MS2 Sound** view (menu **MS2 Mods > Sound**) shows the client's audio and edits which cue a map plays. There is
+no playback, and the banks are read-only for now. The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
 folder:
 
 - `MS2Sound.fev` is the FMOD Ex event project. The client loads it at start, and it names the banks.
@@ -1828,18 +1828,29 @@ kms client data folder of the MS2 Tables view's settings.
   - environment: the `<environment>` the element is in, by its feature and locale (empty for a plain one). A map
     with a cue per locale or behind a feature is listed under each cue, so check this column before you change one.
 
-  The rows are read as the mod being edited leaves them, as long as the mod replaces the whole file (a map file the
-  mod adds counts too). Row edits to `fielddata.xml` are not applied here. Reading every map file takes a while, so
-  it runs as a job of the MS2 Tables view. When the mod changes while the view is hidden, the view reads again the
-  next time it is shown.
+  The rows are read as the mod being edited leaves them: a file the mod replaces whole (or adds) is read from the
+  mod, and the music edits the mod makes (see **Maps**) are shown with their new cues. Other row edits to
+  `fielddata.xml` are not applied here. Reading every map file takes a while, so
+  it runs as a job of the MS2 Tables view. When the mod changes, the list keeps showing the maps as they were and
+  the view says so. It reads them again on the next Find, list pick or show, so a chain of cell edits in another
+  view does not wait for a scan after each one.
+- **Maps** lists the maps (id and name; the find box also takes a cue id and lists the maps that play it). A map
+  whose music the mod changes is marked `· music edited`. Select a map to see one row per side and environment, with
+  the normal and the boss cue. Edit a cue cell to change it: type a cue id or a cue's name (a unique part of it is
+  enough), or press F4 to pick a cue by id or name. An empty cell means no music. The cue is set on every side the
+  mod writes: the kms client's `fielddata.xml` row and the server's map file, in every environment of the map. The
+  global client's row is grey. It is not written by hand; the server's map file is mirrored to it, and the row shows
+  what the mirror will write. Setting the shipped value back removes the edit. **Undo map** drops the mod's music
+  edits of the selected map. **Plan**, **Apply**, **Revert** and **Save mod** work as in the MS2 Tables view (the
+  plan's output is in that view's output pane).
 - **Banks** lists the bank files with their sample counts and sizes. Select a bank to see its samples: name, length
   in seconds, channels, rate, bytes and whether it loops. A bank whose header hash is not in the project is flagged,
   because the client is not expected to load it.
 
 What a mod can do with sound today:
 
-- **Point a map at another cue.** This is an XML edit of the map's `<bgm>` row on every side. For now the mod has to
-  replace the file with an `<entry>`. No view edits the row yet, and none has a cue pick.
+- **Point a map at another cue.** Use the **Maps** kind above. It writes a row edit to the kms client's
+  `fielddata.xml` and an edit of the server's map file, which the mirror carries to the global client.
 - **Replace a track.** This means rebuilding the bank with a sample swapped and the bank's header hash kept.
   The mod kit cannot do it yet.
 - **Add a track.** This needs a new cue in the project's music data. That takes a writer for the `.fev` format, which

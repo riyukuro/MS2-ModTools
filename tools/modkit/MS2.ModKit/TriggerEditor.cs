@@ -93,7 +93,7 @@ namespace MS2.ModKit
             foreach (ModOp o in Mod.Ops)
             {
                 var e = o as EntryOp;
-                if (e == null || e.Delete || e.Archive != archive || !Triggers.IsScript(e.Name)) continue;
+                if (e == null || e.Delete || !string.Equals(e.Archive, archive, StringComparison.OrdinalIgnoreCase) || !Triggers.IsScript(e.Name)) continue;
                 if (!e.Name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) continue;
                 if (a != null && a.Find(e.Name) != null) continue;
                 l.Add(e.Name);

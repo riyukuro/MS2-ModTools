@@ -1,7 +1,8 @@
-// The "MS2 Sound" view, read only: the music cues of the client's event project (Sound/MS2Sound.fev) with the maps
-// that play each one (the bgm rows of the kms client's table/fielddata.xml and of the server's and the global
-// client's map/<id>.xml, as the mod being edited leaves them), and the sound banks of the Sound folder (MS2Sound_*.fsb)
-// with their samples (name, length, channels, rate, bytes, loop). No playback and no edits: see MS2.ModKit/Sound.cs.
+// The "MS2 Sound" view: the music cues of the client's event project (Sound/MS2Sound.fev) with the maps that play
+// each one (the bgm rows of the kms client's table/fielddata.xml and of the server's and the global client's
+// map/<id>.xml, as the mod being edited leaves them), the maps with the cue each side plays there (normal and boss,
+// set by the mod being edited: MS2.ModKit/MapMusic.cs), and the sound banks of the Sound folder (MS2Sound_*.fsb) with
+// their samples (name, length, channels, rate, bytes, loop). No playback; the banks and the event project are read only.
 //
 // The Sound folder is MS2_SOUND_DATA when set, else Sound (or Data/Sound) in the kms client data folder of the
 // MS2 Tables view's settings. The maps come from the MS2 Tables view's session and mod.
@@ -22,6 +23,9 @@ namespace MS2.Tables
         public const string ViewId = "MS2.Tables.SoundView";
         static readonly string[] CueHeads = { "map", "name", "plays", "param", "value", "side", "environment" };
         static readonly string[] SampleHeads = { "#", "sample", "seconds", "ch", "rate", "bytes", "loop" };
+        static readonly string[] PlaceHeads = { "side", "environment", "normal", "normal cue", "boss", "boss cue" };
+        const int NormalColumn = 2, BossColumn = 4;
+        const string CueKind = "cue";
 
         TablesView host;
         string folder;                  // the Sound folder, or null
@@ -34,7 +38,7 @@ namespace MS2.Tables
         int usesAge;                    // counts the mod's changes: a scan started before one is thrown away
         bool reading;                   // the scan job runs
         string readProblem;             // the last scan failed (the MS2 Tables view said why); Reload tries again
-        bool stale;                     // the mod changed while the view was hidden: read again when it is shown
+        bool stale;                     // the mod changed: the maps are read again on the next Find, list pick or show
         readonly Dictionary<string, SoundBank> banks = new Dictionary<string, SoundBank>(StringComparer.OrdinalIgnoreCase);
         readonly Dictionary<string, string> bankProblems = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
@@ -42,6 +46,9 @@ namespace MS2.Tables
         readonly List<object> hits = new List<object>();
         readonly List<CueUse> shownUses = new List<CueUse>();
         SoundBank shownBank;
+        long shownMap = -1;             // the map whose places the grid shows, or -1
+        readonly List<MusicPlace> shownPlaces = new List<MusicPlace>();
+        MapMusic tunes;                 // the mod's map music, for the session's data and mod
         bool filling;
 
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
@@ -51,6 +58,7 @@ namespace MS2.Tables
         readonly ListBox hitList = new ListBox { Dock = DockStyle.Left, Width = 300, IntegralHeight = false, HorizontalScrollbar = true };
         readonly Label shownLabel = new Label { Dock = DockStyle.Top, Height = 20, Padding = new Padding(4, 3, 0, 0), Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold) };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
+        readonly FlowLayoutPanel mapBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2), Visible = false };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 90 };
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();
@@ -65,19 +73,27 @@ namespace MS2.Tables
             var top = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2) };
             kindBox.Items.Add("Music cues");
             kindBox.Items.Add("Banks");
+            kindBox.Items.Add("Maps");
             kindBox.SelectedIndex = 0;
-            tips.SetToolTip(kindBox, "Music cues: the cues of MS2Sound.fev with the maps that play them. Banks: the MS2Sound_*.fsb files with their samples");
+            tips.SetToolTip(kindBox, "Music cues: the cues of MS2Sound.fev with the maps that play them. Banks: the MS2Sound_*.fsb files with their samples. Maps: the cue each map plays, which the mod being edited can change");
             top.Controls.Add(kindBox);
             top.Controls.Add(Lbl("find"));
             top.Controls.Add(searchBox);
-            tips.SetToolTip(searchBox, "Music: a part of the cue id or name, or a map id (the cues the map plays). Banks: a part of the bank or of a sample name. Empty lists all");
+            tips.SetToolTip(searchBox, "Music: a part of the cue id or name, or a map id (the cues the map plays). Banks: a part of the bank or of a sample name. Maps: a part of the map id or name, or a cue id (the maps that play it). Empty lists all");
             top.Controls.Add(Btn("Find", "Lists what holds the text", delegate { Find(); }));
             top.Controls.Add(Btn("Reload", "Reads the Sound folder and the maps again", delegate { Reload(); Find(); }));
             top.Controls.Add(hitsLabel);
             top.Controls.Add(folderLabel);
 
+            mapBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
+            mapBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change, to every target at once", delegate { return host.DoApply(); }));
+            mapBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
+            mapBar.Controls.Add(Btn("Undo map", "Takes the mod's music lines of the map shown out: every side plays the shipped cues again", delegate { UndoMap(); }));
+            mapBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
+
             grid.VirtualMode = true;
-            grid.ReadOnly = true;
+            grid.ReadOnly = false;
+            grid.EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2;
             grid.AllowUserToAddRows = false;
             grid.AllowUserToDeleteRows = false;
             grid.AllowUserToOrderColumns = false;
@@ -91,9 +107,14 @@ namespace MS2.Tables
             grid.DefaultCellStyle.ForeColor = SystemColors.WindowText;
             grid.CellValueNeeded += OnCellNeeded;
             grid.CellToolTipTextNeeded += OnTipNeeded;
+            grid.CellValuePushed += OnCellPushed;
+            grid.CellFormatting += OnCellFormatting;
+            grid.CellBeginEdit += delegate(object sender, DataGridViewCellCancelEventArgs e) { if (!Editable(e.RowIndex, e.ColumnIndex)) e.Cancel = true; };
+            IdPick.Attach(grid, delegate(int row, int column) { return Editable(row, column) ? CueKind : null; }, delegate { return host.SharedSession(); }, null, FindCues);
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
+            right.Controls.Add(mapBar);
             right.Controls.Add(shownLabel);
 
             Controls.Add(right);
@@ -137,7 +158,8 @@ namespace MS2.Tables
             base.Dispose(disposing);
         }
 
-        bool Music { get { return kindBox.SelectedIndex != 1; } }
+        bool Music { get { return kindBox.SelectedIndex == 0; } }
+        bool Maps { get { return kindBox.SelectedIndex == 2; } }
 
         static Label Lbl(string text) { return new Label { Text = text, AutoSize = true, Margin = new Padding(6, 8, 0, 0) }; }
 
@@ -145,6 +167,15 @@ namespace MS2.Tables
         {
             var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
             b.Click += delegate(object sender, EventArgs e) { Guard(delegate { click(sender, e); }); };
+            tips.SetToolTip(b, tip);
+            return b;
+        }
+
+        // a job of the MS2 Tables view (Plan, Apply, Revert): the cell being typed in goes in first
+        Button Job(string text, string tip, Func<bool> start)
+        {
+            var b = new Button { Text = text, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, UseVisualStyleBackColor = true, ForeColor = SystemColors.ControlText };
+            b.Click += delegate { if (Guard(delegate { grid.EndEdit(); host.NeedHandle(); })) start(); };
             tips.SetToolTip(b, tip);
             return b;
         }
@@ -161,6 +192,10 @@ namespace MS2.Tables
             }
             host = h;
             uses = null;
+            tunes = null;
+            // a scan of the old host never ends here (its done or busy end may not come): the age drops its result
+            reading = false;
+            usesAge++;
             if (h == null) return;
             h.Changed += OnHostChanged;
             h.BusyChanged += OnHostBusy;
@@ -201,22 +236,26 @@ namespace MS2.Tables
                     readProblem = "the maps could not be read (see the MS2 Tables view's output); Reload tries again";
                     Fill(Selected());
                 }
-                else if (hits.Count == 0 || (stale && Visible)) { stale = false; Guard(delegate { Find(); }); }
+                else if (hits.Count == 0) Guard(delegate { Find(); });
             });
         }
 
-        // the mod was replaced or edited in another view: the maps' rows may differ. Read again when the view is looked
-        // at; another view's edit never waits for the map scan.
+        // the mod was replaced or edited in another view: the maps' rows may differ. They are read again on the next
+        // Find, Reload or pick in the list, or when the view is shown again; never at each edit, so a chain of cell
+        // edits in another view does not wait for the map scan.
         void OnHostChanged()
         {
             uses = null;
+            tunes = null;
             usesAge++;
-            if (!Visible || host == null || host.Busy) { stale = true; return; }
-            try { Guard(delegate { Fill(Selected()); }); }
+            stale = true;
+            try
+            {
+                if (Visible && !IsDisposed) OutputWrap.Set(outputBox, "the mod changed: Find reads the maps again (the list shows them as they were)");
+            }
             catch (Exception ex)
             {
                 // the change is another view's: what fails here must not reach it
-                OutputWrap.Set(outputBox, ex.Message);
                 Logger.Warning("MS2 Sound: " + ex);
             }
         }
@@ -231,8 +270,18 @@ namespace MS2.Tables
             banks.Clear();
             bankProblems.Clear();
             uses = null;
+            tunes = null;
             usesAge++;
             readProblem = null;
+            reading = false;
+        }
+
+        // the mod's map music for the session's data and mod (one reading of fielddata.xml while they stay)
+        MapMusic Tunes()
+        {
+            EditorSession s = host.SharedSession();
+            if (tunes == null || tunes.Data != s.Data || tunes.Mod != s.Mod) tunes = new MapMusic(s.Data, s.Mod);
+            return tunes;
         }
 
         void ReadFolder()
@@ -302,6 +351,7 @@ namespace MS2.Tables
 
         void Find()
         {
+            stale = false;
             Fill(Selected());
             if (hitList.Items.Count > 0 && hitList.SelectedIndex < 0) hitList.SelectedIndex = 0;
             else if (hitList.Items.Count == 0) Show(null);
@@ -348,6 +398,32 @@ namespace MS2.Tables
                 if (missing > 0) said.Add(missing + " cue id(s) the maps play are not in " + SoundData.ProjectFile + ": the client plays nothing there");
                 hitsLabel.Text = hits.Count + " cue(s)" + (project != null ? ", " + project.Cues.Count + " in the project" : "") + ", " + uses.Count + " map row(s)";
             }
+            else if (Maps)
+            {
+                bool ready = ReadUses();
+                if (!ready) said.Add(readProblem ?? "reading the maps (a job of the MS2 Tables view)...");
+                var edited = new HashSet<long>();
+                if (ready) { MapMusic t = Tunes(); foreach (long m in t.EditedMaps()) if (t.IsEdited(m)) edited.Add(m); }
+                var ids = new SortedDictionary<long, string>();
+                if (ready)
+                {
+                    foreach (KeyValuePair<long, string> kv in mapNames) ids[kv.Key] = kv.Value;
+                    foreach (CueUse u in uses) if (!ids.ContainsKey(u.Map)) ids[u.Map] = "";
+                }
+                int cueQ;
+                bool byCue = int.TryParse(q, NumberStyles.None, CultureInfo.InvariantCulture, out cueQ);
+                var playing = new HashSet<long>();
+                if (byCue && ready) foreach (CueUse u in uses) if (u.Cue == cueQ) playing.Add(u.Map);
+                foreach (KeyValuePair<long, string> kv in ids)
+                {
+                    bool hit = q.Length == 0 || kv.Key.ToString(CultureInfo.InvariantCulture).Contains(q)
+                        || (kv.Value ?? "").IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || playing.Contains(kv.Key);
+                    if (!hit) continue;
+                    hits.Add(kv.Key);
+                    labels.Add(kv.Key + "  " + kv.Value + (edited.Contains(kv.Key) ? "  · music edited" : ""));
+                }
+                hitsLabel.Text = hits.Count + " map(s)" + (ready ? " of " + ids.Count + ", " + edited.Count + " with the mod's music" : "");
+            }
             else
             {
                 List<string> files = folder == null ? new List<string>() : new SoundData(folder).Banks();
@@ -375,21 +451,50 @@ namespace MS2.Tables
                 hitList.EndUpdate();
             }
             finally { filling = false; }
-            OutputWrap.Set(outputBox, said.Count == 0 ? "read only: no playback and no edits; what a mod would need is in the README (Sound and music)" : string.Join("\r\n", said.ToArray()));
+            string idle = Maps
+                ? "a map's normal and boss cells set the cue it plays (F4: pick one by id or name; empty: no music); the kms client's row and the server's map file are set, the mirror writes the global client's"
+                : "read only: no playback; the maps' music is set in Maps; what else a mod would need is in the README (Sound and music)";
+            OutputWrap.Set(outputBox, said.Count == 0 ? idle : string.Join("\r\n", said.ToArray()));
             Show(Selected());
         }
 
         static string Mb(long bytes) { return (bytes / 1048576.0).ToString("0.0", CultureInfo.InvariantCulture) + " MB"; }
 
-        void OpenSelected() { Show(Selected()); }
+        // a pick in the list after the mod changed reads the maps again first
+        void OpenSelected()
+        {
+            if (stale && (Music || Maps)) { stale = false; Fill(Selected()); return; }
+            Show(Selected());
+        }
 
         void Show(object what)
         {
             shownUses.Clear();
             shownBank = null;
+            shownMap = -1;
+            shownPlaces.Clear();
+            grid.CancelEdit();
             grid.RowCount = 0;
             grid.Columns.Clear();
+            mapBar.Visible = Maps;
             if (what == null) { shownLabel.Text = ""; return; }
+            if (what is long)
+            {
+                shownMap = (long)what;
+                shownPlaces.AddRange(Tunes().Places(shownMap));
+                string name;
+                shownLabel.Text = "map " + shownMap + (mapNames != null && mapNames.TryGetValue(shownMap, out name) && name.Length > 0 ? " " + name : "")
+                    + ": " + shownPlaces.Count + " environment(s)" + (shownPlaces.Count == 0 ? " (no fielddata row and no map file)" : "");
+                int[] w = { 130, 150, 60, 170, 60, 170 };
+                for (int i = 0; i < PlaceHeads.Length; i++)
+                {
+                    DataGridViewColumn c = Col(PlaceHeads[i], w[i]);
+                    c.ReadOnly = i != NormalColumn && i != BossColumn;
+                    grid.Columns.Add(c);
+                }
+                grid.RowCount = shownPlaces.Count;
+                return;
+            }
             if (what is int)
             {
                 int cue = (int)what;
@@ -443,6 +548,21 @@ namespace MS2.Tables
                 }
                 return;
             }
+            if (shownMap >= 0)
+            {
+                if (e.RowIndex >= shownPlaces.Count) return;
+                MusicPlace p = shownPlaces[e.RowIndex];
+                switch (e.ColumnIndex)
+                {
+                    case 0: e.Value = p.Archive; break;
+                    case 1: e.Value = SoundData.EnvLabel(p.Feature, p.Locale); break;
+                    case NormalColumn: e.Value = Cue(p, false); break;
+                    case 3: e.Value = CueName(Cue(p, false)); break;
+                    case BossColumn: e.Value = Cue(p, true); break;
+                    case 5: e.Value = CueName(Cue(p, true)); break;
+                }
+                return;
+            }
             if (e.RowIndex >= shownUses.Count) return;
             CueUse u = shownUses[e.RowIndex];
             string name;
@@ -460,7 +580,27 @@ namespace MS2.Tables
 
         void OnTipNeeded(object sender, DataGridViewCellToolTipTextNeededEventArgs e)
         {
+            if (shownMap >= 0 && e.RowIndex >= 0 && e.RowIndex < shownPlaces.Count && e.ColumnIndex >= 0)
+            {
+                MusicPlace p = shownPlaces[e.RowIndex];
+                if (!p.Written) e.ToolTipText = p.Archive == EntityEditor.GmsXml && Tunes().PerIdSide == EntityEditor.ServerXml
+                    ? "the global client's map file: the mirror writes the server's cues here (shown)" : "not written by this view";
+                else if (e.ColumnIndex == NormalColumn || e.ColumnIndex == BossColumn)
+                    e.ToolTipText = "shipped: " + Shipped(p, e.ColumnIndex == BossColumn) + "; a cue id or name, empty for no music; it is set on every written row of the map";
+                return;
+            }
             if (e.RowIndex >= 0 || e.ColumnIndex < 0) return;
+            if (shownMap >= 0)
+            {
+                switch (e.ColumnIndex)
+                {
+                    case 0: e.ToolTipText = "the archive: the kms client's fielddata.xml row, the server's or the global client's map file"; break;
+                    case 1: e.ToolTipText = "the environment the element is in: its feature and locale (empty: the plain one)"; break;
+                    case NormalColumn: e.ToolTipText = "the cue the map plays (the bgm element's id)"; break;
+                    case BossColumn: e.ToolTipText = "the cue of a boss fight on the map (the bgm element's boss)"; break;
+                }
+                return;
+            }
             if (shownBank != null)
                 switch (e.ColumnIndex)
                 {
@@ -477,6 +617,113 @@ namespace MS2.Tables
                     case 5: e.ToolTipText = "the archive the row is in: the kms client's fielddata.xml, the server's or the global client's map file"; break;
                     case 6: e.ToolTipText = "the environment the element is in: its feature and locale (empty: the plain one). The client plays the one whose feature is on and whose locale is its own"; break;
                 }
+        }
+
+        // ---- a map's music ----
+
+        bool Editable(int row, int column)
+        {
+            return shownMap >= 0 && (column == NormalColumn || column == BossColumn) && row >= 0 && row < shownPlaces.Count && shownPlaces[row].Written;
+        }
+
+        // the cue a place plays with the mod (the global client's file: the server's, which the mirror carries there)
+        string Cue(MusicPlace p, bool boss)
+        {
+            MapMusic t = Tunes();
+            return t.Get(MapMusic.Shown(p, shownPlaces, t.PerIdSide), boss);
+        }
+
+        static string Shipped(MusicPlace p, bool boss)
+        {
+            string v = boss ? p.Boss : p.Id;
+            return v.Length == 0 ? "none" : v;
+        }
+
+        string CueName(string id)
+        {
+            int n;
+            if (!int.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out n) || n == 0) return id.Length == 0 ? "" : "(no music)";
+            if (project == null) return "";
+            MusicCue c = project.Cue(n);
+            return c != null ? c.Name : "(not in the project: no music)";
+        }
+
+        void OnCellFormatting(object sender, DataGridViewCellFormattingEventArgs e)
+        {
+            if (shownMap < 0 || e.RowIndex < 0 || e.RowIndex >= shownPlaces.Count) return;
+            MusicPlace p = shownPlaces[e.RowIndex];
+            if (!p.Written) { e.CellStyle.ForeColor = SystemColors.GrayText; return; }
+            bool boss = e.ColumnIndex >= BossColumn;
+            if (e.ColumnIndex >= NormalColumn && Cue(p, boss) != (boss ? p.Boss : p.Id)) e.CellStyle.BackColor = Color.FromArgb(214, 240, 214);
+        }
+
+        // the id picker's search: the event project's cues by id or name
+        List<EntityHit> FindCues(string kind, string text, int max)
+        {
+            if (project == null) throw new ModKitException(projectProblem ?? "the event project is not read");
+            string q = (text ?? "").Trim();
+            var l = new List<EntityHit>();
+            foreach (MusicCue c in project.Cues)
+            {
+                if (l.Count >= max) break;
+                if (q.Length == 0 || c.Id.ToString(CultureInfo.InvariantCulture).StartsWith(q, StringComparison.Ordinal)
+                    || (c.Name ?? "").IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0)
+                    l.Add(new EntityHit { Id = c.Id, Name = c.Name ?? "" });
+            }
+            return l;
+        }
+
+        // a typed cell: a cue id, or a cue name of the project (the whole name, else the one cue whose name holds it)
+        string CueOf(string text)
+        {
+            string t = (text ?? "").Trim();
+            int n;
+            if (t.Length == 0 || int.TryParse(t, NumberStyles.None, CultureInfo.InvariantCulture, out n)) return t;
+            if (project == null) throw new ModKitException("\"" + t + "\" is not a cue id, and the event project is not read to find it by name");
+            MusicCue whole = project.Cues.Find(delegate(MusicCue c) { return string.Equals(c.Name, t, StringComparison.OrdinalIgnoreCase); });
+            if (whole != null) return whole.Id.ToString(CultureInfo.InvariantCulture);
+            List<MusicCue> part = project.Cues.FindAll(delegate(MusicCue c) { return (c.Name ?? "").IndexOf(t, StringComparison.OrdinalIgnoreCase) >= 0; });
+            if (part.Count == 1) return part[0].Id.ToString(CultureInfo.InvariantCulture);
+            throw new ModKitException(part.Count == 0 ? "no cue of the project is named \"" + t + "\"" : part.Count + " cues have \"" + t + "\" in their name: type more of it, or pick one with F4");
+        }
+
+        void OnCellPushed(object sender, DataGridViewCellValueEventArgs e)
+        {
+            if (!Editable(e.RowIndex, e.ColumnIndex)) return;
+            long map = shownMap;
+            bool boss = e.ColumnIndex == BossColumn;
+            string typed = e.Value == null ? "" : e.Value.ToString();
+            // the grid pushes while it ends the edit: the change and the refill come after
+            BeginInvoke((MethodInvoker)delegate { Guard(delegate { SetCue(map, boss, typed); }); });
+        }
+
+        void SetCue(long map, bool boss, string typed)
+        {
+            if (map != shownMap) return;
+            string cue = CueOf(typed);
+            int n = Tunes().Set(map, boss, cue);
+            string warn = "";
+            int id;
+            if (cue.Length > 0 && project != null && int.TryParse(cue, NumberStyles.None, CultureInfo.InvariantCulture, out id) && project.Cue(id) == null)
+                warn = "; cue " + cue + " is not in " + SoundData.ProjectFile + ": the client plays nothing there";
+            MapEdited(map, "map " + map + (boss ? " boss" : "") + ": " + (cue.Length == 0 ? "no music" : "cue " + cue + " " + CueName(cue)) + " on " + n + " row(s)" + warn);
+        }
+
+        void UndoMap()
+        {
+            if (shownMap < 0) { OutputWrap.Set(outputBox, "pick a map in the list first"); return; }
+            int n = Tunes().Take(shownMap);
+            MapEdited(shownMap, "map " + shownMap + ": " + (n == 0 ? "the mod sets no music there" : "the mod's music lines taken out of " + n + " row(s); the shipped cues play"));
+        }
+
+        // after this view's own edit: only that map's rows of the lists are read again, not every map file
+        void MapEdited(long map, string said)
+        {
+            if (uses != null) Tunes().Overlay(uses, map);
+            host.EditedOutside();
+            host.SayOutside(said);
+            Fill(Selected());
+            OutputWrap.Set(outputBox, said);
         }
     }
 }
