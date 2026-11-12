@@ -68,11 +68,29 @@ namespace MS2.ModKit.Tests
             return sb.Append("</model>\n").ToString();
         }
 
+        // a model with mixins: the mixin lines come before the properties, as in the listing
+        static string FlatMix(string name, int id, string[] mixins, params string[] props)
+        {
+            string f = Flat(name, id, props);
+            var sb = new StringBuilder();
+            for (int i = 0; i < mixins.Length; i++) sb.Append("\t<mixin name=\"" + mixins[i] + "\" id=\"" + (100 + i) + "\" />\n");
+            int at = f.IndexOf('\n', f.IndexOf("<model ", StringComparison.Ordinal)) + 1;
+            return f.Insert(at, sb.ToString());
+        }
+
         public static readonly KeyValuePair<string, byte[]>[] Flats =
         {
             E("flat/a/crate_a.flat", Flat("Crate_A", 1, "Position", "Point3", "0, 0, 0", "Rotation", "Point3", "0, 0, 0", "Tags", "AssocString", null, "IsVisible", "Boolean", "True", "Scale", "Float32", "1")),
             E("flat/a/spawnpoint_a.flat", Flat("SpawnPoint_A", 2, "Position", "Point3", "0, 0, 0", "SpawnPointID", "SInt32", "0", "NpcList", "AssocUInt32", null)),
             E("flat/a/portal_a.flat", Flat("Portal_A", 3, "Position", "Point3", "0, 0, 0", "PortalID", "SInt32", "0", "TargetFieldSN", "SInt32", "0", "TargetPortalID", "SInt32", "0")),
+            // the kinds the Maps view adds as plain <add> ops: an NPC spawn point, an interact object, a trigger box
+            E("flat/b/spawnpointnpc.flat", Flat("SpawnPointNPC", 4, "Position", "Point3", "0, 0, 0", "SpawnPointID", "SInt32", "0", "NpcList", "AssocUInt32", null, "NpcCount", "UInt32", "1")),
+            E("flat/b/spawnpointnpc_a.flat", FlatMix("SpawnPointNPC_A", 5, new[] { "SpawnPointNPC" }, "RegenCheckTime", "UInt32", "10")),
+            E("flat/b/ms2interactobject.flat", Flat("MS2InteractObject", 6, "Position", "Point3", "0, 0, 0", "interactID", "UInt32", "0")),
+            E("flat/b/interact_a.flat", FlatMix("Interact_A", 7, new[] { "MS2InteractObject" })),
+            E("flat/b/ms2triggerobject.flat", Flat("MS2TriggerObject", 8, "Position", "Point3", "0, 0, 0", "TriggerObjectID", "SInt32", "0")),
+            E("flat/b/ms2triggerbox.flat", FlatMix("MS2TriggerBox", 9, new[] { "MS2TriggerObject" }, "ShapeDimensions", "Point3", "100, 100, 100")),
+            E("flat/b/triggerbox_a.flat", FlatMix("TriggerBox_A", 10, new[] { "MS2TriggerBox" })),
         };
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
@@ -206,7 +224,7 @@ namespace MS2.ModKit.Tests
         public void MapToEditorFileAndBack(XDialect dialect)
         {
             FlatIndex ix = FlatIndex.FromFlats(FakeMaps.Flats);
-            Assert.That(ix.Count, Is.EqualTo(3));
+            Assert.That(ix.Count, Is.EqualTo(10));
             byte[] shipped = XBlock.Bytes(FakeMaps.A(false), dialect);
             Assert.That(XBlock.DetectDialect(shipped), Is.EqualTo(dialect));
             string dir = Path.Combine(Path.GetTempPath(), "modkit-mapconv-" + Guid.NewGuid().ToString("N"));
@@ -973,7 +991,7 @@ namespace MS2.ModKit.Tests
                             else if (e.Name == FakeMaps.EntryB) Assert.That(made.Read(e.Name), Is.Not.EqualTo(orig.Read(e)));
                             else { Assert.That(made.ReadRaw(made.Find(e.Name)), Is.EqualTo(orig.ReadRaw(e)), e.Name); same++; }
                         }
-                        Assert.That(same, Is.EqualTo(8));       // three models, four maps no mod names, the other file: stored bytes untouched
+                        Assert.That(same, Is.EqualTo(15));      // ten models, four maps no mod names, the other file: stored bytes untouched
                     }
 
                 // a second apply of the same mod writes the same files

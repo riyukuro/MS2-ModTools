@@ -240,7 +240,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.ModelsWith(FakeMaps.MapA, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }), "the map file's own");
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID"), Is.Empty, "only a crate, no hint");
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "PortalID", "portal"), Is.EqualTo(new[] { "Portal_A" }));
-                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "spawnpoint"), Is.EqualTo(new[] { "SpawnPoint_A" }));
+                Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "spawnpoint"), Is.EqualTo(new[] { "SpawnPointNPC", "SpawnPointNPC_A", "SpawnPoint_A" }));
                 Assert.That(ed.ModelsWith(FakeMaps.MapUpper, "SpawnPointID", "portal"), Is.Empty, "named like one but without the property");
             }
         }
@@ -362,6 +362,88 @@ namespace MS2.ModKit.Tests
                 MapEditor.RemoveNew(mod, X, po);
                 Assert.That(mod.Maps, Is.Empty);
                 Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, po, "Position", null, "1, 1, 1"), "it is no longer in the mod");
+            }
+        }
+
+        [Test]
+        public void NewNpcSpawnsInteractObjectsAndTriggerBoxesPlanAndComeBack()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                Mod mod = f.Mod("kinds", "");
+                const string X = "90000001_AB";
+                // no entity of the map file is of these kinds: the listing's models named like one, by mixin
+                Assert.That(ed.ModelsOf(X, MapEditor.NpcSpawn), Is.EqualTo(new[] { "SpawnPointNPC", "SpawnPointNPC_A" }));
+                Assert.That(ed.ModelsOf(X, MapEditor.Interact), Is.EqualTo(new[] { "Interact_A", "MS2InteractObject" }));
+                Assert.That(ed.ModelsOf(X, MapEditor.TriggerBox), Is.EqualTo(new[] { "TriggerBox_A", "MS2TriggerBox" }));
+                Assert.That(ed.HasMixin("TriggerBox_A", "ms2triggerobject"), Is.True, "two mixins deep, any case");
+                Assert.That(ed.HasMixin("Crate_A", "MS2TriggerObject"), Is.False);
+                Assert.That(ed.NextNumber(mod, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom));
+
+                MapEntityOp npc = ed.AddNpcSpawn(mod, 90000001, X, "guard", "SpawnPointNPC_A", "10, 20, 30", 21000001, 2);
+                MapEntityOp sp = ed.AddSpawn(mod, 90000001, X, "wolves", "SpawnPoint_A", null);
+                MapEntityOp io = ed.AddInteract(mod, 90000001, X, "lever", "Interact_A", "40, 50, 60", 10000123);
+                MapEntityOp box = ed.AddTriggerBox(mod, 90000001, X, "gate", "TriggerBox_A", "70, 80, 90", "300, 300.5, 200");
+                MapEntityOp box2 = ed.AddTriggerBox(mod, 90000001, X, "gate2", "TriggerBox_A", null, null);
+                Assert.That(npc.Kind, Is.EqualTo(MapOpKind.Add), "a plain <add>");
+                Assert.That(sp.Number, Is.EqualTo(IdSpaces.SpawnPointFrom + 1), "the NPC spawn's SpawnPointID counts for the next spawn point");
+                Assert.That(ed.NextNumber(mod, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom + 2));
+                Assert.That(new[] { npc, sp, io, box }.Select(o => ed.KindOf(o) == null ? "-" : ed.KindOf(o).Label).ToArray(),
+                    Is.EqualTo(new[] { "NPC spawn point", "-", "interact object", "trigger box" }));
+                Assert.Throws<ModKitException>(() => ed.AddInteract(mod, 90000001, X, "x", "Crate_A", null, 1), "not an interact object model");
+                Assert.Throws<ModKitException>(() => ed.AddInteract(mod, 90000001, X, "x", "TriggerBox_A", null, 1), "a trigger box is not one either");
+                Assert.Throws<ModKitException>(() => ed.AddInteract(mod, 90000001, X, "x", "Interact_A", null, 0), "an interactID is needed");
+                Assert.Throws<ModKitException>(() => ed.AddNpcSpawn(mod, 90000001, X, "x", "SpawnPointNPC_A", null, 0, 1), "an NPC id is needed");
+                Assert.Throws<ModKitException>(() => ed.AddNpcSpawn(mod, 90000001, X, "x", "SpawnPointNPC_A", null, 1, 0), "one NPC or more");
+                Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "x", "TriggerBox_A", null, "1, 2"), "three sizes");
+                Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "x", "TriggerBox_A", null, "1, 0, 2"), "above 0");
+                Assert.Throws<ModKitException>(() => ed.AddTriggerBox(mod, 90000001, X, "gate", "TriggerBox_A", null, null), "a name is used once");
+                Assert.That(MapEditor.NewOps(mod, X).Count, Is.EqualTo(5));
+
+                List<MapPropRow> rows = ed.RowsOfNew(npc);
+                Assert.That(rows.Take(4).Select(r => r.Name + (r.Index == null ? "" : "[" + r.Index + "]") + "=" + (r.Current ?? "-") + (r.Edited ? "*" : "")).ToArray(),
+                    Is.EqualTo(new[] { "SpawnPointID=140000*", "Position=10, 20, 30*", "NpcList[21000001]=2*", "NpcCount=2*" }));
+                Assert.That(ed.RowsOfNew(box).Take(3).Select(r => r.Name + "=" + r.Current).ToArray(),
+                    Is.EqualTo(new[] { "TriggerObjectID=170000", "Position=70, 80, 90", "ShapeDimensions=300, 300.5, 200" }));
+                Assert.That(ed.RowsOfNew(box2).First(r => r.Name == "ShapeDimensions").Default, Is.EqualTo("100, 100, 100"), "the model's size when none is given");
+
+                // the number of an added entity is changed, never unset
+                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, box, "TriggerObjectID", null, null));
+                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, box, "TriggerObjectID", null, "x"));
+                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, npc, "SpawnPointID", "0", "1"));
+                MapEditor.SetNew(mod, X, npc, "NpcList", "21000002", "1");
+                MapEditor.SetNew(mod, X, io, "interactID", null, "10000124");
+
+                Plan p = f.Plan(mod);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Warnings.Select(x => x.ToString()).Where(x => x.Contains("TriggerObjectID") || x.Contains("guard") || x.Contains("no property")), Is.Empty, Fake.Dump(p));
+                foreach (string ar in new[] { K, G, S })
+                {
+                    string t = Text(p, ar, FakeMaps.EntryA);
+                    Assert.That(t, Does.Contain(MapValues.NewEntityId("kinds", X, "gate")), ar);
+                    Assert.That(t, Does.Contain("value=\"170000\"").And.Contain("value=\"170001\"").And.Contain("300, 300.5, 200"), ar);
+                    Assert.That(t, Does.Contain("index=\"21000001\"").And.Contain("index=\"21000002\"").And.Contain("value=\"10000124\""), ar);
+                }
+
+                string xml = mod.ToXml();
+                mod.Save(System.IO.Path.Combine(f.Dir, "mods", "kinds"));
+                Mod back = Mod.Load(System.IO.Path.Combine(f.Dir, "mods", "kinds"));
+                Assert.That(back.ToXml(), Is.EqualTo(xml));
+                Assert.That(MapEditor.NewOps(back, X).Count, Is.EqualTo(5));
+                Assert.That(ed.NextNumber(back, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom + 2), "the numbers of loaded <add> ops count");
+
+                // the same TriggerObjectID twice in the map is an error; one outside the mod range a warning
+                MapEditor.SetNew(mod, X, box2, "TriggerObjectID", null, "170000");
+                p = f.Plan(mod);
+                Assert.That(p.Errors.Select(x => x.ToString()).Count(x => x.Contains("TriggerObjectID 170000 is already used in this map")), Is.EqualTo(3), Fake.Dump(p));
+                MapEditor.SetNew(mod, X, box2, "TriggerObjectID", null, "5");
+                p = f.Plan(mod);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(p.Warnings.Select(x => x.ToString()).Count(x => x.Contains("TriggerObjectID 5 is outside the range kept for mods (170000-179999)")), Is.EqualTo(3), Fake.Dump(p));
+
+                MapEditor.RemoveNew(mod, X, box);
+                Assert.That(ed.NextNumber(mod, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom), "a removed one frees its number");
             }
         }
 

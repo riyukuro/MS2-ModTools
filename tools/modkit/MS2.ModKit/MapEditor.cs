@@ -415,14 +415,181 @@ namespace MS2.ModKit
         /// <summary>The first number of the mod range (IdSpaces) that no shipped entity and no new one of the map file uses.</summary>
         public long NextNumber(Mod mod, string xblock, bool portal)
         {
+            return NextNumber(mod, xblock, portal ? "PortalID" : "SpawnPointID");
+        }
+
+        /// <summary>
+        /// The first number of the mod range of a per-map number (PortalID, SpawnPointID, TriggerObjectID) that no shipped
+        /// entity and no new one of the map file uses: a spawn's or portal's own number, or the property of an added entity.
+        /// </summary>
+        public long NextNumber(Mod mod, string xblock, string prop)
+        {
+            long from, to;
+            IdSpaces.MapNumberRange(prop, out from, out to);
             var used = new HashSet<long>();
             List<XEntity> l = Shipped(xblock);
-            if (l != null) foreach (XEntity e in l) used.Add(Scalar(e, portal ? "PortalID" : "SpawnPointID"));
+            if (l != null) foreach (XEntity e in l) used.Add(Scalar(e, prop));
             foreach (MapEntityOp op in NewOps(mod, xblock))
-                if (op.Kind == (portal ? MapOpKind.Portal : MapOpKind.Spawn)) used.Add(op.Number);
-            long from = portal ? IdSpaces.PortalFrom : IdSpaces.SpawnPointFrom, to = portal ? IdSpaces.PortalTo : IdSpaces.SpawnPointTo;
+            {
+                if (Array.IndexOf(Own(op), prop) >= 0) used.Add(OwnValue(op, prop));
+                long v;
+                XProp p = op.Props.Find(delegate (XProp x) { return x.Name == prop; });
+                if (p != null && p.Scalar && long.TryParse(p.Items[0].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out v)) used.Add(v);
+            }
             for (long n = from; n <= to; n++) if (!used.Contains(n)) return n;
-            throw new ModKitException("every " + (portal ? "PortalID" : "SpawnPointID") + " of the mod range (" + from + "-" + to + ") is used in " + xblock);
+            throw new ModKitException("every " + prop + " of the mod range (" + from + "-" + to + ") is used in " + xblock);
+        }
+
+        // ---- the other kinds of new entities: plain <add> ops ----
+
+        /// <summary>A kind of entity the Maps view adds as a plain &lt;add&gt; op: its models have the mixin.</summary>
+        public sealed class AddKind
+        {
+            /// <summary>What the user reads ("NPC spawn point").</summary>
+            public string Label;
+            /// <summary>Every model of the kind has this model among its mixins (or is it).</summary>
+            public string Mixin;
+            /// <summary>The per-map number the tool gives a new one (null for none).</summary>
+            public string Number;
+            /// <summary>Listing names that hold this are offered when no entity of the map file has a model of the kind.</summary>
+            public string Hint;
+        }
+
+        /// <summary>An NPC spawn point: SpawnPointID from the spawn range, NpcList [npc id] = count and NpcCount.</summary>
+        public static readonly AddKind NpcSpawn = new AddKind { Label = "NPC spawn point", Mixin = "SpawnPointNPC", Number = "SpawnPointID", Hint = "SpawnPointNPC" };
+        /// <summary>An interact object (mesh or actor) with the interactID of its interact object row; the id is not unique.</summary>
+        public static readonly AddKind Interact = new AddKind { Label = "interact object", Mixin = "MS2InteractObject", Hint = "Interact" };
+        /// <summary>A trigger box: TriggerObjectID from the trigger object range, ShapeDimensions.</summary>
+        public static readonly AddKind TriggerBox = new AddKind { Label = "trigger box", Mixin = "MS2TriggerBox", Number = "TriggerObjectID", Hint = "TriggerBox" };
+        public static readonly AddKind[] AddKinds = { NpcSpawn, Interact, TriggerBox };
+
+        /// <summary>Whether the model is the mixin or has it among its mixins, at any depth.</summary>
+        public bool HasMixin(string model, string mixin)
+        {
+            return HasMixin(model, mixin, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        bool HasMixin(string model, string mixin, HashSet<string> seen)
+        {
+            if (model == null || !seen.Add(model)) return false;
+            if (string.Equals(model, mixin, StringComparison.OrdinalIgnoreCase)) return true;
+            FlatModel m = ReadModel(model) ?? ReadModelAnyCase(model);
+            if (m == null) return false;
+            foreach (FlatMixin x in m.Mixins) if (HasMixin(x.Name, mixin, seen)) return true;
+            return false;
+        }
+
+        FlatModel ReadModelAnyCase(string name)
+        {
+            ListFlats();
+            M2dEntry f;
+            return flats.TryGetValue(name, out f) ? ParseFlat(f) : null;
+        }
+
+        /// <summary>The kind a new entity's model is of (null: none of AddKinds).</summary>
+        public AddKind KindOf(MapEntityOp op)
+        {
+            if (op == null || op.Kind != MapOpKind.Add) return null;
+            foreach (AddKind k in AddKinds) if (HasMixin(op.Model, k.Mixin)) return k;
+            return null;
+        }
+
+        /// <summary>
+        /// The models of the kind used by the map file's shipped entities (most used first); when none: the models of the
+        /// listing whose file name holds the kind's hint (names that start with it first, at most 40).
+        /// </summary>
+        public List<string> ModelsOf(string xblock, AddKind kind)
+        {
+            var count = new Dictionary<string, int>(StringComparer.Ordinal);
+            var not = new HashSet<string>(StringComparer.Ordinal);
+            List<XEntity> l = Shipped(xblock);
+            if (l != null)
+                foreach (XEntity e in l)
+                {
+                    if (e.Model == null || not.Contains(e.Model)) continue;
+                    int c;
+                    if (count.TryGetValue(e.Model, out c)) { count[e.Model] = c + 1; continue; }
+                    if (Model(e.Model) != null && HasMixin(e.Model, kind.Mixin)) count[e.Model] = 1; else not.Add(e.Model);
+                }
+            var res = new List<string>(count.Keys);
+            res.Sort(delegate (string a, string b) { int d = count[b].CompareTo(count[a]); return d != 0 ? d : string.CompareOrdinal(a, b); });
+            if (res.Count > 0) return res;
+            ListFlats();
+            var names = new List<string>(flats.Keys);
+            names.Sort(delegate (string a, string b)
+            {
+                bool sa = a.StartsWith(kind.Hint, StringComparison.OrdinalIgnoreCase), sb = b.StartsWith(kind.Hint, StringComparison.OrdinalIgnoreCase);
+                return sa != sb ? (sa ? -1 : 1) : StringComparer.OrdinalIgnoreCase.Compare(a, b);
+            });
+            foreach (string n in names)
+            {
+                if (n.IndexOf(kind.Hint, StringComparison.OrdinalIgnoreCase) < 0) continue;
+                FlatModel pm = ParseFlat(flats[n]);
+                if (pm == null || Model(pm.Name) == null || !HasMixin(pm.Name, kind.Mixin)) continue;
+                res.Add(pm.Name);
+                if (res.Count >= 40) break;
+            }
+            return res;
+        }
+
+        /// <summary>A new NPC spawn point: an &lt;add&gt; with the next free SpawnPointID, NpcList [npc id] = count and NpcCount = count.</summary>
+        public MapEntityOp AddNpcSpawn(Mod mod, long mapId, string xblock, string name, string model, string position, long npcId, long count)
+        {
+            long id = Number("the NPC id", npcId), c = Number("NpcCount", count);
+            if (id == 0) throw new ModKitException("give the id of the NPC that spawns there (a row of the NPC table)");
+            if (c == 0) throw new ModKitException("give how many of the NPC spawn there (1 or more)");
+            MapEntityOp op = NewOfKind(mod, mapId, xblock, NpcSpawn, name, model, position);
+            op.Props.Add(new XProp("NpcList", new List<XSet> { new XSet(D(id), D(c)) }));
+            op.Props.Add(new XProp("NpcCount", D(c)));
+            MapOf(mod, xblock).Ops.Add(op);
+            return op;
+        }
+
+        /// <summary>A new interact object: an &lt;add&gt; with the interactID of a row of the interact object table.</summary>
+        public MapEntityOp AddInteract(Mod mod, long mapId, string xblock, string name, string model, string position, long interactId)
+        {
+            long id = Number("interactID", interactId);
+            if (id == 0) throw new ModKitException("give the interactID of the object (a row of the interact object table)");
+            MapEntityOp op = NewOfKind(mod, mapId, xblock, Interact, name, model, position);
+            op.Props.Add(new XProp("interactID", D(id)));
+            MapOf(mod, xblock).Ops.Add(op);
+            return op;
+        }
+
+        /// <summary>A new trigger box: an &lt;add&gt; with the next free TriggerObjectID; ShapeDimensions "x, y, z" (null or "": the model's).</summary>
+        public MapEntityOp AddTriggerBox(Mod mod, long mapId, string xblock, string name, string model, string position, string dimensions)
+        {
+            string dims = string.IsNullOrEmpty(dimensions) ? null : Dimensions(dimensions);
+            MapEntityOp op = NewOfKind(mod, mapId, xblock, TriggerBox, name, model, position);
+            if (dims != null) op.Props.Add(new XProp("ShapeDimensions", dims));
+            MapOf(mod, xblock).Ops.Add(op);
+            return op;
+        }
+
+        MapEntityOp NewOfKind(Mod mod, long mapId, string xblock, AddKind kind, string name, string model, string position)
+        {
+            long n = kind.Number == null ? -1 : NextNumber(mod, xblock, kind.Number);
+            MapEntityOp op = NewOp(mod, mapId, xblock, MapOpKind.Add, name, model, null, position, kind);
+            if (n >= 0) op.Props.Insert(0, new XProp(kind.Number, D(n)));
+            return op;
+        }
+
+        static string D(long v) { return v.ToString(CultureInfo.InvariantCulture); }
+
+        /// <summary>"x, y, z": three numbers above 0, written as the shipped maps write them.</summary>
+        static string Dimensions(string s)
+        {
+            string[] parts = s.Split(',');
+            var o = new List<string>();
+            foreach (string part in parts)
+            {
+                double v;
+                if (!double.TryParse(part.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out v) || !(v > 0) || double.IsInfinity(v))
+                { o = null; break; }
+                o.Add(v.ToString("R", CultureInfo.InvariantCulture));
+            }
+            if (o == null || o.Count != 3) throw new ModKitException("ShapeDimensions takes three sizes above 0 split by commas (as 300, 300, 200), not \"" + s + "\"");
+            return string.Join(", ", o.ToArray());
         }
 
         /// <summary>A new spawn point: a &lt;spawn&gt; op with the next free SpawnPointID; it has no server row yet.</summary>
@@ -447,7 +614,7 @@ namespace MS2.ModKit
             return op;
         }
 
-        MapEntityOp NewOp(Mod mod, long mapId, string xblock, MapOpKind kind, string name, string model, string needs, string position)
+        MapEntityOp NewOp(Mod mod, long mapId, string xblock, MapOpKind kind, string name, string model, string needs, string position, AddKind of = null)
         {
             if (mod == null) throw new ModKitException("no mod is being edited");
             if (!Has(xblock)) throw new ModKitException(Exported + " has no map file " + xblock);
@@ -456,7 +623,8 @@ namespace MS2.ModKit
             if (string.IsNullOrEmpty(model)) throw new ModKitException("give the model of the new entity");
             FlatModel fm = Model(model);
             if (fm == null) throw new ModKitException("the model listing (flat/) has no model " + model);
-            if (fm.Prop(needs) == null) throw new ModKitException("the model " + model + " has no property " + needs + "; pick a " + (kind == MapOpKind.Spawn ? "spawn point" : "portal") + " model");
+            if (of != null && !HasMixin(model, of.Mixin)) throw new ModKitException("the model " + model + " is not a " + of.Label + " model (it has no mixin " + of.Mixin + ")");
+            if (needs != null && fm.Prop(needs) == null) throw new ModKitException("the model " + model + " has no property " + needs + "; pick a " + (kind == MapOpKind.Spawn ? "spawn point" : "portal") + " model");
             var op = new MapEntityOp { Kind = kind, Name = name, Model = model, EntityName = name };
             if (!string.IsNullOrEmpty(position)) op.Props.Add(new XProp("Position", position.Trim()));
             MapOp m = MapOf(mod, xblock);
@@ -569,6 +737,13 @@ namespace MS2.ModKit
                 return;
             }
             XProp p = op.Props.Find(delegate (XProp x) { return x.Name == name; });
+            if (op.Kind == MapOpKind.Add && p != null && Array.IndexOf(MapNumbers, name) >= 0)
+            {
+                // the per-map number of an added NPC spawn, trigger box, ...: another number, never none
+                if (index != null) throw new ModKitException("the property " + name + " is a plain value; leave the index out");
+                if (value == null) throw new ModKitException("the new entity needs its " + name + "; set another number, it cannot be unset");
+                value = D(Number(name, value));
+            }
             if (p != null && p.Items.Count > 0 && (index == null) != (p.Items[0].Index == null))
                 throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
             if (value == null)
@@ -586,6 +761,9 @@ namespace MS2.ModKit
             int at = p.Items.FindIndex(delegate (XSet s) { return s.Index == index; });
             if (at >= 0) p.Items[at] = new XSet(index, value); else p.Items.Add(new XSet(index, value));
         }
+
+        /// <summary>The per-map numbers: an added entity that has one keeps it (it can be changed, not unset).</summary>
+        static readonly string[] MapNumbers = { "PortalID", "SpawnPointID", "TriggerObjectID" };
 
         /// <summary>Drops a new entity the mod adds to the map file.</summary>
         public static void RemoveNew(Mod mod, string xblock, MapEntityOp op)

@@ -198,6 +198,17 @@ namespace MS2.ModKit
         public const string SkillSpace = "skill", EffectSpace = "effect";
         /// <summary>Per-map numbers of mods: portals and monster spawn points (no shipped map uses these bands).</summary>
         public const long PortalFrom = 50000, PortalTo = 59999, SpawnPointFrom = 140000, SpawnPointTo = 149999;
+        /// <summary>Per-map trigger object numbers (TriggerObjectID of trigger boxes, meshes, ...) of mods: no shipped map uses this band.</summary>
+        public const long TriggerObjectFrom = 170000, TriggerObjectTo = 179999;
+
+        /// <summary>The mod range of a per-map number: PortalID, SpawnPointID or TriggerObjectID.</summary>
+        public static void MapNumberRange(string prop, out long from, out long to)
+        {
+            if (prop == "PortalID") { from = PortalFrom; to = PortalTo; }
+            else if (prop == "SpawnPointID") { from = SpawnPointFrom; to = SpawnPointTo; }
+            else if (prop == "TriggerObjectID") { from = TriggerObjectFrom; to = TriggerObjectTo; }
+            else throw new ArgumentException("not a per-map number: " + prop);
+        }
         public const long SkillFrom = 78000000, SkillTo = 78099999, EffectFrom = 77100000, EffectTo = 77199999;
 
         /// <summary>The places a shop id or drop box id lives in, on every side.</summary>

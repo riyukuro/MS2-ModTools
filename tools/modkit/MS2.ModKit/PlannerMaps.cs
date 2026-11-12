@@ -9,7 +9,7 @@
 //   add, spawn,      the new entity gets an id derived from (mod id, xblock name, op name) and is put where the
 //   portal           id-sorted order of the file wants it. An id that is already in the map is an error.
 //   spawn            also adds its rows to table/mapspawntag.xml of server:Xml.m2d (what spawns at the point).
-//   numbers          PortalID and SpawnPointID are per map. A number the map has already is an error (a conflict when
+//   numbers          PortalID, SpawnPointID and TriggerObjectID are per map. A number the map has already is an error (a conflict when
 //                    another mod of the same plan brings it); a number outside the mod range is a warning.
 //   two mods         may change the same map; the same entity touched by two mods is a conflict.
 //
@@ -35,7 +35,7 @@ namespace MS2.ModKit
         {
             internal XmlElem Elem;              // null for an entity a mod adds
             internal string Id, Model;
-            internal long Portal = -1, Spawn = -1, ToMap = -1, ToPortal = -1;
+            internal long Portal = -1, Spawn = -1, Trigger = -1, ToMap = -1, ToPortal = -1;
             internal Mod AddedBy, Touched;
             internal bool Removed;
             internal XEntity New;
@@ -165,10 +165,29 @@ namespace MS2.ModKit
             return null;
         }
 
+        /// <summary>A property of the model or of one of its mixins, at any depth (the nearest first); null for none.</summary>
+        static FlatProp PropOf(FlatIndex flat, FlatModel fm, string prop)
+        {
+            return PropOf(flat, fm, prop, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+
+        static FlatProp PropOf(FlatIndex flat, FlatModel fm, string prop, HashSet<string> seen)
+        {
+            if (fm == null || !seen.Add(fm.Name ?? "")) return null;
+            FlatProp fp = fm.Prop(prop);
+            if (fp != null) return fp;
+            foreach (FlatMixin x in fm.Mixins)
+            {
+                fp = PropOf(flat, x.Name == null ? null : flat.Get(x.Name), prop, seen);
+                if (fp != null) return fp;
+            }
+            return null;
+        }
+
         static long ModelNumber(FlatIndex flat, string model, string prop)
         {
             FlatModel fm = flat == null ? null : flat.Get(model);
-            FlatProp fp = fm == null ? null : fm.Prop(prop);
+            FlatProp fp = fm == null ? null : PropOf(flat, fm, prop);
             long v;
             if (fp != null && fp.DefaultIsScalar && long.TryParse(fp.Default[0].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out v)) return v;
             return -1;
@@ -181,10 +200,11 @@ namespace MS2.ModKit
             return ModelNumber(flat, model, prop);
         }
 
-        static void Numbers(MapEnt me, FlatIndex flat, string portal, string spawn, string toMap, string toPortal)
+        static void Numbers(MapEnt me, FlatIndex flat, string portal, string spawn, string trigger, string toMap, string toPortal)
         {
             me.Portal = Number(portal, flat, me.Model, "PortalID");
             me.Spawn = Number(spawn, flat, me.Model, "SpawnPointID");
+            me.Trigger = Number(trigger, flat, me.Model, "TriggerObjectID");
             if (me.Portal >= 0)
             {
                 me.ToMap = Number(toMap, flat, me.Model, "TargetFieldSN");
@@ -195,7 +215,7 @@ namespace MS2.ModKit
         static MapEnt ReadEnt(XmlElem e, FlatIndex flat)
         {
             var me = new MapEnt { Elem = e, Id = e.Attr("id"), Model = e.Attr("modelName") };
-            Numbers(me, flat, Scalar(e, "PortalID"), Scalar(e, "SpawnPointID"), Scalar(e, "TargetFieldSN"), Scalar(e, "TargetPortalID"));
+            Numbers(me, flat, Scalar(e, "PortalID"), Scalar(e, "SpawnPointID"), Scalar(e, "TriggerObjectID"), Scalar(e, "TargetFieldSN"), Scalar(e, "TargetPortalID"));
             return me;
         }
 
@@ -287,20 +307,26 @@ namespace MS2.ModKit
             }
         }
 
-        static bool NumberFree(Run run, Mod mod, MapState ms, MapEnt self, bool portal, long n, int line)
+        /// <summary>The per-map number of an entity: PortalID, SpawnPointID or TriggerObjectID (-1 for none).</summary>
+        static long NumberOf(MapEnt e, string what)
+        {
+            return what == "PortalID" ? e.Portal : what == "SpawnPointID" ? e.Spawn : e.Trigger;
+        }
+
+        static bool NumberFree(Run run, Mod mod, MapState ms, MapEnt self, string what, long n, int line)
         {
             Plan plan = run.Plan;
-            string what = portal ? "PortalID" : "SpawnPointID";
             foreach (MapEnt o in AllEnts(ms))
             {
-                if (o == self || o.Removed || (portal ? o.Portal : o.Spawn) != n) continue;
+                if (o == self || o.Removed || NumberOf(o, what) != n) continue;
                 if (o.AddedBy != null && o.AddedBy != mod)
                     plan.Conflict(mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is also brought by mod " + o.AddedBy.Id + " (mod.xml line " + line + ")", o.AddedBy);
                 else
                     plan.Msg(plan.Errors, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is already used in this map by entity " + o.Id + "; nothing is added (mod.xml line " + line + ")");
                 return false;
             }
-            long from = portal ? IdSpaces.PortalFrom : IdSpaces.SpawnPointFrom, to = portal ? IdSpaces.PortalTo : IdSpaces.SpawnPointTo;
+            long from, to;
+            IdSpaces.MapNumberRange(what, out from, out to);
             if (n < from || n > to)
                 plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, what + " " + D(n) + " is outside the range kept for mods (" + D(from) + "-" + D(to) + "): a later game version or another mod may use the same number");
             return true;
@@ -337,13 +363,15 @@ namespace MS2.ModKit
             else Stable.Sort(xe.Props, delegate (XProp x, XProp y) { return op.Order.IndexOf(x.Name).CompareTo(op.Order.IndexOf(y.Name)); });
 
             var me = new MapEnt { Id = id, Model = op.Model, AddedBy = mod, New = xe, Op = op };
-            XProp pp = xe.Find("PortalID"), sp = xe.Find("SpawnPointID"), tm = xe.Find("TargetFieldSN"), tp = xe.Find("TargetPortalID");
+            XProp pp = xe.Find("PortalID"), sp = xe.Find("SpawnPointID"), to = xe.Find("TriggerObjectID"), tm = xe.Find("TargetFieldSN"), tp = xe.Find("TargetPortalID");
             Numbers(me, ms.Flat, pp != null && pp.Scalar ? pp.Items[0].Value : null, sp != null && sp.Scalar ? sp.Items[0].Value : null,
-                tm != null && tm.Scalar ? tm.Items[0].Value : null, tp != null && tp.Scalar ? tp.Items[0].Value : null);
+                to != null && to.Scalar ? to.Items[0].Value : null, tm != null && tm.Scalar ? tm.Items[0].Value : null, tp != null && tp.Scalar ? tp.Items[0].Value : null);
             if (op.Kind != MapOpKind.Portal && pp == null) me.Portal = -1;      // a model default is not a number this op brings
             if (op.Kind != MapOpKind.Spawn && sp == null) me.Spawn = -1;
-            if (me.Portal >= 0 && !NumberFree(run, mod, ms, me, true, me.Portal, op.Line)) return;
-            if (me.Spawn >= 0 && !NumberFree(run, mod, ms, me, false, me.Spawn, op.Line)) return;
+            if (to == null) me.Trigger = -1;
+            if (me.Portal >= 0 && !NumberFree(run, mod, ms, me, "PortalID", me.Portal, op.Line)) return;
+            if (me.Spawn >= 0 && !NumberFree(run, mod, ms, me, "SpawnPointID", me.Spawn, op.Line)) return;
+            if (me.Trigger >= 0 && !NumberFree(run, mod, ms, me, "TriggerObjectID", me.Trigger, op.Line)) return;
 
             ModelChecks(run, mr, mod, ms, op.Model, props, op.Kind, op.Line);
             ms.ById[id] = me;
@@ -415,14 +443,13 @@ namespace MS2.ModKit
                 if (prop != null && s.Value != null && item == null && (s.Index == null) != (prop.Children.Count == 0 || prop.Children[0].Attr("index") == null) && prop.Children.Count > 0)
                     throw new ModKitException("the property " + s.Name + " of entity " + op.Id + " is " + (s.Index == null ? "a list here; give index=\"...\"" : "a plain value here; leave index out"));
             }
-            long portal = me.Portal, spawn = me.Spawn;
+            long portal = me.Portal, spawn = me.Spawn, trigger = me.Trigger;
             foreach (MapSet s in op.Sets)
             {
-                if (s.Index != null || (s.Name != "PortalID" && s.Name != "SpawnPointID")) continue;
-                bool isPortal = s.Name == "PortalID";
+                if (s.Index != null || (s.Name != "PortalID" && s.Name != "SpawnPointID" && s.Name != "TriggerObjectID")) continue;
                 long n = Number(s.Value, ms.Flat, me.Model, s.Name);
-                if (n >= 0 && n != (isPortal ? me.Portal : me.Spawn) && !NumberFree(run, mod, ms, me, isPortal, n, op.Line)) return;
-                if (isPortal) portal = n; else spawn = n;
+                if (n >= 0 && n != NumberOf(me, s.Name) && !NumberFree(run, mod, ms, me, s.Name, n, op.Line)) return;
+                if (s.Name == "PortalID") portal = n; else if (s.Name == "SpawnPointID") spawn = n; else trigger = n;
             }
 
             string wasIt = me.Elem.Attr("iterations"), newIt = op.SetIterations.ToString(CultureInfo.InvariantCulture);
@@ -487,7 +514,7 @@ namespace MS2.ModKit
                 else st.Ed.Append(me.Elem, text, Indent(ms, 3));
             }
             ModelChecks(run, mr, mod, ms, me.Model, check, MapOpKind.Change, op.Line);
-            me.Touched = mod; me.Portal = portal; me.Spawn = spawn;
+            me.Touched = mod; me.Portal = portal; me.Spawn = spawn; me.Trigger = trigger;
             foreach (MapSet s in op.Sets)
             {
                 if (s.Index != null) continue;
@@ -739,7 +766,7 @@ namespace MS2.ModKit
             }
             foreach (XProp p in props)
             {
-                FlatProp fp = fm.Prop(p.Name);
+                FlatProp fp = PropOf(ms.Flat, fm, p.Name);
                 if (fp == null) { plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, "the model \"" + model + "\" has no property " + p.Name + at); continue; }
                 string type = fp.Type ?? "";
                 bool assoc = type.StartsWith("Assoc", StringComparison.Ordinal);
