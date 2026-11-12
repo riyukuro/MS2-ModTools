@@ -1,7 +1,8 @@
 // The "MS2 Sound" view: the music cues of the client's event project (Sound/MS2Sound.fev) with the maps that play
 // each one (the bgm rows of the kms client's table/fielddata.xml and of the server's and the global client's
 // map/<id>.xml, as the mod being edited leaves them), the maps with the cue each side plays there (normal and boss,
-// set by the mod being edited: MS2.ModKit/MapMusic.cs), and the sound banks of the Sound folder (MS2Sound_*.fsb) with
+// set by the mod being edited: MS2.ModKit/MapMusic.cs), the login music by month (the kms client's
+// table/loginbgbgm.xml, which wins over the login map's own bgm: MS2.ModKit/LoginMusic.cs), and the sound banks of the Sound folder (MS2Sound_*.fsb) with
 // their samples (name, length, channels, rate, bytes, loop). No playback; the banks and the event project are read only.
 //
 // The Sound folder is MS2_SOUND_DATA when set, else Sound (or Data/Sound) in the kms client data folder of the
@@ -24,7 +25,10 @@ namespace MS2.Tables
         static readonly string[] CueHeads = { "map", "name", "plays", "param", "value", "side", "environment" };
         static readonly string[] SampleHeads = { "#", "sample", "seconds", "ch", "rate", "bytes", "loop", "the mod's sound" };
         static readonly string[] PlaceHeads = { "side", "environment", "normal", "normal cue", "boss", "boss cue" };
+        static readonly string[] LoginHeads = { "background", LoginMusic.Month, LoginMusic.Bgm, LoginMusic.Param, LoginMusic.Priority, "cue name(s)" };
         const int NormalColumn = 2, BossColumn = 4;
+        const int LoginFirst = 1, LoginLast = 4, LoginBgmColumn = 2;
+        static readonly object LoginItem = new object();  // the login music's line at the top of the Maps list
         const string CueKind = "cue";
 
         TablesView host;
@@ -49,6 +53,9 @@ namespace MS2.Tables
         long shownMap = -1;             // the map whose places the grid shows, or -1
         readonly List<MusicPlace> shownPlaces = new List<MusicPlace>();
         MapMusic tunes;                 // the mod's map music, for the session's data and mod
+        LoginMusic login;               // the mod's login music, the same
+        readonly List<LoginRow> shownLogin = new List<LoginRow>();
+        bool loginShown;
         bool filling;
 
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 110 };
@@ -90,7 +97,8 @@ namespace MS2.Tables
             mapBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
             mapBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change, to every target at once", delegate { return host.DoApply(); }));
             mapBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
-            mapBar.Controls.Add(Btn("Undo map", "Takes the mod's music lines of the map shown out: every side plays the shipped cues again", delegate { UndoMap(); }));
+            mapBar.Controls.Add(Btn("Undo map", "Takes the mod's music lines of the map shown out: every side plays the shipped cues again (the login music: every row's lines)", delegate { UndoMap(); }));
+            mapBar.Controls.Add(Btn("Login: map's music", "Sets bgmID (and bgmParam) of every login music row to 0: the login map plays its own bgm id (the cell of its map) in every month", delegate { LoginMapMusic(); }));
             mapBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
             bankBar.Controls.Add(Btn("Replace sample...", "Gives the selected sample new sound from an .mp2 file (MPEG layer II, as the shipped samples) (kept in the mod); the client finds it by its index, so its name and place stay", delegate { ReplaceSample(); }));
@@ -126,7 +134,7 @@ namespace MS2.Tables
             grid.CellValuePushed += OnCellPushed;
             grid.CellFormatting += OnCellFormatting;
             grid.CellBeginEdit += delegate(object sender, DataGridViewCellCancelEventArgs e) { if (!Editable(e.RowIndex, e.ColumnIndex)) e.Cancel = true; };
-            IdPick.Attach(grid, delegate(int row, int column) { return Editable(row, column) ? CueKind : null; }, delegate { return host.SharedSession(); }, null, FindCues);
+            IdPick.Attach(grid, delegate(int row, int column) { return Editable(row, column) && (!loginShown || column == LoginBgmColumn) ? CueKind : null; }, delegate { return host.SharedSession(); }, null, FindCues);
 
             var right = new Panel { Dock = DockStyle.Fill };
             right.Controls.Add(grid);
@@ -211,6 +219,7 @@ namespace MS2.Tables
             host = h;
             uses = null;
             tunes = null;
+            login = null;
             // a scan of the old host never ends here (its done or busy end may not come): the age drops its result
             reading = false;
             usesAge++;
@@ -265,6 +274,7 @@ namespace MS2.Tables
         {
             uses = null;
             tunes = null;
+            login = null;
             usesAge++;
             stale = true;
             try
@@ -289,6 +299,7 @@ namespace MS2.Tables
             bankProblems.Clear();
             uses = null;
             tunes = null;
+            login = null;
             usesAge++;
             readProblem = null;
             reading = false;
@@ -300,6 +311,14 @@ namespace MS2.Tables
             EditorSession s = host.SharedSession();
             if (tunes == null || tunes.Data != s.Data || tunes.Mod != s.Mod) tunes = new MapMusic(s.Data, s.Mod);
             return tunes;
+        }
+
+        // the mod's login music for the session's data and mod
+        LoginMusic Login()
+        {
+            EditorSession s = host.SharedSession();
+            if (login == null || login.Data != s.Data || login.Mod != s.Mod) login = new LoginMusic(s.Data, s.Mod);
+            return login;
         }
 
         void ReadFolder()
@@ -433,6 +452,12 @@ namespace MS2.Tables
                 }
                 int cueQ;
                 bool byCue = int.TryParse(q, NumberStyles.None, CultureInfo.InvariantCulture, out cueQ);
+                LoginMusic lm = Login();
+                if (lm.Exists && (q.Length == 0 || "login loginbgbgm".IndexOf(q, StringComparison.OrdinalIgnoreCase) >= 0 || (byCue && LoginPlays(lm, (uint)cueQ))))
+                {
+                    hits.Add(LoginItem);
+                    labels.Add("login music (" + LoginMusic.Entry + ")" + (lm.AnyEdited() ? "  · music edited" : ""));
+                }
                 var playing = new HashSet<long>();
                 if (byCue && ready) foreach (CueUse u in uses) if (u.Cue == cueQ) playing.Add(u.Map);
                 foreach (KeyValuePair<long, string> kv in ids)
@@ -472,7 +497,9 @@ namespace MS2.Tables
                 hitList.EndUpdate();
             }
             finally { filling = false; }
-            string idle = Maps
+            string idle = Maps && loginShown
+                ? "the login music: the client picks a row of this month (server time) of the highest priority, then one of its bgmID cues; 0 plays the login map's own bgm id. Cells: month, bgmID (ids or names, comma split; F4 picks one), bgmParam (one per cue, a missing one is 5), priority (empty is 0)"
+                : Maps
                 ? "a map's normal and boss cells set the cue it plays (F4: pick one by id or name; empty: no music); the kms client's row and the server's map file are set, the mirror writes the global client's"
                 : Music ? "no playback; New cue... adds a cue with its own sound (.mp2 files, kept in the mod) that plays as the selected cue does; the maps' music is set in Maps"
                 : "no playback; Replace sample... gives the selected sample new sound from an .mp2 file (MPEG layer II, as the shipped samples) (the client finds a sample by its index); the event project's segment length stays";
@@ -495,6 +522,8 @@ namespace MS2.Tables
             shownBank = null;
             shownMap = -1;
             shownPlaces.Clear();
+            shownLogin.Clear();
+            loginShown = false;
             grid.CancelEdit();
             grid.RowCount = 0;
             grid.Columns.Clear();
@@ -502,6 +531,25 @@ namespace MS2.Tables
             bankBar.Visible = !Maps && !Music;
             cueBar.Visible = Music;
             if (what == null) { shownLabel.Text = ""; return; }
+            if (what == LoginItem)
+            {
+                loginShown = true;
+                LoginMusic lm = Login();
+                shownLogin.AddRange(lm.Rows());
+                int month = DateTime.Now.Month;
+                List<uint> now = lm.CuesIn(month);
+                shownLabel.Text = "login music, kms client " + LoginMusic.Entry + ": " + shownLogin.Count + " row(s); month " + month + " (this PC's; the client uses the server's): "
+                    + lm.PickedIn(month).Count + " row(s), " + (now.Count == 0 ? "no row: the login map's own bgm" : "cue(s) " + CueList(now));
+                int[] w = { 160, 90, 110, 90, 60, 260 };
+                for (int i = 0; i < LoginHeads.Length; i++)
+                {
+                    DataGridViewColumn c = Col(LoginHeads[i], w[i]);
+                    c.ReadOnly = i < LoginFirst || i > LoginLast;
+                    grid.Columns.Add(c);
+                }
+                grid.RowCount = shownLogin.Count;
+                return;
+            }
             if (what is long)
             {
                 shownMap = (long)what;
@@ -574,6 +622,22 @@ namespace MS2.Tables
                 }
                 return;
             }
+            if (loginShown)
+            {
+                if (e.RowIndex >= shownLogin.Count) return;
+                LoginRow r = shownLogin[e.RowIndex];
+                LoginMusic lm = Login();
+                if (e.ColumnIndex == 0) e.Value = r.Background;
+                else if (e.ColumnIndex <= LoginLast) e.Value = lm.Get(r, LoginMusic.Fields[e.ColumnIndex - LoginFirst]);
+                else
+                {
+                    List<uint> ids = LoginMusic.List(lm.Get(r, LoginMusic.Bgm));
+                    var names = new List<string>();
+                    if (ids != null) foreach (uint id in ids) names.Add(CueName(id.ToString(CultureInfo.InvariantCulture)));
+                    e.Value = string.Join(", ", names.ToArray());
+                }
+                return;
+            }
             if (shownMap >= 0)
             {
                 if (e.RowIndex >= shownPlaces.Count) return;
@@ -606,6 +670,33 @@ namespace MS2.Tables
 
         void OnTipNeeded(object sender, DataGridViewCellToolTipTextNeededEventArgs e)
         {
+            if (loginShown)
+            {
+                if (e.ColumnIndex < 0) return;
+                if (e.RowIndex < 0)
+                {
+                    switch (e.ColumnIndex)
+                    {
+                        case 0: e.ToolTipText = "clientPropertyBgDay: the row's key (the login screen's background of the day)"; break;
+                        case 1: e.ToolTipText = "the months the row is for, 1..12 split by commas"; break;
+                        case 2: e.ToolTipText = "the cues the client picks one of, split by commas; 0 plays the login map's own bgm id"; break;
+                        case 3: e.ToolTipText = "the event parameter of each cue, in the same order; a missing one is 5"; break;
+                        case 4: e.ToolTipText = "of a month's rows, only those of the highest priority are picked from; empty is 0"; break;
+                    }
+                    return;
+                }
+                if (e.RowIndex >= shownLogin.Count) return;
+                LoginRow r = shownLogin[e.RowIndex];
+                LoginMusic lm = Login();
+                if (e.ColumnIndex >= LoginFirst && e.ColumnIndex <= LoginLast)
+                {
+                    string f = LoginMusic.Fields[e.ColumnIndex - LoginFirst], v = r.Shipped[f];
+                    e.ToolTipText = "shipped: " + (v.Length == 0 ? "(none)" : v);
+                }
+                string note = LoginMusic.Note(lm.Get(r, LoginMusic.Bgm), lm.Get(r, LoginMusic.Param));
+                if (note != null && (e.ColumnIndex == LoginBgmColumn || e.ColumnIndex == LoginBgmColumn + 1)) e.ToolTipText += "; " + note;
+                return;
+            }
             if (shownMap >= 0 && e.RowIndex >= 0 && e.RowIndex < shownPlaces.Count && e.ColumnIndex >= 0)
             {
                 MusicPlace p = shownPlaces[e.RowIndex];
@@ -649,6 +740,7 @@ namespace MS2.Tables
 
         bool Editable(int row, int column)
         {
+            if (loginShown) return column >= LoginFirst && column <= LoginLast && row >= 0 && row < shownLogin.Count;
             return shownMap >= 0 && (column == NormalColumn || column == BossColumn) && row >= 0 && row < shownPlaces.Count && shownPlaces[row].Written;
         }
 
@@ -679,6 +771,14 @@ namespace MS2.Tables
             if (shownBank != null)
             {
                 if (e.RowIndex >= 0 && e.RowIndex < shownBank.Samples.Count && ModSample(shownBank.Samples[e.RowIndex]) != null) e.CellStyle.BackColor = Color.FromArgb(214, 240, 214);
+                return;
+            }
+            if (loginShown)
+            {
+                if (e.RowIndex < 0 || e.RowIndex >= shownLogin.Count || e.ColumnIndex < LoginFirst || e.ColumnIndex > LoginLast) return;
+                LoginRow r = shownLogin[e.RowIndex];
+                string f = LoginMusic.Fields[e.ColumnIndex - LoginFirst];
+                if (Login().Get(r, f) != r.Shipped[f]) e.CellStyle.BackColor = Color.FromArgb(214, 240, 214);
                 return;
             }
             if (shownMap < 0 || e.RowIndex < 0 || e.RowIndex >= shownPlaces.Count) return;
@@ -721,6 +821,13 @@ namespace MS2.Tables
         void OnCellPushed(object sender, DataGridViewCellValueEventArgs e)
         {
             if (!Editable(e.RowIndex, e.ColumnIndex)) return;
+            if (loginShown)
+            {
+                LoginRow r = shownLogin[e.RowIndex];
+                string field = LoginMusic.Fields[e.ColumnIndex - LoginFirst], text = e.Value == null ? "" : e.Value.ToString();
+                BeginInvoke((MethodInvoker)delegate { Guard(delegate { SetLogin(r, field, text); }); });
+                return;
+            }
             long map = shownMap;
             bool boss = e.ColumnIndex == BossColumn;
             string typed = e.Value == null ? "" : e.Value.ToString();
@@ -740,8 +847,76 @@ namespace MS2.Tables
             MapEdited(map, "map " + map + (boss ? " boss" : "") + ": " + (cue.Length == 0 ? "no music" : "cue " + cue + " " + CueName(cue)) + " on " + n + " row(s)" + warn);
         }
 
+        // ---- the login music ----
+
+        static string CueList(List<uint> ids)
+        {
+            var l = new List<string>();
+            foreach (uint id in ids) l.Add(id.ToString(CultureInfo.InvariantCulture));
+            return string.Join(",", l.ToArray());
+        }
+
+        static bool LoginPlays(LoginMusic lm, uint cue)
+        {
+            foreach (LoginRow r in lm.Rows())
+            {
+                List<uint> ids = LoginMusic.List(lm.Get(r, LoginMusic.Bgm));
+                if (ids != null && ids.Contains(cue)) return true;
+            }
+            return false;
+        }
+
+        void SetLogin(LoginRow r, string field, string typed)
+        {
+            if (!loginShown) return;
+            string v = typed ?? "";
+            if (field == LoginMusic.Bgm)
+            {
+                // a cue name for each part, as in a map's cells
+                if (v.Trim().Length > 0)
+                {
+                    var parts = new List<string>();
+                    foreach (string part in v.Split(',')) parts.Add(CueOf(part));
+                    v = string.Join(",", parts.ToArray());
+                }
+            }
+            LoginMusic lm = Login();
+            if (!lm.Set(r, field, v)) { OutputWrap.Set(outputBox, r.Background + ": " + field + " is " + (v.Length == 0 ? "empty" : v) + " already"); return; }
+            string now = lm.Get(r, field), warn = "";
+            if (field == LoginMusic.Bgm && project != null)
+            {
+                List<uint> ids = LoginMusic.List(now);
+                if (ids != null) foreach (uint id in ids) if (id != 0 && (id > int.MaxValue || project.Cue((int)id) == null)) warn += "; cue " + id + " is not in " + SoundData.ProjectFile + ": the login map plays nothing when it is picked";
+            }
+            string note = LoginMusic.Note(lm.Get(r, LoginMusic.Bgm), lm.Get(r, LoginMusic.Param));
+            if (note != null && (field == LoginMusic.Bgm || field == LoginMusic.Param)) warn += "; " + note;
+            LoginEdited("login music " + r.Background + ": " + field + " " + (now == r.Shipped[field] ? "as shipped (" + (now.Length == 0 ? "none" : now) + ")" : now.Length == 0 ? "taken out" : now) + warn);
+        }
+
+        void LoginMapMusic()
+        {
+            LoginMusic lm = Login();
+            if (!lm.Exists) { OutputWrap.Set(outputBox, "the kms client has no " + LoginMusic.Entry + " (the global client and the server have none)"); return; }
+            int n = lm.UseMapMusic();
+            LoginEdited(n == 0 ? "every login music row plays the login map's own music already" : "login music: bgmID 0 on " + n + " row(s): the login map plays its own bgm id in every month");
+        }
+
+        void LoginEdited(string said)
+        {
+            host.EditedOutside();
+            host.SayOutside(said);
+            Fill(Selected());
+            OutputWrap.Set(outputBox, said);
+        }
+
         void UndoMap()
         {
+            if (loginShown)
+            {
+                int k = Login().TakeAll();
+                LoginEdited(k == 0 ? "the mod sets no login music" : "the mod's login music lines taken out of " + k + " row(s); the shipped table plays");
+                return;
+            }
             if (shownMap < 0) { OutputWrap.Set(outputBox, "pick a map in the list first"); return; }
             int n = Tunes().Take(shownMap);
             MapEdited(shownMap, "map " + shownMap + ": " + (n == 0 ? "the mod sets no music there" : "the mod's music lines taken out of " + n + " row(s); the shipped cues play"));
@@ -790,6 +965,7 @@ namespace MS2.Tables
 
         void TakeSample()
         {
+            if (host.Busy) { OutputWrap.Set(outputBox, "wait for the running job"); return; }
             SoundSample x = SelectedSample();
             Mod m = host.SharedSession().Mod;
             string bank = ShownBankFile();
@@ -829,7 +1005,7 @@ namespace MS2.Tables
                 if (d.ShowDialog(this) != DialogResult.OK) return;
                 if (project.Cue(d.Id) != null) throw new ModKitException("cue " + d.Id + " is in the project: a new cue needs an id it does not have");
                 foreach (MusicCue c in project.Cues)
-                    if (string.Equals(c.Name, d.CueName, StringComparison.OrdinalIgnoreCase)) throw new ModKitException("the project has a cue named " + c.Name + " (cue " + c.Id + ")");
+                    if (CueOp.SameName(c.Name, d.CueName)) throw new ModKitException("the project has a cue named " + c.Name + " (cue " + c.Id + ")");
                 byte[] intro = d.IntroPath.Length == 0 ? null : File.ReadAllBytes(d.IntroPath);
                 byte[] loop = File.ReadAllBytes(d.LoopPath);
                 CueOp op = m.SetCue(d.Id, d.CueName, d.BankFile, like, intro, loop,
@@ -842,6 +1018,7 @@ namespace MS2.Tables
 
         void TakeCue()
         {
+            if (host.Busy) { OutputWrap.Set(outputBox, "wait for the running job"); return; }
             Mod m = host.SharedSession().Mod;
             object sel = Selected();
             if (!(sel is int)) throw new ModKitException("pick a cue in the list first");

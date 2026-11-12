@@ -1844,6 +1844,30 @@ kms client data folder of the MS2 Tables view's settings.
   what the mirror will write. Setting the shipped value back removes the edit. **Undo map** drops the mod's music
   edits of the selected map. **Plan**, **Apply**, **Revert** and **Save mod** work as in the MS2 Tables view (the
   plan's output is in that view's output pane).
+
+  On the kms client the list starts with **login music (table/loginbgbgm.xml)** (shown with an empty find box, for
+  `login`, or for a cue the login screen plays). The login screen's music does not come from the login map's
+  `fielddata.xml` row: the client reads `table/loginbgbgm.xml`, takes the rows of this month (`month`, a comma
+  list), keeps those of the highest `priority`, picks one row at random and then one of its cues at random. Its
+  `clientPropertyBgDay` is the background picture. `bgmID` is a comma list of cues, `bgmParam` the event
+  parameter of each (a missing one is 5), and a cue of 0 lets the login map's own bgm id play. Select the item to
+  see one line per row: background, months, cues, params, priority and the cue names. The label says which rows and
+  cues this PC's month picks. Edit the month, bgmID, bgmParam and priority cells (F4 picks a cue in the bgmID cell).
+  A value the client cannot read is refused, and the shipped value takes the edit out again. **Login: map's music**
+  sets every row's bgmID to 0, so the login map's own cue plays, and **Undo map** drops all the login edits. A mod
+  holds them as row changes:
+
+  ```xml
+  <edit archive="client:Xml.m2d" entry="table/loginbgbgm.xml">
+    <change at="login[clientPropertyBgDay=BG_Fall01_Login.swf]"><set name="bgmID" value="300" /></change>
+  </edit>
+  ```
+
+  The plan reads every changed or added row as the client reads it. Errors: a month, bgmID or bgmParam that is
+  not a comma list of numbers, a month outside 1..12, a priority that is not a number. Warnings: a row the client
+  skips (no background, month or bgmID), a cue count that differs from the param count, a cue the project does not
+  have (the mods' new cues count), and a month the shipped table gives music that has no row left. The global
+  client and the server have no such table.
 - **Banks** lists the bank files with their sample counts and sizes. Select a bank to see its samples: name, length
   in seconds, channels, rate, bytes and whether it loops. A bank whose header hash is not in the project is flagged,
   because the client is not expected to load it. **Replace sample...** gives the selected sample new sound from an
@@ -1905,7 +1929,8 @@ What a mod can do with sound today:
   link kind and the source-file rows copied from the `like` cue. The new theme, segment and link ids come after the
   highest ones. The writer changes only the music chunk and the lengths of the RIFF chunks around it; read back with
   nothing added, the shipped project gives the same bytes. Errors: an id or a name the project has, an unknown
-  `like`, a bank that is not MPEG or that the project does not name, and a sample name the bank has. Two mods on one
+  `like`, a bank that is not MPEG or that the project does not name, and a sample name the bank has. Cue names
+  that differ only in letter case count as the same name, in the view, the editor and the plan. Two mods on one
   id or one name are a conflict; the later mod adds it. The loose target keeps the shipped project and bank as
   `.modkit-orig`, as for a replaced sample.
 
@@ -1913,7 +1938,9 @@ What a mod can do with sound today:
   to `MS2Sound_BGM4.fsb`, with the login map's bgm id set to it. The client played the intro once and then the loop
   until the end of the 80 s run, and Revert gave back the shipped files byte for byte. The login map is a special
   case: `table/loginbgbgm.xml` picks the login music by month, and its `bgmID` wins over the map's; only a `bgmID`
-  of 0 lets the map's own bgm id play. Not checked: the cue in a field map (that needs a server), and whether
+  of 0 lets the map's own bgm id play. A second run set the new cue as every login row's `bgmID` (with
+  `LoginMusic.Set`, the login map's own bgm id left shipped): the login screen played the intro and then the loop.
+  Not checked: the cue in a field map (that needs a server), and whether
   anything in the project other than the music chunk (`OBCT` or the chunks after `LGCY`) points at offsets that move
   when the music chunk grows. The run above loaded the grown project and played its other cues, but did not prove
   that everything else in it still holds.

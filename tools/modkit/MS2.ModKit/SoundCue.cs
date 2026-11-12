@@ -22,6 +22,10 @@ namespace MS2.ModKit
     /// <summary>A cue the mod adds to the event project.</summary>
     public sealed class CueOp
     {
+        /// <summary>The one rule for cue names, in the view, the editor and the plan: two names are one when they differ only in letter case.</summary>
+        public static readonly StringComparer NameRule = StringComparer.OrdinalIgnoreCase;
+        public static bool SameName(string a, string b) { return NameRule.Equals(a ?? "", b ?? ""); }
+
         public int Id;
         public string Name;
         /// <summary>The bank the new samples go into (MS2Sound_BGM4.fsb).</summary>
@@ -58,7 +62,7 @@ namespace MS2.ModKit
             if (string.IsNullOrEmpty(name) || name.IndexOf('\0') >= 0 || name.Trim() != name) throw new ModKitException("a new cue needs a name (without spaces at its ends)");
             if (!SoundReplace.IsBankName(bank)) throw new ModKitException("\"" + bank + "\" is no bank file name");
             if (loop == null) throw new ModKitException("a new cue needs a sound to loop");
-            foreach (CueOp c in Cues) if (c.Id != id && c.Name == name) throw new ModKitException("the mod has a new cue named " + name + " already (cue " + c.Id + ")");
+            foreach (CueOp c in Cues) if (c.Id != id && CueOp.SameName(c.Name, name)) throw new ModKitException("the mod has a new cue named " + name + " already (cue " + c.Id + ")");
             Check(intro, introLabel);
             Check(loop, loopLabel);
             CueOp op = CueOf(id);
@@ -231,7 +235,7 @@ namespace MS2.ModKit
             var shippedCues = new Dictionary<int, string>(g.Cues);
             int shippedMax = g.MaxCue;
             var ids = new Dictionary<int, Mod>();
-            var names = new Dictionary<string, Mod>(StringComparer.Ordinal);
+            var names = new Dictionary<string, Mod>(CueOp.NameRule);
             // from the highest priority down: the first mod to take an id or a name keeps it
             for (int i = mods.Count - 1; i >= 0; i--)
             {
@@ -241,7 +245,9 @@ namespace MS2.ModKit
                     string where = "cue " + op.Id.ToString(CultureInfo.InvariantCulture) + " " + op.Name + " (" + ModLine.Of(op.Line) + ")";
                     string shipped;
                     if (shippedCues.TryGetValue(op.Id, out shipped)) { plan.Msg(plan.Errors, m, null, null, where + ": the project has a cue " + op.Id + " (" + shipped + "); a new cue needs an id of its own (above " + shippedMax + " is free)"); continue; }
-                    if (shippedCues.ContainsValue(op.Name)) { plan.Msg(plan.Errors, m, null, null, where + ": the project has a cue named " + op.Name); continue; }
+                    string sameName = null;
+                    foreach (string n in shippedCues.Values) if (CueOp.SameName(n, op.Name)) { sameName = n; break; }
+                    if (sameName != null) { plan.Msg(plan.Errors, m, null, null, where + ": the project has a cue named " + sameName + " (names that differ only in letter case are one)"); continue; }
                     Mod w;
                     if (ids.TryGetValue(op.Id, out w))
                     {

@@ -165,6 +165,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(File.Exists(Path.Combine(d, "files", "sound", "cue", "30_intro.mp2")), Is.False, "the orphan goes at save");
 
                 Assert.That(() => m.SetCue(31, "Mine", "MS2Sound_Fake.fsb", 7, null, l, null, "l.mp2"), Throws.TypeOf<ModKitException>().With.Message.Contains("named Mine"));
+                Assert.That(() => m.SetCue(31, "MINE", "MS2Sound_Fake.fsb", 7, null, l, null, "l.mp2"), Throws.TypeOf<ModKitException>().With.Message.Contains("named MINE"), "names that differ only in letter case are one (CueOp.NameRule, as the plan)");
                 Assert.That(() => m.SetCue(31, "Two", "MS2Sound_Fake.fsb", 7, null, Encoding.ASCII.GetBytes("no mpeg at all"), null, "l.txt"), Throws.TypeOf<ModKitException>());
                 Assert.That(() => m.SetCue(31, "Two", "MS2Sound_Fake.fsb", 7, null, FakeMpeg.Frames(4, layer: 3), null, "l.mp3"), Throws.TypeOf<ModKitException>().With.Message.Contains("l.mp3"), "layer III is refused as for a replace");
                 Assert.That(m.Cues.Count, Is.EqualTo(1), "a refused cue changes nothing");
@@ -262,6 +263,8 @@ namespace MS2.ModKit.Tests
                     new[] { Cue(20, "X", bank: "MS2Sound_None.fsb"), "no bank MS2Sound_None.fsb" },
                     new[] { Cue(20, "X") + Cue(20, "Y"), "adds cue 20 twice" },
                     new[] { Cue(20, "X") + Cue(21, "X"), "two cues named X" },
+                    new[] { Cue(20, "field"), "the project has a cue named Field" },
+                    new[] { Cue(20, "X") + Cue(21, "x"), "two cues named" },
                     new[] { Cue(20, "Tune", intro: null), null },
                     new[] { Cue(20, "Click", intro: "files/i.mp2", loop: "files/l.mp2").Replace("name=\"Click\"", "name=\"Tune_A\""), null },
                     new[] { Cue(20, "X", loop: "files/none.mp2"), "is not there" },
@@ -344,6 +347,38 @@ namespace MS2.ModKit.Tests
             File.WriteAllBytes(Path.Combine(s, "MS2Sound_Fake.fsb"), w.BankBytes);
             File.WriteAllBytes(Path.Combine(s, SoundData.ProjectFile), w.ProjectBytes);
             return g;
+        }
+
+        [Test]
+        public void Loose_APatchedProjectAfterThePlan_IsNotWritten()
+        {
+            using (var w = new World())
+            {
+                string g = Game(w), s = Path.Combine(g, "Data", "Sound"), fev = Path.Combine(s, SoundData.ProjectFile), fsb = Path.Combine(s, "MS2Sound_Fake.fsb");
+                var lt = new LooseTarget(g);
+                Mod[] mods = { w.Plain("a", Cue(20, "New_Tune")) };
+                Plan plan = Planner.Build(w.F.Data, mods, new PlanOptions());
+                Assert.That(plan.Errors, Is.Empty, EditorSession.Report(plan));
+
+                // a game patch ships a new project between the plan and the apply
+                byte[] patched = FakeMusic.Project(odd: true);
+                File.WriteAllBytes(fev, patched);
+                ApplyResult r = lt.Apply(mods, plan, null);
+                Assert.That(r.Applied, Is.False);
+                Assert.That(plan.Errors.Select(e => e.Text), Has.Some.Contains("is not the project the plan was made from"), EditorSession.Report(r));
+                Assert.That(File.ReadAllBytes(fev), Is.EqualTo(patched), "nothing written");
+                Assert.That(File.ReadAllBytes(fsb), Is.EqualTo(w.BankBytes));
+                Assert.That(File.Exists(fev + SoundReplace.OrigSuffix) || File.Exists(fsb + SoundReplace.OrigSuffix), Is.False);
+
+                // the same plan with the planned project in place is written
+                File.WriteAllBytes(fev, w.ProjectBytes);
+                plan = Planner.Build(w.F.Data, mods, new PlanOptions());
+                r = lt.Apply(mods, plan, null);
+                Assert.That(r.Applied, Is.True, EditorSession.Report(r));
+                PlaysTheNewCue(fev, fsb, 20, 5);
+                lt.Revert();
+                Assert.That(File.ReadAllBytes(fev), Is.EqualTo(w.ProjectBytes));
+            }
         }
 
         [Test]
