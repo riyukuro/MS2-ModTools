@@ -43,6 +43,15 @@ namespace MS2.ModKit
         public int Line;
     }
 
+    /// <summary>A sample the writer adds to a bank.</summary>
+    public sealed class NewSample
+    {
+        public string Name;
+        public MpegAudio Audio;
+        /// <summary>A loop chunk over the whole sound, as the shipped music samples that loop have.</summary>
+        public bool Loop;
+    }
+
     public sealed partial class Mod
     {
         /// <summary>Sample replaces (SoundReplace.cs).</summary>
@@ -276,6 +285,13 @@ namespace MS2.ModKit
         /// <summary>The samples the bank has.</summary>
         public int Count;
         public readonly List<PlanSample> Samples = new List<PlanSample>();
+        /// <summary>The samples the plan adds after the shipped ones (SoundCue.cs).</summary>
+        public readonly List<PlanNewSample> Adds = new List<PlanNewSample>();
+        /// <summary>True for the event project (MS2Sound.fev): Cues are added to it, SourceSha1 is the shipped file's
+        /// SHA-1 and Count its cues.</summary>
+        public bool Project;
+        public string SourceSha1;
+        public readonly List<PlanCue> Cues = new List<PlanCue>();
 
         /// <summary>"client:Sound/MS2Sound_BGM.fsb", the name the plan's lines use.</summary>
         public string Ref { get { return LooseTarget.Root + ":" + RelFolder + "/" + Bank; } }
@@ -289,7 +305,7 @@ namespace MS2.ModKit
         public double OldSeconds;
     }
 
-    public static class SoundReplace
+    public static partial class SoundReplace
     {
         public const string OrigSuffix = ".modkit-orig";
 
@@ -321,10 +337,17 @@ namespace MS2.ModKit
             }
             if (rec == null)
                 throw new ModKitException(orig + " is there, but no record of this tool's loose files names " + bank + "; it is not taken for the shipped bank (move it away, or put it back in place of " + bank + ")");
-            if (File.Exists(p))
+            if (File.Exists(p) && !bank.EndsWith(".fsb", StringComparison.OrdinalIgnoreCase))
+            {
+                // the project: the file in place must be the one the record names
+                if (!rec.Holds(Sha1File(p)))
+                    throw new ModKitException(p + " is not the file its " + OrigSuffix + " was put aside for (a game patch may have put a new one there); revert the loose files, or move " + orig + " away");
+            }
+            else if (File.Exists(p))
             {
                 SoundBank now = SoundBank.Read(p), was = SoundBank.Read(orig);
-                if (SoundBank.Hex(now.Hash) != SoundBank.Hex(was.Hash) || now.Samples.Count != was.Samples.Count)
+                // a bank with new samples has more than the shipped one: the record then tells it is this tool's
+                if (SoundBank.Hex(now.Hash) != SoundBank.Hex(was.Hash) || (now.Samples.Count != was.Samples.Count && !rec.Holds(Sha1File(p))))
                     throw new ModKitException(p + " is not the bank its " + OrigSuffix + " was put aside for (a game patch may have put a new bank there); revert the loose files, or move " + orig + " away");
             }
             return orig;
@@ -341,19 +364,38 @@ namespace MS2.ModKit
         /// </summary>
         public static string Write(string src, string dst, IDictionary<int, MpegAudio> replace, Action<ProgressInfo> progress)
         {
+            return Write(src, dst, replace, null, progress);
+        }
+
+        /// <summary>As Write, and with new samples added after the last one (their indexes are the bank's count on).</summary>
+        public static string Write(string src, string dst, IDictionary<int, MpegAudio> replace, IList<NewSample> add, Action<ProgressInfo> progress)
+        {
             using (var i = new FileStream(src, FileMode.Open, FileAccess.Read, FileShare.Read))
             using (var o = new FileStream(dst, FileMode.Create, FileAccess.Write, FileShare.None))
-                return Write(i, o, replace, Path.GetFileName(src), progress);
+                return Write(i, o, replace, add, Path.GetFileName(src), progress);
         }
 
         public static string Write(Stream src, Stream dst, IDictionary<int, MpegAudio> replace, string label, Action<ProgressInfo> progress)
         {
+            return Write(src, dst, replace, null, label, progress);
+        }
+
+        /// <summary>
+        /// A new sample goes after the last one: its header (with a loop chunk when Loop is set, as the shipped music
+        /// samples that loop have), its name at the end of the name table (every name offset moves by 4 a sample, as
+        /// the offsets come first) and its data, from a 32-byte boundary. The count, the sizes and the data size of the
+        /// header follow; the hash stays, so the event project still takes the bank. The name table is padded so that
+        /// the data starts on 32 bytes, as in every shipped bank.
+        /// </summary>
+        public static string Write(Stream src, Stream dst, IDictionary<int, MpegAudio> replace, IList<NewSample> add, string label, Action<ProgressInfo> progress)
+        {
+            if (add == null) add = new NewSample[0];
             byte[] h = Read(src, SoundBank.HeaderSize, label);
             if (h[0] != 'F' || h[1] != 'S' || h[2] != 'B' || h[3] != '5' || BitConverter.ToUInt32(h, 4) != 1) throw new ModKitException(label + ": not an FSB5 version 1 bank");
             int n = (int)BitConverter.ToUInt32(h, 8), shs = (int)BitConverter.ToUInt32(h, 12), nts = (int)BitConverter.ToUInt32(h, 16);
             long ds = BitConverter.ToUInt32(h, 20);
             if (n < 0 || n > 1000000 || shs < 0 || shs > 64 << 20 || nts < 0 || nts > 64 << 20) throw new ModKitException(label + ": the header sizes are out of range");
-            if (replace.Count > 0 && BitConverter.ToUInt32(h, 24) != 11) throw new ModKitException(label + ": the bank's codec is " + SoundBank.Codec((int)BitConverter.ToUInt32(h, 24)) + ", not MPEG");
+            if ((replace.Count > 0 || add.Count > 0) && BitConverter.ToUInt32(h, 24) != 11) throw new ModKitException(label + ": the bank's codec is " + SoundBank.Codec((int)BitConverter.ToUInt32(h, 24)) + ", not MPEG");
             byte[] sh = Read(src, shs, label), nt = Read(src, nts, label);
             long dataAt = SoundBank.HeaderSize + (long)shs + nts;
 
@@ -400,9 +442,42 @@ namespace MS2.ModKit
                 if (rep) Chunks(nsh, heads[k], m, label, k);
                 at += lens[k];
             }
+            // the new samples: after the old data, from a 32-byte boundary
+            long tail = 0;
+            if (add.Count > 0)
+            {
+                tail = Pad32(at) - at;
+                at += tail;
+                var hs = new MemoryStream();
+                hs.Write(nsh, 0, nsh.Length);
+                for (int j = 0; j < add.Count; j++)
+                {
+                    NewSample x = add[j];
+                    if (x == null || x.Audio == null || x.Audio.Data == null) throw new ModKitException(label + ": new sample " + (n + j) + " has no sound");
+                    if (at / 32 > 0x7ffffff) throw new ModKitException(label + ": the data grows past what the sample headers can address (4 GB)");
+                    ulong v = Header((ulong)(at / 32) << 7, x.Audio, label, n + j);
+                    if (x.Loop) v |= 1;
+                    hs.Write(BitConverter.GetBytes(v), 0, 8);
+                    if (x.Loop)
+                    {
+                        hs.Write(BitConverter.GetBytes((3u << 25) | (8u << 1)), 0, 4);
+                        hs.Write(BitConverter.GetBytes(0u), 0, 4);
+                        hs.Write(BitConverter.GetBytes((uint)(x.Audio.Frames - 1)), 0, 4);
+                    }
+                    at += Pad32(x.Audio.Data.Length);
+                }
+                nsh = hs.ToArray();
+                nt = Names(nt, n, add, label, SoundBank.HeaderSize + nsh.Length);
+            }
             if (at > uint.MaxValue) throw new ModKitException(label + ": the data grows past 4 GB");
             var nh = (byte[])h.Clone();
             Array.Copy(BitConverter.GetBytes((uint)at), 0, nh, 20, 4);
+            if (add.Count > 0)
+            {
+                Array.Copy(BitConverter.GetBytes((uint)(n + add.Count)), 0, nh, 8, 4);
+                Array.Copy(BitConverter.GetBytes((uint)nsh.Length), 0, nh, 12, 4);
+                Array.Copy(BitConverter.GetBytes((uint)nt.Length), 0, nh, 16, 4);
+            }
 
             using (SHA1 sha = SHA1.Create())
             {
@@ -430,12 +505,57 @@ namespace MS2.ModKit
                         left -= r;
                     }
                 }
+                if (tail > 0) Out(dst, sha, new byte[tail], (int)tail);
+                foreach (NewSample x in add)
+                {
+                    Out(dst, sha, x.Audio.Data, x.Audio.Data.Length);
+                    int z = (int)(Pad32(x.Audio.Data.Length) - x.Audio.Data.Length);
+                    if (z > 0) Out(dst, sha, new byte[z], z);
+                }
                 sha.TransformFinalBlock(new byte[0], 0, 0);
                 return SoundBank.Hex(sha.Hash);
             }
         }
 
         static long Pad32(long n) { return (n + 31) / 32 * 32; }
+
+        // the name table with the new names: n + new offsets, the old names as they were, the new names, then zeros
+        // up to a 32-byte boundary of the file (before is the header and the sample headers)
+        static byte[] Names(byte[] nt, int n, IList<NewSample> add, string label, int before)
+        {
+            if (nt.Length == 0) throw new ModKitException(label + ": the bank has no name table; a new sample needs a name");
+            if (4L * n > nt.Length) throw new ModKitException(label + ": the name table ends early");
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            int end = 4 * n;
+            for (int k = 0; k < n; k++)
+            {
+                int o = (int)BitConverter.ToUInt32(nt, 4 * k);
+                if (o < 4 * n || o >= nt.Length) throw new ModKitException(label + ": sample " + k + ": its name is outside the name table");
+                int e = Array.IndexOf(nt, (byte)0, o);
+                if (e < 0) throw new ModKitException(label + ": sample " + k + ": its name has no end");
+                names.Add(Encoding.UTF8.GetString(nt, o, e - o));
+                end = Math.Max(end, e + 1);
+            }
+            int a = add.Count, shift = 4 * a;
+            var o2 = new MemoryStream();
+            for (int k = 0; k < n; k++) o2.Write(BitConverter.GetBytes(BitConverter.ToUInt32(nt, 4 * k) + (uint)shift), 0, 4);
+            var text = new MemoryStream();
+            text.Write(nt, 4 * n, end - 4 * n);
+            int at = end + shift;
+            foreach (NewSample x in add)
+            {
+                if (string.IsNullOrEmpty(x.Name) || x.Name.IndexOf('\0') >= 0) throw new ModKitException(label + ": a new sample needs a name");
+                if (!names.Add(x.Name)) throw new ModKitException(label + ": the bank has a sample " + x.Name + " already");
+                o2.Write(BitConverter.GetBytes((uint)at), 0, 4);
+                byte[] b = Encoding.UTF8.GetBytes(x.Name);
+                text.Write(b, 0, b.Length);
+                text.WriteByte(0);
+                at += b.Length + 1;
+            }
+            text.WriteTo(o2);
+            while ((before + o2.Length) % 32 != 0) o2.WriteByte(0);
+            return o2.ToArray();
+        }
 
         // the bit fields of a replaced sample: frames, rate, channels
         static ulong Header(ulong v, MpegAudio m, string label, int k)

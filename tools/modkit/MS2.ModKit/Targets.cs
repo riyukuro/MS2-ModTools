@@ -52,12 +52,28 @@ namespace MS2.ModKit
         }
 
         /// <summary>"3 entries of 1 archive(s)", "2 sample(s) of 1 bank(s)", or both joined with "and".</summary>
-        public static string Where(int entries, int archives, int samples, int banks)
+        public static string Where(int entries, int archives, int samples, int banks) { return Where(entries, archives, samples, banks, 0); }
+
+        /// <summary>As above, with " and 1 new cue(s)" for the cues added to the project (samples and banks: the
+        /// replaced and new samples and the banks they are in, the project not counted).</summary>
+        public static string Where(int entries, int archives, int samples, int banks, int cues)
         {
             string a = entries + (entries == 1 ? " entry" : " entries") + " of " + archives + " archive(s)";
             string b = samples + " sample(s) of " + banks + " bank(s)";
-            if (banks == 0) return a;
-            return archives == 0 ? b : a + " and " + b;
+            string s = banks == 0 ? a : archives == 0 ? b : a + " and " + b;
+            return cues == 0 ? s : s + " and " + cues + " new cue(s)";
+        }
+
+        /// <summary>The replaced and new samples, the banks and the new cues of a plan.</summary>
+        public static void Sounds(IEnumerable<PlanBank> banks, out int samples, out int bankCount, out int cues)
+        {
+            samples = 0; bankCount = 0; cues = 0;
+            foreach (PlanBank b in banks)
+            {
+                if (b.Project) { cues += b.Cues.Count; continue; }
+                bankCount++;
+                samples += b.Samples.Count + b.Adds.Count;
+            }
         }
 
         static int Count(List<PlanMessage> list, string root)
@@ -89,16 +105,11 @@ namespace MS2.ModKit
                     archives++;
                     entries += a.Put.Count + a.Delete.Count;
                 }
-                int banks = 0, samples = 0;
-                foreach (PlanBank b in p.Banks)
-                {
-                    if (RootOfRef(b.Ref) != root) continue;
-                    banks++;
-                    samples += b.Samples.Count;
-                }
+                int banks, samples, cues;
+                Sounds(p.Banks.FindAll(b => RootOfRef(b.Ref) == root), out samples, out banks, out cues);
                 int e = Count(p.Errors, root), k = Count(p.Conflicts, root), w = Count(p.Warnings, root);
                 var sb = new StringBuilder(NameOf(root)).Append(": ");
-                if (entries == 0 && changes == 0 && samples == 0) sb.Append("nothing to change");
+                if (entries == 0 && changes == 0 && samples == 0 && cues == 0) sb.Append("nothing to change");
                 else
                 {
                     sb.Append(changes).Append(" change(s)");
@@ -109,7 +120,7 @@ namespace MS2.ModKit
                         if (mirrored > 0) how.Add(mirrored + " mirrored");
                         sb.Append(" (").Append(string.Join(", ", how.ToArray())).Append(')');
                     }
-                    sb.Append(" in ").Append(Where(entries, archives, samples, banks));
+                    sb.Append(" in ").Append(Where(entries, archives, samples, banks, cues));
                 }
                 if (e + k + w > 0) sb.Append("; ").Append(e).Append(" error(s), ").Append(k).Append(" conflict(s), ").Append(w).Append(" warning(s)");
                 lines.Add(sb.ToString());

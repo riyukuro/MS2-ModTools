@@ -9,7 +9,7 @@ using MS2.ModKit.Xml;
 
 namespace MS2.ModKit
 {
-    public enum ChangeKind { SetAttr, RemoveAttr, SetText, AddRow, DeleteRow, AddEntry, ReplaceEntry, DeleteEntry, ReplaceSample }
+    public enum ChangeKind { SetAttr, RemoveAttr, SetText, AddRow, DeleteRow, AddEntry, ReplaceEntry, DeleteEntry, ReplaceSample, AddSample, AddCue }
 
     /// <summary>One line of the dry-run diff.</summary>
     public sealed class PlanChange
@@ -50,6 +50,8 @@ namespace MS2.ModKit
                 case ChangeKind.AddEntry: return where + " + entry (" + NewValue + ")";
                 case ChangeKind.ReplaceEntry: return where + " = entry (" + NewValue + ")";
                 case ChangeKind.ReplaceSample: return where + " = new sound (" + NewValue + ")";
+                case ChangeKind.AddSample: return where + " added (" + NewValue + ")";
+                case ChangeKind.AddCue: return where + " added: " + NewValue;
                 default: return where + " - entry";
             }
         }
@@ -500,6 +502,7 @@ namespace MS2.ModKit
             SyncPass(run, options);
             DoMaps(run, mods);
             DoSamples(run, mods);
+            DoCues(run, mods);
             // the plan of one mod alone is read for its conflicts only: nothing of it is written
             if (options.Alone) return plan;
 

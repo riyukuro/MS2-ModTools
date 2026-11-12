@@ -250,6 +250,18 @@ namespace MS2.ModKit
                 plan.Msg(plan.Errors, null, pb.Ref, entry, "the game folder has no " + full);
                 return 1;
             }
+            if (pb.Project)
+            {
+                string sha;
+                try { sha = SoundReplace.Sha1File(src); }
+                catch (Exception x) when (x is IOException || x is UnauthorizedAccessException) { plan.Msg(plan.Errors, null, pb.Ref, entry, x.Message); return 1; }
+                if (sha != pb.SourceSha1)
+                {
+                    plan.Msg(plan.Errors, null, pb.Ref, entry, "the game's " + src + " is not the project the plan was made from (" + pb.Source + ")");
+                    return 1;
+                }
+                return 0;
+            }
             SoundBank b;
             try { b = SoundBank.Read(src); }
             catch (Exception x) when (x is ModKitException || x is IOException)
@@ -329,7 +341,7 @@ namespace MS2.ModKit
                 {
                     string rel = BankPath(pb), full = FullPath(rel), orig = full + SoundReplace.OrigSuffix;
                     bool had = old != null && old.FindBank(rel) != null && File.Exists(orig);
-                    string sha = SoundReplace.Write(had ? orig : full, full + ".modkit-tmp", SoundReplace.Replaces(pb), options.Progress);
+                    string sha = SoundReplace.WriteFile(pb, had ? orig : full, full + ".modkit-tmp", options.Progress);
                     banks.Add(new KeyValuePair<LooseFile, PlanBank>(new LooseFile { Archive = pb.Ref, Path = rel, Sha1 = sha }, pb));
                     state.Banks.Add(banks[banks.Count - 1].Key);
                 }

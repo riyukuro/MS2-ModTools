@@ -229,10 +229,10 @@ namespace MS2.ModKit
                         if (M2dWriter.SamePath(dst, pb.Source) || M2dWriter.SamePath(dst, System.IO.Path.Combine(pb.Folder, pb.Bank)))
                             throw new ModKitException("refusing to write over the shipped bank " + pb.Source);
                         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(tmp));
-                        SoundReplace.Write(pb.Source, tmp, SoundReplace.Replaces(pb), options.Progress);
+                        SoundReplace.WriteFile(pb, pb.Source, tmp, options.Progress);
                         Directory.CreateDirectory(System.IO.Path.GetDirectoryName(dst));
                         Replace(tmp, dst);
-                        res.Outputs.Add(new ApplyOutput { Archive = pb.Ref, Path = dst, Replaced = pb.Samples.Count, Kept = pb.Count - pb.Samples.Count, Milliseconds = sw.ElapsedMilliseconds });
+                        res.Outputs.Add(new ApplyOutput { Archive = pb.Ref, Path = dst, Replaced = pb.Samples.Count, Added = pb.Adds.Count + pb.Cues.Count, Kept = pb.Count - pb.Samples.Count, Milliseconds = sw.ElapsedMilliseconds });
                         state.Archives.Add(new WorkspaceArchive { Archive = pb.Ref, File = rel, Bank = true });
                     }
             }

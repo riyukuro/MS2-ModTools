@@ -59,6 +59,7 @@ namespace MS2.Tables
         readonly Label shownLabel = new Label { Dock = DockStyle.Top, Height = 20, Padding = new Padding(4, 3, 0, 0), Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold) };
         readonly DataGridView grid = new DataGridView { Dock = DockStyle.Fill };
         readonly FlowLayoutPanel mapBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2), Visible = false };
+        readonly FlowLayoutPanel cueBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2), Visible = false };
         readonly FlowLayoutPanel bankBar = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2), Visible = false };
         readonly TextBox outputBox = new TextBox { Multiline = true, ReadOnly = true, ScrollBars = ScrollBars.Vertical, WordWrap = true, Dock = DockStyle.Bottom, Height = 90 };
         readonly ToolTip tips = new ToolTip();
@@ -99,6 +100,13 @@ namespace MS2.Tables
             bankBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
             bankBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
+            cueBar.Controls.Add(Btn("New cue...", "Adds a new music cue (kept in the mod): its sound from .mp2 files goes into a bank as new samples, and it plays as the selected cue does (its theme, fades and links); a map plays it when its bgm id is the new cue's id", delegate { NewCue(); }));
+            cueBar.Controls.Add(Btn("Take out cue", "Takes the selected new cue out of the mod", delegate { TakeCue(); }));
+            cueBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
+            cueBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change, to every target at once", delegate { return host.DoApply(); }));
+            cueBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
+            cueBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
+
             grid.VirtualMode = true;
             grid.ReadOnly = false;
             grid.EditMode = DataGridViewEditMode.EditOnKeystrokeOrF2;
@@ -124,6 +132,7 @@ namespace MS2.Tables
             right.Controls.Add(grid);
             right.Controls.Add(mapBar);
             right.Controls.Add(bankBar);
+            right.Controls.Add(cueBar);
             right.Controls.Add(shownLabel);
 
             Controls.Add(right);
@@ -388,6 +397,9 @@ namespace MS2.Tables
                 }
                 var ids = new SortedDictionary<int, string>();
                 if (project != null) foreach (MusicCue c in project.Cues) ids[c.Id] = c.Name;
+                var added = new HashSet<int>();
+                Mod mod = host == null ? null : host.SharedSession().Mod;
+                if (mod != null) foreach (CueOp c in mod.Cues) if (!ids.ContainsKey(c.Id)) { ids[c.Id] = c.Name; added.Add(c.Id); }
                 int missing = 0;
                 foreach (int id in count.Keys) if (!ids.ContainsKey(id)) { ids[id] = null; if (project != null) missing++; }
                 long mapQ;
@@ -402,7 +414,7 @@ namespace MS2.Tables
                     HashSet<long> m;
                     int n = count.TryGetValue(kv.Key, out m) ? m.Count : 0;
                     hits.Add(kv.Key);
-                    labels.Add(kv.Key + "  " + (kv.Value ?? (project != null ? "(not in the project)" : "")) + (n > 0 ? "  · " + n + " map" + (n == 1 ? "" : "s") : ""));
+                    labels.Add(kv.Key + "  " + (kv.Value ?? (project != null ? "(not in the project)" : "")) + (added.Contains(kv.Key) ? "  (new, mod)" : "") + (n > 0 ? "  · " + n + " map" + (n == 1 ? "" : "s") : ""));
                 }
                 if (missing > 0) said.Add(missing + " cue id(s) the maps play are not in " + SoundData.ProjectFile + ": the client plays nothing there");
                 hitsLabel.Text = hits.Count + " cue(s)" + (project != null ? ", " + project.Cues.Count + " in the project" : "") + ", " + uses.Count + " map row(s)";
@@ -462,7 +474,7 @@ namespace MS2.Tables
             finally { filling = false; }
             string idle = Maps
                 ? "a map's normal and boss cells set the cue it plays (F4: pick one by id or name; empty: no music); the kms client's row and the server's map file are set, the mirror writes the global client's"
-                : Music ? "read only: no playback; the maps' music is set in Maps; what else a mod would need is in the README (Sound and music)"
+                : Music ? "no playback; New cue... adds a cue with its own sound (.mp2 files, kept in the mod) that plays as the selected cue does; the maps' music is set in Maps"
                 : "no playback; Replace sample... gives the selected sample new sound from an .mp2 file (MPEG layer II, as the shipped samples) (the client finds a sample by its index); the event project's segment length stays";
             OutputWrap.Set(outputBox, said.Count == 0 ? idle : string.Join("\r\n", said.ToArray()));
             Show(Selected());
@@ -488,6 +500,7 @@ namespace MS2.Tables
             grid.Columns.Clear();
             mapBar.Visible = Maps;
             bankBar.Visible = !Maps && !Music;
+            cueBar.Visible = Music;
             if (what == null) { shownLabel.Text = ""; return; }
             if (what is long)
             {
@@ -518,7 +531,8 @@ namespace MS2.Tables
                     if (r == 0) r = string.CompareOrdinal(a.Side, b.Side);
                     return r != 0 ? r : string.CompareOrdinal(a.Env, b.Env);
                 });
-                shownLabel.Text = "cue " + cue + (c != null ? " " + c.Name : "") + ": " + shownUses.Count + " bgm row(s)";
+                CueOp nc = c == null && host != null && host.SharedSession().Mod != null ? host.SharedSession().Mod.CueOf(cue) : null;
+                shownLabel.Text = "cue " + cue + (c != null ? " " + c.Name : nc != null ? " " + nc.Name + " (new, mod: plays as cue " + nc.Like + ", sound in " + nc.Bank + ")" : "") + ": " + shownUses.Count + " bgm row(s)";
                 int[] w = { 70, 180, 60, 50, 50, 110, 120 };
                 for (int i = 0; i < CueHeads.Length; i++) grid.Columns.Add(Col(CueHeads[i], w[i]));
                 grid.RowCount = shownUses.Count;
@@ -789,6 +803,135 @@ namespace MS2.Tables
             host.SayOutside(said);
             grid.Invalidate();
             OutputWrap.Set(outputBox, said);
+        }
+
+        // ---- new cue (Music) ----
+
+        const string DefaultCueBank = "MS2Sound_BGM4.fsb";
+
+        void NewCue()
+        {
+            if (host.Busy) { OutputWrap.Set(outputBox, "wait for the running job"); return; }
+            Mod m = host.SharedSession().Mod;
+            if (m == null) throw new ModKitException("open or start a mod in the MS2 Tables view first");
+            if (project == null) throw new ModKitException(projectProblem ?? "the event project does not read");
+            object sel = Selected();
+            if (!(sel is int) || project.Cue((int)sel) == null) throw new ModKitException("pick a shipped cue in the list first: the new cue plays as it does");
+            int like = (int)sel;
+            int next = 0;
+            foreach (MusicCue c in project.Cues) next = Math.Max(next, c.Id);
+            foreach (CueOp c in m.Cues) next = Math.Max(next, c.Id);
+            var mpeg = new List<string>();
+            foreach (string f in new SoundData(folder).Banks()) { SoundBank b = Bank(f); if (b != null && b.Mode == 11) mpeg.Add(f); }   // 11: MPEG
+            if (mpeg.Count == 0) throw new ModKitException("no MPEG bank in the Sound folder to add the samples to");
+            using (var d = new NewCueDialog(project.Cue(like).ToString(), next + 1, mpeg, mpeg.Contains(DefaultCueBank) ? DefaultCueBank : mpeg[0]))
+            {
+                if (d.ShowDialog(this) != DialogResult.OK) return;
+                if (project.Cue(d.Id) != null) throw new ModKitException("cue " + d.Id + " is in the project: a new cue needs an id it does not have");
+                foreach (MusicCue c in project.Cues)
+                    if (string.Equals(c.Name, d.CueName, StringComparison.OrdinalIgnoreCase)) throw new ModKitException("the project has a cue named " + c.Name + " (cue " + c.Id + ")");
+                byte[] intro = d.IntroPath.Length == 0 ? null : File.ReadAllBytes(d.IntroPath);
+                byte[] loop = File.ReadAllBytes(d.LoopPath);
+                CueOp op = m.SetCue(d.Id, d.CueName, d.BankFile, like, intro, loop,
+                    intro == null ? null : Path.GetFileName(d.IntroPath), Path.GetFileName(d.LoopPath));
+                CueEdited(op.Id, "new cue " + op.Id + " " + op.Name + ": plays as cue " + like + ", its sound added to " + op.Bank
+                    + (intro != null ? " (intro " + op.Intro + ", loop " + op.Loop + ")" : " (loop " + op.Loop + ")")
+                    + "; set a map's bgm id to " + op.Id + " in Maps to hear it");
+            }
+        }
+
+        void TakeCue()
+        {
+            Mod m = host.SharedSession().Mod;
+            object sel = Selected();
+            if (!(sel is int)) throw new ModKitException("pick a cue in the list first");
+            int id = (int)sel;
+            bool had = m != null && m.TakeCue(id);
+            CueEdited(had ? -1 : id, "cue " + id + ": " + (had ? "the mod's new cue taken out" : "is no new cue of the mod"));
+        }
+
+        void CueEdited(int keep, string said)
+        {
+            host.EditedOutside();
+            host.SayOutside(said);
+            Fill(keep < 0 ? null : (object)keep);
+            OutputWrap.Set(outputBox, said);
+        }
+
+        /// <summary>Asks for a new cue's id, name, bank and sound files.</summary>
+        sealed class NewCueDialog : Form
+        {
+            readonly NumericUpDown idBox = new NumericUpDown { Minimum = 1, Maximum = int.MaxValue, Width = 100 };
+            readonly TextBox nameBox = new TextBox { Width = 260 };
+            readonly ComboBox bankBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 260 };
+            readonly TextBox introBox = new TextBox { Width = 260 };
+            readonly TextBox loopBox = new TextBox { Width = 260 };
+
+            internal int Id { get { return (int)idBox.Value; } }
+            internal string CueName { get { return nameBox.Text.Trim(); } }
+            internal string BankFile { get { return (string)bankBox.SelectedItem; } }
+            internal string IntroPath { get { return introBox.Text.Trim(); } }
+            internal string LoopPath { get { return loopBox.Text.Trim(); } }
+
+            internal NewCueDialog(string like, int id, List<string> banks, string bank)
+            {
+                Text = "New cue, plays as " + like;
+                StartPosition = FormStartPosition.CenterParent;
+                FormBorderStyle = FormBorderStyle.FixedDialog;
+                MinimizeBox = MaximizeBox = false;
+                ShowInTaskbar = false;
+                Font = SystemFonts.MessageBoxFont;
+                AutoSize = true;
+                AutoSizeMode = AutoSizeMode.GrowAndShrink;
+                idBox.Value = id;
+                foreach (string b in banks) bankBox.Items.Add(b);
+                bankBox.SelectedItem = bank;
+
+                var t = new TableLayoutPanel { ColumnCount = 3, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(8), Dock = DockStyle.Fill };
+                Row(t, "id", idBox, null);
+                Row(t, "name", nameBox, null);
+                Row(t, "bank", bankBox, null);
+                Row(t, "intro (may stay empty)", introBox, Browse(introBox, "The sound played once first"));
+                Row(t, "loop", loopBox, Browse(loopBox, "The sound played over and over"));
+                var ok = new Button { Text = "OK", AutoSize = true };
+                var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel, AutoSize = true };
+                ok.Click += delegate
+                {
+                    string no = CueName.Length == 0 ? "give the cue a name"
+                        : LoopPath.Length == 0 || !File.Exists(LoopPath) ? "pick the loop's .mp2 file"
+                        : IntroPath.Length > 0 && !File.Exists(IntroPath) ? "the intro file is not there"
+                        : null;
+                    if (no != null) { MessageBox.Show(this, no, Text); return; }
+                    DialogResult = DialogResult.OK;
+                };
+                var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, AutoSize = true, Dock = DockStyle.Fill };
+                buttons.Controls.Add(cancel);
+                buttons.Controls.Add(ok);
+                t.Controls.Add(buttons, 0, t.RowCount);
+                t.SetColumnSpan(buttons, 3);
+                Controls.Add(t);
+                AcceptButton = ok;
+                CancelButton = cancel;
+            }
+
+            static void Row(TableLayoutPanel t, string label, Control c, Control extra)
+            {
+                int r = t.RowCount++;
+                t.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(3, 6, 3, 0) }, 0, r);
+                t.Controls.Add(c, 1, r);
+                if (extra != null) t.Controls.Add(extra, 2, r);
+            }
+
+            Button Browse(TextBox into, string title)
+            {
+                var b = new Button { Text = "...", AutoSize = true };
+                b.Click += delegate
+                {
+                    using (var d = new OpenFileDialog { Title = title, Filter = "MPEG layer II audio (*.mp2)|*.mp2|MPEG audio (*.mp2;*.mp3)|*.mp2;*.mp3|All files|*.*", CheckFileExists = true })
+                        if (d.ShowDialog(this) == DialogResult.OK) into.Text = d.FileName;
+                };
+                return b;
+            }
         }
 
         // after this view's own edit: only that map's rows of the lists are read again, not every map file

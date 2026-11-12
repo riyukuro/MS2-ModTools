@@ -1806,7 +1806,7 @@ because a map file does not hold them: add its `<row .../>` lines by hand.
 ## Sound and music
 
 The **MS2 Sound** view (menu **MS2 Mods > Sound**) shows the client's audio and edits which cue a map plays. There is
-no playback. It can give a bank's sample new sound (see **Banks**). The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
+no playback. It can give a bank's sample new sound (see **Banks**) and add new music cues (see **Music cues**). The audio is not in the archives. It is a set of loose files in the client's `Data/Sound`
 folder:
 
 - `MS2Sound.fev` is the FMOD Ex event project. The client loads it at start, and it names the banks.
@@ -1833,7 +1833,8 @@ kms client data folder of the MS2 Tables view's settings.
   `fielddata.xml` are not applied here. Reading every map file takes a while, so
   it runs as a job of the MS2 Tables view. When the mod changes, the list keeps showing the maps as they were and
   the view says so. It reads them again on the next Find, list pick or show, so a chain of cell edits in another
-  view does not wait for a scan after each one.
+  view does not wait for a scan after each one. **New cue...** adds a cue that plays as the selected one does,
+  with its own sound; see **Add a cue** below.
 - **Maps** lists the maps (id and name; the find box also takes a cue id and lists the maps that play it). A map
   whose music the mod changes is marked `· music edited`. Select a map to see one row per side and environment, with
   the normal and the boss cue. Edit a cue cell to change it: type a cue id or a cue's name (a unique part of it is
@@ -1886,15 +1887,36 @@ What a mod can do with sound today:
   it back. A bank changed since Apply is left in place, with its record. A `.modkit-orig` that this tool did not
   write, and a `Sound` folder reached through a link, stop the apply. Banks are large (up to about 170 MB), so an
   apply with sample lines takes a few seconds per bank.
-- **Add a track: library only, not tried in game yet.** `MusicGraph` (MusicGraph.cs) reads the project's music
-  data: cue → theme → start segment → the next segment by its link. Each segment names a bank and a sample index,
-  and a loop is a segment linked to itself. For example, the login cue plays one 5 s segment and then a looping
-  one. `AddCue` adds a cue with one new theme, an optional intro segment and a looping segment, and their links.
-  It copies the settings from a cue you name, and the new ids come after the highest ones. The writer changes only
-  the music chunk and the lengths of the RIFF chunks around it. Read back with nothing added, the shipped project
-  gives the same bytes. Still to do: a mod.xml line and a plan step for it, adding the source file name list
-  (`smpf`, which only names the designer's files), adding a new sample to a bank rather than reusing an index, and
-  one run in game with a map's bgm id set to the new cue.
+- **Add a cue.** A mod line names the new cue's id and name, the bank its sound goes into, the shipped cue whose
+  settings it copies (`like`), and one or two MPEG files in the mod: an intro, played once (optional), and a loop:
+
+  ```xml
+  <cue id="300" name="My_Theme" bank="MS2Sound_BGM4.fsb" like="15" intro="files/sound/cue/300_intro.mp2" loop="files/sound/cue/300_loop.mp2" />
+  ```
+
+  In the view: pick a shipped cue in **Music cues**, then **New cue...** asks for the id (the next free one by
+  default), the name, the bank and the files; **Take out cue** drops it again. The mod's new cues are listed with
+  `(new, mod)`. **Plan**, **Apply**, **Revert** and **Save mod** work as in **Maps**. A map plays the new cue when its
+  bgm id is the new cue's id: set it in **Maps** or with a row edit.
+
+  The plan adds the files as new samples at the end of the bank (`<name>_Intro`, `<name>_Loop`), so no shipped
+  sample moves and no index is reused. The bank keeps its header hash. Then `MusicGraph` (MusicGraph.cs) adds the
+  cue to `MS2Sound.fev`: one new theme, the intro segment, a looping segment and their links, with the settings, the
+  link kind and the source-file rows copied from the `like` cue. The new theme, segment and link ids come after the
+  highest ones. The writer changes only the music chunk and the lengths of the RIFF chunks around it; read back with
+  nothing added, the shipped project gives the same bytes. Errors: an id or a name the project has, an unknown
+  `like`, a bank that is not MPEG or that the project does not name, and a sample name the bank has. Two mods on one
+  id or one name are a conflict; the later mod adds it. The loose target keeps the shipped project and bank as
+  `.modkit-orig`, as for a replaced sample.
+
+  Checked in game on a private test client, client only: a new cue (a 5 s 440 Hz intro and a two-tone loop) added
+  to `MS2Sound_BGM4.fsb`, with the login map's bgm id set to it. The client played the intro once and then the loop
+  until the end of the 80 s run, and Revert gave back the shipped files byte for byte. The login map is a special
+  case: `table/loginbgbgm.xml` picks the login music by month, and its `bgmID` wins over the map's; only a `bgmID`
+  of 0 lets the map's own bgm id play. Not checked: the cue in a field map (that needs a server), and whether
+  anything in the project other than the music chunk (`OBCT` or the chunks after `LGCY`) points at offsets that move
+  when the music chunk grows. The run above loaded the grown project and played its other cues, but did not prove
+  that everything else in it still holds.
 
 Game audio never goes into a mod's repository or into these tests. The tests build made-up banks and projects byte
 by byte. `MS2_SOUND_DATA=<your Sound folder> dotnet test --filter Name=RealSoundFolder` checks that every bank in your

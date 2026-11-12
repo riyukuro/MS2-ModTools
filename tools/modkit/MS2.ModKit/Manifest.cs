@@ -118,7 +118,7 @@ namespace MS2.ModKit
         public bool TriggerLintWarn;
 
         /// <summary>The mod changes nothing: no entry, edit, shop or drop box op.</summary>
-        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0 && Skills.Count == 0 && JobSkills.Count == 0 && Maps.Count == 0 && Samples.Count == 0; } }
+        public bool IsEmpty { get { return Ops.Count == 0 && Groups.Count == 0 && Skills.Count == 0 && JobSkills.Count == 0 && Maps.Count == 0 && Samples.Count == 0 && Cues.Count == 0; } }
 
         // ---- load ----
 
@@ -292,7 +292,8 @@ namespace MS2.ModKit
                         case "jobskill": m.JobSkills.Add(ReadJobSkill(e)); break;
                         case "map": m.Maps.Add(ReadMap(e)); break;
                         case "sample": m.Samples.Add(ReadSample(e)); break;
-                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox, skill, effect, jobskill, map, sample)");
+                        case "cue": m.Cues.Add(ReadCue(e)); break;
+                        default: throw Bad(e, "unknown element <" + e.Name + "> in <mod> (known: description, ids, entry, edit, shop, dropbox, skill, effect, jobskill, map, sample, cue)");
                     }
                 }
                 return m;
@@ -502,6 +503,7 @@ namespace MS2.ModKit
             Flush(sb, chunk);
             WriteMaps(sb);
             WriteSamples(sb);
+            WriteCues(sb);
             sb.Append("</mod>\n");
             Flush(sb, chunk);
         }
@@ -643,6 +645,11 @@ namespace MS2.ModKit
                 if (en != null && en.File != null) yield return en.File.Replace('\\', '/');
             }
             foreach (SampleOp s in Samples) if (s.File != null) yield return s.File.Replace('\\', '/');
+            foreach (CueOp c in Cues)
+            {
+                if (c.Intro != null) yield return c.Intro.Replace('\\', '/');
+                if (c.Loop != null) yield return c.Loop.Replace('\\', '/');
+            }
         }
 
         void RemoveOrphans(string dir)
