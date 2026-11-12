@@ -270,6 +270,11 @@ namespace MS2.ModKit
                 foreach (string ar in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
                     l.Add(new IdPlace { Archive = ar, Entry = "table/*/dungeonroom.xml", Rows = DungeonRules.Rows, Key = DungeonRules.Key });
             }
+            else if (space == AchieveRules.Space)
+            {
+                foreach (string ar in new[] { "client:Xml.m2d", "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    l.Add(new IdPlace { Archive = ar, Entry = AchieveRules.Folder + "{id}.xml" });
+            }
             else throw new ModKitException("no default places for the id space \"" + space + "\"");
             return l;
         }

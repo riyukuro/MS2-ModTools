@@ -534,6 +534,7 @@ namespace MS2.ModKit
             DungeonChecks(run);
             SpawnChecks(run);
             GlobalDropChecks(run);
+            AchievementChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 
