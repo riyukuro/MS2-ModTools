@@ -529,6 +529,7 @@ namespace MS2.ModKit
             LintTriggers(run);
             GroupChecks(run);
             RecipeChecks(run);
+            ItemOptionChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 

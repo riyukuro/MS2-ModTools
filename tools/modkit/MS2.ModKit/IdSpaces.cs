@@ -239,6 +239,13 @@ namespace MS2.ModKit
                 foreach (string a in new[] { "client:Xml.m2d", "server:Xml.m2d", "gms-client:Xml.m2d" })
                     l.Add(new IdPlace { Archive = a, Entry = RecipeRules.Entry, Rows = RecipeRules.Rows, Key = "id" });
             }
+            else if (space == ItemOptionRules.Space)
+            {
+                l.Add(new IdPlace { Archive = "client:Xml.m2d", Entry = ItemOptionRules.KmsEntry, Rows = "option", Key = "code" });
+                foreach (string a in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    foreach (string dir in new[] { ItemOptionRules.ConstantDir, ItemOptionRules.StaticDir })
+                        l.Add(new IdPlace { Archive = a, Entry = dir + "*.xml", Rows = "option", Key = "code" });
+            }
             else throw new ModKitException("no default places for the id space \"" + space + "\"");
             return l;
         }
@@ -251,6 +258,7 @@ namespace MS2.ModKit
             else if (space == SkillSpace) { from = SkillFrom; to = SkillTo; }
             else if (space == EffectSpace) { from = EffectFrom; to = EffectTo; }
             else if (space == RecipeRules.Space) { from = RecipeRules.From; to = RecipeRules.To; }
+            else if (space == ItemOptionRules.Space) { from = ItemOptionRules.From; to = ItemOptionRules.To; }
             else throw new ModKitException("no reserved range for the id space \"" + space + "\"");
         }
 
