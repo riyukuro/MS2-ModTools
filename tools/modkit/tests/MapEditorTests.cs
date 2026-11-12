@@ -319,19 +319,31 @@ namespace MS2.ModKit.Tests
                 Assert.That(MapEditor.NewOps(mod, X).Select(o => o.Name).ToArray(), Is.EqualTo(new[] { "wolves", "crows", "east" }));
 
                 // properties, numbers and server rows
-                MapEditor.SetNew(mod, X, sp, "NpcList", "0", "21000001");
-                MapEditor.SetNew(mod, X, sp, MapEditor.ServerRow, "0", "difficulty=1 tag=wolf coolTime=20 population=3");
-                MapEditor.SetNew(mod, X, sp, MapEditor.ServerRow, "1", "difficulty=1 tag=bat coolTime=20 population=1");
-                MapEditor.SetNew(mod, X, sp, MapEditor.ServerRow, "1", null);
-                MapEditor.SetNew(mod, X, sp2, "Position", null, "1, 2, 3");
-                MapEditor.SetNew(mod, X, sp2, "Position", null, null);
-                MapEditor.SetNew(mod, X, po, "TargetPortalID", null, "1");
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, sp, MapEditor.ServerRow, "3", "tag=a"), "rows count up from 0");
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, sp, MapEditor.ServerRow, "1", "mapCode=1"), "the tool writes mapCode");
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, sp, "SpawnPointID", null, null), "a number is not unset");
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, sp, "SpawnPointID", null, "x"), "a number");
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, sp, "NpcList", null, "1"), "a list takes an index");
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, po, MapEditor.ServerRow, "0", "tag=a"), "a portal has no server rows");
+                ed.SetNew(mod, X, sp, "NpcList", "0", "21000001");
+                ed.SetNew(mod, X, sp, MapEditor.ServerRow, "0", "difficulty=1 tag=wolf coolTime=20 population=3");
+                ed.SetNew(mod, X, sp, MapEditor.ServerRow, "1", "difficulty=1 tag=bat coolTime=20 population=1");
+                ed.SetNew(mod, X, sp, MapEditor.ServerRow, "1", "tag=\"wolf\" note=\"two words\" empty=\"\"");
+                Assert.That(sp.Rows[1].Select(kv => kv.Key + "|" + kv.Value).ToArray(), Is.EqualTo(new[] { "tag|wolf", "note|two words", "empty|" }), "the quotes are not part of a value");
+                Assert.That(ed.RowsOfNew(sp).Last().Current, Is.EqualTo("tag=wolf note=\"two words\" empty=\"\""), "shown so that it reads back the same");
+                {
+                    string rx = mod.ToXml();
+                    mod.Save(System.IO.Path.Combine(f.Dir, "mods", "added"));
+                    Mod rb = Mod.Load(System.IO.Path.Combine(f.Dir, "mods", "added"));
+                    Assert.That(rb.ToXml(), Is.EqualTo(rx));
+                    Assert.That(MapEditor.FindNew(rb, X, "wolves").Rows[1][1].Value, Is.EqualTo("two words"));
+                }
+                ed.SetNew(mod, X, sp, MapEditor.ServerRow, "1", null);
+                ed.SetNew(mod, X, sp2, "Position", null, "1, 2, 3");
+                ed.SetNew(mod, X, sp2, "Position", null, null);
+                ed.SetNew(mod, X, po, "TargetPortalID", null, "1");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, MapEditor.ServerRow, "3", "tag=a"), "rows count up from 0");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, MapEditor.ServerRow, "1", "mapCode=1"), "the tool writes mapCode");
+                foreach (string bad in new[] { "1tag=a", "tag\"=a", "<tag=a", "a/b=1", "=a", "tag", "tag=a tag=b", "tag=\"a", "tag=a\"b", "tag=\"a\"b", "   " })
+                    Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, MapEditor.ServerRow, "1", bad), bad);
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "SpawnPointID", null, null), "a number is not unset");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "SpawnPointID", null, "x"), "a number");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "NpcList", null, "1"), "a list takes an index");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, po, MapEditor.ServerRow, "0", "tag=a"), "a portal has no server rows");
                 Assert.That(sp.Rows.Count, Is.EqualTo(1));
                 Assert.That(sp2.Props, Is.Empty);
 
@@ -361,7 +373,115 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.NextNumber(mod, X, false), Is.EqualTo(IdSpaces.SpawnPointFrom), "a removed one frees its number");
                 MapEditor.RemoveNew(mod, X, po);
                 Assert.That(mod.Maps, Is.Empty);
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, po, "Position", null, "1, 1, 1"), "it is no longer in the mod");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, po, "Position", null, "1, 1, 1"), "it is no longer in the mod");
+            }
+        }
+
+        [Test]
+        public void SetNewChecksNamesModelsAndNumbers()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                Mod mod = f.Mod("checks", "");
+                const string X = "90000001_AB";
+                MapEntityOp sp = ed.AddSpawn(mod, 90000001, X, "wolves", "SpawnPoint_A", null);
+                MapEntityOp sp2 = ed.AddSpawn(mod, 90000001, X, "crows", "SpawnPoint_A", null);
+                MapEntityOp po = ed.AddPortal(mod, 90000001, X, "east", "Portal_A", null, 90000002, 1);
+
+                // a property the model has not, a list without index, a plain value with one, a comma, an index of spaces
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "Positon", null, "1, 2, 3"), "misspelt");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "NpcList", null, "1"), "a list takes an index");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "Position", "0", "1, 2, 3"), "a plain value takes none");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "A,B", null, "1"), "a comma breaks order=");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "NpcList", "  ", "1"), "an index of spaces");
+                Assert.That(sp.Props, Is.Empty);
+
+                // a number a shipped entity or another new one has is refused; the entity's own one is fine
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "SpawnPointID", null, "7"), "shipped Spawn_1 has 7");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "SpawnPointID", null, sp2.Number.ToString()), "crows has it");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, po, "PortalID", null, "1"), "shipped Portal_1 has 1");
+                ed.SetNew(mod, X, sp, "SpawnPointID", null, sp.Number.ToString());
+                ed.SetNew(mod, X, sp, "SpawnPointID", null, "8");
+                Assert.That(sp.Number, Is.EqualTo(8));
+                ed.SetNew(mod, X, po, "PortalID", null, "7");   // the numbers of spawn points and portals are apart
+                Assert.That(f.Plan(mod).Errors, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void SetNewOnAHandWrittenAddWithOrder()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                const string X = "90000001_AB";
+                Mod mod = f.Mod("ord", "<map xblock=\"" + FakeMaps.MapA + "\"><add name=\"s\" model=\"SpawnPoint_A\" entity-name=\"S_1\" order=\"SpawnPointID,Position\">"
+                    + "<property name=\"Position\" value=\"1, 2, 3\" /><property name=\"SpawnPointID\" value=\"140005\" /></add></map>");
+                MapEntityOp op = MapEditor.FindNew(mod, X, "s");
+                Assert.That(op, Is.Not.Null);
+                ed.SetNew(mod, X, op, "NpcList", "21000001", "1");
+                Assert.That(op.Order, Is.EqualTo(new[] { "SpawnPointID", "Position", "NpcList" }));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, op, "Npc,List", "1", "1"));
+                ed.SetNew(mod, X, op, "Position", null, null);
+                Assert.That(op.Order, Is.EqualTo(new[] { "SpawnPointID", "NpcList" }));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, op, "SpawnPointID", null, "7"), "shipped Spawn_1 has 7");
+                Assert.That(ed.NextNumber(mod, X, false), Is.EqualTo(IdSpaces.SpawnPointFrom), "140005 is not the first");
+
+                string xml = mod.ToXml();
+                mod.Save(System.IO.Path.Combine(f.Dir, "mods", "ord"));
+                Mod back = Mod.Load(System.IO.Path.Combine(f.Dir, "mods", "ord"));
+                Assert.That(back.ToXml(), Is.EqualTo(xml));
+                Assert.That(MapEditor.FindNew(back, X, "s").Order, Is.EqualTo(new[] { "SpawnPointID", "NpcList" }));
+            }
+        }
+
+        [Test]
+        public void NextNumberCountsEveryWayTheModBringsOne()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                const string X = "90000001_AB";
+                // a hand-written <add> with SpawnPointID 140000, a <change> giving shipped Spawn_1 140001
+                Mod mod = f.Mod("nums", "<map xblock=\"" + FakeMaps.MapA + "\"><add name=\"s\" model=\"SpawnPoint_A\" entity-name=\"S_1\">"
+                    + "<property name=\"SpawnPointID\" value=\"140000\" /></add>"
+                    + "<change id=\"" + FakeMaps.Spawn1 + "\" model=\"SpawnPoint_A\" position=\"150, 150, 150\"><set name=\"SpawnPointID\" old=\"7\" value=\"140001\" /></change></map>");
+                Assert.That(ed.NextNumber(mod, X, false), Is.EqualTo(IdSpaces.SpawnPointFrom + 2));
+                MapEntityOp sp = ed.AddSpawn(mod, 90000001, X, "wolves", "SpawnPoint_A", null);
+                Assert.That(sp.Number, Is.EqualTo(IdSpaces.SpawnPointFrom + 2));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, sp, "SpawnPointID", null, "140001"), "the change gives it");
+                Assert.That(f.Plan(mod).Errors, Is.Empty, Fake.Dump(f.Plan(mod)));
+
+                // every number of the range used: the throw
+                Mod full = f.Mod("full", "");
+                var m = new MapOp { XBlock = FakeMaps.MapA };
+                full.Maps.Add(m);
+                for (long n = IdSpaces.TriggerObjectFrom; n <= IdSpaces.TriggerObjectTo; n++)
+                {
+                    var op = new MapEntityOp { Kind = MapOpKind.Add, Name = "b" + n, Model = "TriggerBox_A" };
+                    op.Props.Add(new XProp("TriggerObjectID", n.ToString()));
+                    m.Ops.Add(op);
+                }
+                Assert.That(Assert.Throws<ModKitException>(() => ed.NextNumber(full, X, "TriggerObjectID")).Message, Does.Contain("every TriggerObjectID"));
+                m.Ops.RemoveAt(3);
+                Assert.That(ed.NextNumber(full, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom + 3), "the one free number");
+            }
+        }
+
+        [Test]
+        public void ANewEntityDoesNotMoveTheModsMapToAnotherId()
+        {
+            using (var f = new FakeMaps())
+            {
+                var ed = new MapEditor(f.Data, null);
+                const string X = "90000001_AB";
+                Mod mod = f.Mod("ids", "<map xblock=\"" + FakeMaps.MapA + "\" id=\"90000005\">" + "<add name=\"c\" model=\"Crate_A\" entity-name=\"C_1\" /></map>");
+                Assert.That(Assert.Throws<ModKitException>(() => ed.AddSpawn(mod, 90000001, X, "wolves", "SpawnPoint_A", null)).Message, Does.Contain("90000005"));
+                Assert.That(MapEditor.NewOps(mod, X).Count, Is.EqualTo(1), "nothing added");
+                Assert.That(mod.Maps.Single().MapId, Is.EqualTo(90000005));
+                ed.AddSpawn(mod, 90000005, X, "wolves", "SpawnPoint_A", null);
+                Assert.That(mod.Maps.Single().MapId, Is.EqualTo(90000005));
             }
         }
 
@@ -409,11 +529,11 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.RowsOfNew(box2).First(r => r.Name == "ShapeDimensions").Default, Is.EqualTo("100, 100, 100"), "the model's size when none is given");
 
                 // the number of an added entity is changed, never unset
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, box, "TriggerObjectID", null, null));
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, box, "TriggerObjectID", null, "x"));
-                Assert.Throws<ModKitException>(() => MapEditor.SetNew(mod, X, npc, "SpawnPointID", "0", "1"));
-                MapEditor.SetNew(mod, X, npc, "NpcList", "21000002", "1");
-                MapEditor.SetNew(mod, X, io, "interactID", null, "10000124");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, box, "TriggerObjectID", null, null));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, box, "TriggerObjectID", null, "x"));
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, npc, "SpawnPointID", "0", "1"));
+                ed.SetNew(mod, X, npc, "NpcList", "21000002", "1");
+                ed.SetNew(mod, X, io, "interactID", null, "10000124");
 
                 Plan p = f.Plan(mod);
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
@@ -434,10 +554,12 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.NextNumber(back, X, "TriggerObjectID"), Is.EqualTo(IdSpaces.TriggerObjectFrom + 2), "the numbers of loaded <add> ops count");
 
                 // the same TriggerObjectID twice in the map is an error; one outside the mod range a warning
-                MapEditor.SetNew(mod, X, box2, "TriggerObjectID", null, "170000");
+                Assert.Throws<ModKitException>(() => ed.SetNew(mod, X, box2, "TriggerObjectID", null, "170000"), "the view refuses a number in use");
+                // written by hand into mod.xml, Plan still catches it
+                box2.Props[box2.Props.FindIndex(x => x.Name == "TriggerObjectID")] = new XProp("TriggerObjectID", "170000");
                 p = f.Plan(mod);
                 Assert.That(p.Errors.Select(x => x.ToString()).Count(x => x.Contains("TriggerObjectID 170000 is already used in this map")), Is.EqualTo(3), Fake.Dump(p));
-                MapEditor.SetNew(mod, X, box2, "TriggerObjectID", null, "5");
+                ed.SetNew(mod, X, box2, "TriggerObjectID", null, "5");
                 p = f.Plan(mod);
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(p.Warnings.Select(x => x.ToString()).Count(x => x.Contains("TriggerObjectID 5 is outside the range kept for mods (170000-179999)")), Is.EqualTo(3), Fake.Dump(p));

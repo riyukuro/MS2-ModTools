@@ -1230,9 +1230,12 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   [Reserved numbers](#reserved-numbers)). The new entity is written as a `<spawn>` or `<portal>` and listed as
   `new`; choosing it lists the values it writes (the number, for a portal `TargetFieldSN` and `TargetPortalID`,
   the properties) and, for a spawn point, its server rows. Set and Unset edit them the same way as on a shipped
-  entity, but on the mod's own values: there is no shipped value and no `old`. The numbers can be set to another
-  one, not unset. **Remove entity** takes the new entity out of the mod again; Restore entity has nothing to undo
-  on it. Hand-written `<add>` entities of the mod are listed and edited the same way.
+  entity, but on the mod's own values: there is no shipped value and no `old`. A property the entity does not have
+  yet must be one of its model's (an index only on a list); a name with a comma is refused. The numbers can be set
+  to another one, not unset, and not to one a shipped entity or another edit of the mod already uses in the file.
+  **Remove entity** takes the new entity out of the mod again; Restore entity has nothing to undo on it.
+  Hand-written `<add>` entities of the mod are listed and edited the same way, with the same checks. A new
+  entity's row also shows when the filter text is in its id column (`new spawn point 140000`).
 - **Add other...** adds an NPC spawn point, an interact object or a trigger box, the most common `<add>` kinds of
   the played maps after spawn places and portals. The dialog asks for a name, a model (the map file's models of
   that kind, most used first; on a file without one, the listing's models named like one), a position and the
@@ -1242,8 +1245,9 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   [Reserved numbers](#reserved-numbers)). The model must have the kind's mixin. The entity is written as a plain
   `<add>`, listed as `new` and edited, removed and planned like the added spawn points and portals.
 - A spawn place spawns nothing without a server row. The property `(server row)` holds them: index 0 is the first
-  row, the value is the row's attributes as `key=value` pairs (`tag=wolf population=3 coolTime=20`); the map and
-  the number are filled in. Set at the index after the last row adds one, Unset drops one. After a spawn point is
+  row, the value is the row's attributes as `key=value` pairs (`tag=wolf population=3 coolTime=20`); a value with
+  spaces goes in double quotes (`note="two words"`), and the quotes are not part of it. A key must be an XML
+  attribute name. The map and the number are filled in. Set at the index after the last row adds one, Unset drops one. After a spawn point is
   added the view says so in the output.
 - **Plan**, **Apply** and **Save mod** are the Tables view's. Plan makes each edit on every target that ships the
   same entity and warns where one does not (see [Expected old values](#expected-old-values)); a target without

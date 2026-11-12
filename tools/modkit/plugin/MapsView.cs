@@ -207,6 +207,7 @@ namespace MS2.Tables
             {
                 Hook(null);
                 tips.Dispose();
+                marks.Dispose();
                 if (struck != null) struck.Dispose();
             }
             base.Dispose(disposing);
@@ -507,15 +508,16 @@ namespace MS2.Tables
                     foreach (MapEntityOp op in MapEditor.NewOps(mod, xblock))
                     {
                         added++;
-                        if (find.Length > 0 && !Has(op.Name, find) && !Has(op.Model, find)) continue;
+                        string kind = op.Kind == MapOpKind.Spawn ? "spawn point " : op.Kind == MapOpKind.Portal ? "portal " : "";
+                        string idText = op.Kind == MapOpKind.Add ? "(new)" : "(new " + kind + op.Number.ToString(CultureInfo.InvariantCulture) + ")";
+                        if (find.Length > 0 && !Has(op.Name, find) && !Has(op.Model, find) && !Has(idText, find) && !Has(op.NewId, find)) continue;
                         matched++;
                         shown++;
-                        string kind = op.Kind == MapOpKind.Spawn ? "spawn point " : op.Kind == MapOpKind.Portal ? "portal " : "";
                         var it = new ListViewItem(op.Name ?? "", MarkNew) { Tag = op };
                         it.SubItems.Add(op.Model ?? "");
                         it.SubItems.Add(MapEditor.Position(op));
                         it.SubItems.Add("new");
-                        it.SubItems.Add(op.Kind == MapOpKind.Add ? "(new)" : "(new " + kind + op.Number.ToString(CultureInfo.InvariantCulture) + ")");
+                        it.SubItems.Add(idText);
                         it.ForeColor = Color.SeaGreen;
                         it.ToolTipText = "the mod adds this " + (kind.Length > 0 ? kind.Trim() : "entity") + "; Remove entity takes it out";
                         entityList.Items.Add(it);
@@ -668,7 +670,7 @@ namespace MS2.Tables
             string name = propBox.Text.Trim(), index = indexBox.Text.Trim();
             if (name.Length == 0) throw new ModKitException("give the name of the property");
             string value = unset ? null : valueBox.Text;
-            if (newOp != null) MapEditor.SetNew(mod, xblock, newOp, name, index.Length == 0 ? null : index, value);
+            if (newOp != null) Editor().SetNew(mod, xblock, newOp, name, index.Length == 0 ? null : index, value);
             else MapEditor.Set(mod, xblock, entity, name, index.Length == 0 ? null : index, value, Editor().Model(entity.Model));
             Edited((unset ? "unset " : "set ") + name + (index.Length > 0 ? "[" + index + "]" : "") + (unset ? "" : " = " + value)
                 + " on " + (newOp != null ? newOp.Name + " (new)" : entity.Name ?? entity.Id) + " in " + xblock);
@@ -833,6 +835,7 @@ namespace MS2.Tables
             string what = portal ? "portal" : "spawn point";
             int k = 1;
             while (MapEditor.FindNew(mod, file, (portal ? "portal-" : "spawn-") + k) != null) k++;
+            using (var dlgTips = new ToolTip())
             using (var dlg = new Form { Text = "Add " + what + " to " + file, FormBorderStyle = FormBorderStyle.FixedDialog, MinimizeBox = false, MaximizeBox = false,
                 StartPosition = FormStartPosition.CenterParent, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, ShowInTaskbar = false })
             {
@@ -848,7 +851,7 @@ namespace MS2.Tables
                 {
                     grid.Controls.Add(new Label { Text = label, AutoSize = true, Margin = new Padding(3, 7, 8, 0) });
                     grid.Controls.Add(c);
-                    tips.SetToolTip(c, tip);
+                    dlgTips.SetToolTip(c, tip);
                 };
                 row("Name", nameBox, "The name of the op in the mod and of the new entity; its id comes from the mod id, the map file and this name");
                 row("Model", modelBox, models.Count > 0 ? "The " + what + " models the map file's entities use, most used first; when none does, the listing's models named like one (or type another of the model listing)"

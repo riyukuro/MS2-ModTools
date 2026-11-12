@@ -46,6 +46,8 @@ namespace MS2.ModKit
         readonly List<KeyValuePair<string, List<XEntity>>> maps = new List<KeyValuePair<string, List<XEntity>>>();
         Dictionary<string, M2dEntry> flats;
         readonly Dictionary<string, FlatModel> models = new Dictionary<string, FlatModel>(StringComparer.Ordinal);
+        // the listing models offered on a file without one (key: "prop|hint" or "mixin|hint"); the listing does not change
+        readonly Dictionary<string, List<string>> listed = new Dictionary<string, List<string>>(StringComparer.Ordinal);
 
         /// <summary>exported null: the first data root that has Resource/Exported.m2d (client, global client, server).</summary>
         public MapEditor(DataSet data, string exported)
@@ -386,6 +388,9 @@ namespace MS2.ModKit
             res.Sort(delegate (string a, string b) { int d = count[b].CompareTo(count[a]); return d != 0 ? d : string.CompareOrdinal(a, b); });
             if (res.Count > 0 || hint == null) return res;
             // no entity of the map file uses one: the models of the listing named like one (e.g. "portal") that have the property
+            List<string> known;
+            string key = "p:" + prop + "|" + hint;
+            if (listed.TryGetValue(key, out known)) return new List<string>(known);
             ListFlats();
             var names = new List<string>(flats.Keys);
             // names that start with the hint (Portal_...) before the others (Eff_portal_...)
@@ -402,6 +407,7 @@ namespace MS2.ModKit
                 if (fm != null && fm.Prop(prop) != null) res.Add(fm.Name);
                 if (res.Count >= 40) break;
             }
+            listed[key] = new List<string>(res);
             return res;
         }
 
@@ -426,18 +432,44 @@ namespace MS2.ModKit
         {
             long from, to;
             IdSpaces.MapNumberRange(prop, out from, out to);
-            var used = new HashSet<long>();
-            List<XEntity> l = Shipped(xblock);
-            if (l != null) foreach (XEntity e in l) used.Add(Scalar(e, prop));
-            foreach (MapEntityOp op in NewOps(mod, xblock))
-            {
-                if (Array.IndexOf(Own(op), prop) >= 0) used.Add(OwnValue(op, prop));
-                long v;
-                XProp p = op.Props.Find(delegate (XProp x) { return x.Name == prop; });
-                if (p != null && p.Scalar && long.TryParse(p.Items[0].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out v)) used.Add(v);
-            }
+            HashSet<long> used = UsedNumbers(mod, xblock, prop, null);
             for (long n = from; n <= to; n++) if (!used.Contains(n)) return n;
             throw new ModKitException("every " + prop + " of the mod range (" + from + "-" + to + ") is used in " + xblock);
+        }
+
+        /// <summary>
+        /// The numbers (PortalID, SpawnPointID, TriggerObjectID) the map file has or the mod gives: shipped entities, the
+        /// mod's new entities (a spawn's or portal's own number, the property of an &lt;add&gt;, hand-written ones too) and
+        /// the sets of its &lt;change&gt; ops; the op <paramref name="except"/> is left out.
+        /// </summary>
+        HashSet<long> UsedNumbers(Mod mod, string xblock, string prop, MapEntityOp except)
+        {
+            var used = new HashSet<long>();
+            List<XEntity> l = Shipped(xblock);
+            if (l != null) foreach (XEntity e in l) { long v = Scalar(e, prop); if (v >= 0) used.Add(v); }
+            MapOp m = mod == null ? null : MapOf(mod, xblock);
+            if (m == null) return used;
+            foreach (MapEntityOp op in m.Ops)
+            {
+                if (op == except) continue;
+                long v;
+                if (IsNew(op))
+                {
+                    if (Array.IndexOf(Own(op), prop) >= 0) used.Add(OwnValue(op, prop));
+                    XProp p = op.Props.Find(delegate (XProp x) { return x.Name == prop; });
+                    if (p != null && p.Scalar && long.TryParse(p.Items[0].Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out v)) used.Add(v);
+                }
+                else if (op.Kind == MapOpKind.Change)
+                    foreach (MapSet set in op.Sets)
+                        if (set.Name == prop && set.Index == null && long.TryParse(set.Value, NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out v)) used.Add(v);
+            }
+            return used;
+        }
+
+        void RefuseUsed(Mod mod, string xblock, MapEntityOp op, string prop, long n)
+        {
+            if (UsedNumbers(mod, xblock, prop, op).Contains(n))
+                throw new ModKitException(prop + " " + n.ToString(CultureInfo.InvariantCulture) + " is already used in " + xblock + " (by a shipped entity or another edit of the mod); pick a free one");
         }
 
         // ---- the other kinds of new entities: plain <add> ops ----
@@ -514,6 +546,9 @@ namespace MS2.ModKit
             var res = new List<string>(count.Keys);
             res.Sort(delegate (string a, string b) { int d = count[b].CompareTo(count[a]); return d != 0 ? d : string.CompareOrdinal(a, b); });
             if (res.Count > 0) return res;
+            List<string> known;
+            string key = "m:" + kind.Mixin + "|" + kind.Hint;
+            if (listed.TryGetValue(key, out known)) return new List<string>(known);
             ListFlats();
             var names = new List<string>(flats.Keys);
             names.Sort(delegate (string a, string b)
@@ -529,6 +564,7 @@ namespace MS2.ModKit
                 res.Add(pm.Name);
                 if (res.Count >= 40) break;
             }
+            listed[key] = new List<string>(res);
             return res;
         }
 
@@ -628,8 +664,13 @@ namespace MS2.ModKit
             var op = new MapEntityOp { Kind = kind, Name = name, Model = model, EntityName = name };
             if (!string.IsNullOrEmpty(position)) op.Props.Add(new XProp("Position", position.Trim()));
             MapOp m = MapOf(mod, xblock);
+            // the server rows of a spawn need the map id; a <map> that names one (or has spawns already) keeps it
+            if (m != null && mapId > 0 && m.EffectiveMapId >= 0 && m.EffectiveMapId != mapId
+                && (m.MapId >= 0 || m.Ops.Exists(delegate (MapEntityOp x) { return x.Kind == MapOpKind.Spawn; })))
+                throw new ModKitException("the mod's <map> of " + xblock + " is for map " + m.EffectiveMapId.ToString(CultureInfo.InvariantCulture) + ", not " + mapId.ToString(CultureInfo.InvariantCulture)
+                    + "; open the file through map " + m.EffectiveMapId.ToString(CultureInfo.InvariantCulture) + " (or change id= of the <map> in mod.xml)");
             if (m == null) mod.Maps.Add(m = new MapOp { XBlock = Key(xblock) });
-            if (mapId > 0 && m.EffectiveMapId != mapId) m.MapId = mapId;   // the server rows of a spawn need the map id
+            if (mapId > 0 && m.EffectiveMapId != mapId) m.MapId = mapId;
             return op;
         }
 
@@ -660,21 +701,51 @@ namespace MS2.ModKit
         static string RowText(List<KeyValuePair<string, string>> row)
         {
             var sb = new StringBuilder();
-            foreach (KeyValuePair<string, string> kv in row) sb.Append(sb.Length > 0 ? " " : "").Append(kv.Key).Append('=').Append(kv.Value);
+            foreach (KeyValuePair<string, string> kv in row)
+            {
+                bool quote = kv.Value.Length == 0 || kv.Value.IndexOf(' ') >= 0 || kv.Value.IndexOf('\t') >= 0;
+                sb.Append(sb.Length > 0 ? " " : "").Append(kv.Key).Append('=').Append(quote ? "\"" + kv.Value + "\"" : kv.Value);
+            }
             return sb.ToString();
         }
 
+        /// <summary>
+        /// A server row typed as key=value pairs split by spaces; a value with spaces goes in double quotes (tag="a b"), and
+        /// the quotes of a quoted value are not part of it. A key must be an XML attribute name: it is written as one.
+        /// </summary>
         static List<KeyValuePair<string, string>> ParseRow(string s)
         {
+            const string form = "a server row is key=value pairs split by spaces (as tag=wolf population=3 coolTime=20; a value with spaces in double quotes)";
             var row = new List<KeyValuePair<string, string>>();
-            foreach (string part in s.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries))
+            int i = 0;
+            while (true)
             {
-                int eq = part.IndexOf('=');
-                if (eq <= 0) throw new ModKitException("a server row is key=value pairs split by spaces (as tag=... population=... coolTime=...); \"" + part + "\" is not one");
-                string k = part.Substring(0, eq);
+                while (i < s.Length && (s[i] == ' ' || s[i] == '\t')) i++;
+                if (i >= s.Length) break;
+                int start = i;
+                while (i < s.Length && s[i] != '=' && s[i] != ' ' && s[i] != '\t') i++;
+                if (i >= s.Length || s[i] != '=' || i == start) throw new ModKitException(form + "; \"" + s.Substring(start, i - start) + "\" is not one");
+                string k = s.Substring(start, i - start), v;
+                i++;
+                if (i < s.Length && s[i] == '"')
+                {
+                    int end = s.IndexOf('"', i + 1);
+                    if (end < 0) throw new ModKitException("the value of " + k + " has no closing double quote");
+                    v = s.Substring(i + 1, end - i - 1);
+                    i = end + 1;
+                    if (i < s.Length && s[i] != ' ' && s[i] != '\t') throw new ModKitException("put a space after the closing double quote of the value of " + k);
+                }
+                else
+                {
+                    int vs = i;
+                    while (i < s.Length && s[i] != ' ' && s[i] != '\t') i++;
+                    v = s.Substring(vs, i - vs);
+                    if (v.IndexOf('"') >= 0) throw new ModKitException("a double quote only goes around a whole value (" + k + "=\"...\"), not \"" + v + "\"");
+                }
+                if (!TableDraft.IsAttrName(k)) throw new ModKitException("\"" + k + "\" is not an XML attribute name (letters, digits, _ - . :, not first a digit); a server row key is written as one");
                 if (k == "mapCode" || k == "spawnPointID") throw new ModKitException("a server row does not take " + k + "; the tool writes it from the map and the SpawnPointID");
                 if (row.Exists(delegate (KeyValuePair<string, string> x) { return x.Key == k; })) throw new ModKitException("the server row gives " + k + " twice");
-                row.Add(new KeyValuePair<string, string>(k, part.Substring(eq + 1)));
+                row.Add(new KeyValuePair<string, string>(k, v));
             }
             if (row.Count == 0) throw new ModKitException("give the server row as key=value pairs, or Unset it to drop it");
             return row;
@@ -711,18 +782,29 @@ namespace MS2.ModKit
         /// <summary>
         /// Sets one property item of a new entity (value null: takes it out). The numbers of a spawn or portal are set,
         /// never unset; "(server row)" index k sets or drops a server row of a spawn point (k = the count adds one).
+        /// A per-map number already used in the file is refused. A property the entity does not have yet is checked
+        /// against its model as Set does (the name, and an index only on a list); one it has can always be changed or
+        /// taken out, so a hand-written one is never stuck.
         /// </summary>
-        public static void SetNew(Mod mod, string xblock, MapEntityOp op, string name, string index, string value)
+        public void SetNew(Mod mod, string xblock, MapEntityOp op, string name, string index, string value)
         {
             if (op == null || !IsNew(op) || !NewOps(mod, xblock).Contains(op)) throw new ModKitException("the mod does not add that entity to " + xblock);
             if (string.IsNullOrEmpty(name)) throw new ModKitException("give the name of the property");
             if (name.Trim() != name) throw new ModKitException("the property name \"" + name + "\" has spaces at an end");
+            if (name.IndexOf(',') >= 0) throw new ModKitException("a property name has no comma: \"" + name + "\"");
+            if (index != null && index.Trim().Length == 0) throw new ModKitException("the index is empty; leave it out for a plain value");
             if (Array.IndexOf(Own(op), name) >= 0)
             {
                 if (index != null) throw new ModKitException("the property " + name + " is a plain value; leave the index out");
                 if (value == null) throw new ModKitException("the " + (op.Kind == MapOpKind.Spawn ? "spawn point" : "portal") + " writes " + name + " itself; set another number, it cannot be unset");
                 long n = Number(name, value);
-                if (name == "TargetFieldSN") op.ToMap = n; else if (name == "TargetPortalID") op.ToPortal = n; else op.Number = n;
+                if (name == "TargetFieldSN") op.ToMap = n;
+                else if (name == "TargetPortalID") op.ToPortal = n;
+                else
+                {
+                    if (n != op.Number) RefuseUsed(mod, xblock, op, name, n);
+                    op.Number = n;
+                }
                 return;
             }
             if (name == ServerRow)
@@ -742,7 +824,22 @@ namespace MS2.ModKit
                 // the per-map number of an added NPC spawn, trigger box, ...: another number, never none
                 if (index != null) throw new ModKitException("the property " + name + " is a plain value; leave the index out");
                 if (value == null) throw new ModKitException("the new entity needs its " + name + "; set another number, it cannot be unset");
-                value = D(Number(name, value));
+                long n = Number(name, value);
+                RefuseUsed(mod, xblock, op, name, n);
+                value = D(n);
+            }
+            if (p == null && value != null)
+            {
+                // a property the entity does not have yet: the model must have it, with an index only on a list
+                FlatModel model = Model(op.Model);
+                if (model != null)
+                {
+                    FlatProp fp = model.Prop(name);
+                    if (fp == null) throw new ModKitException("the model " + model.Name + " has no property " + name);
+                    bool list = fp.Type != null && fp.Type.StartsWith("Assoc", StringComparison.Ordinal);
+                    if (list != (index != null))
+                        throw new ModKitException("the property " + name + " is " + (list ? "a list (" + fp.Type + "); give an index" : "a plain value (" + fp.Type + "); leave the index out"));
+                }
             }
             if (p != null && p.Items.Count > 0 && (index == null) != (p.Items[0].Index == null))
                 throw new ModKitException("the property " + name + " is " + (index == null ? "a list; give an index" : "a plain value; leave the index out"));
