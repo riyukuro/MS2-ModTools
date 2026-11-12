@@ -532,6 +532,7 @@ namespace MS2.ModKit
             ItemOptionChecks(run);
             ItemSetChecks(run);
             DungeonChecks(run);
+            SpawnChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 

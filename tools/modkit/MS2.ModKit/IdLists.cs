@@ -48,6 +48,12 @@ namespace MS2.ModKit
             return new TableIdList(IdLookup.Map, data, mod, new[] { "fielddata.xml" }, "fieldData", "id", "map/", "mapname.xml");
         }
 
+        /// <summary>The NPC names only (Names); the NPCs themselves are files of their own, see NpcEditor.</summary>
+        public static TableIdList NpcNames(DataSet data, Mod mod)
+        {
+            return new TableIdList(IdLookup.Npc, data, mod, new string[0], "npc", "id", null, "npcname.xml");
+        }
+
         public static TableIdList InteractObjects(DataSet data, Mod mod)
         {
             return new TableIdList(IdLookup.InteractObject, data, mod, new[] { "interactobject.xml", "interactobject_mastery.xml" }, "interact", "id", null, "interactname.xml");

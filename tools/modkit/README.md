@@ -977,6 +977,32 @@ Limits: the missions (`table/dungeonmission.xml`), round groups and reward table
 MS2 Tables view. The room does not place the portal or the entry in the dungeon window's lists beyond its own
 fields; a map needs its own triggers and spawns. Removing a shipped room leaves its name rows.
 
+## Spawns
+
+The **MS2 Spawns** view (menu **MS2 Mods > Spawns**) edits what appears at the spawn points of a map. The Maps view
+places a spawn point; which monsters come out of it, how many and how often is a row of `table/mapspawntag.xml`,
+keyed by the map and the point's number. The view lists the maps that have rows, finds them by id, name or tag, and
+shows the rows of one map as a grid.
+
+1. **Find** a map (a part of its id, of its name, or of a tag), or leave the box empty for every map with rows. The
+   maps the mod changes come first.
+2. Edit a cell: `tag` (the monsters whose NPC data carries one of these tags; a comma separates tags), `population`
+   (how many at a time), `coolTime` (seconds until a defeated one is back), `difficulty` and `difficultyMin`, and the
+   pet fields. The map and the point's number are fixed; clone the row to move it. An edit is written to every copy
+   of the table that has the row (the server's and the Korean client's; the global client's when the data has no
+   server). A changed cell is bold, and the `copies` column says where a row is missing or differs.
+3. **Add** makes a row for the point number in the box, on this map or on the map whose id is in the map box (for a
+   map that has no rows yet). **Clone** copies the selected row to another point. **Remove / restore** deletes a
+   row on every copy or brings a shipped one back; **Undo changes** makes a shipped row as shipped.
+4. **Read NPC tags** reads the tags of every NPC once (it takes a while). After it the `spawns` column names the
+   NPCs of each tag, and the checks say when no NPC has the tag a changed row uses.
+5. **Save mod**, then **Plan**. The plan checks every row the mods add or change, per target: a key that is in the
+   final table more than once, a field that is not a whole number, a row with a population but no tag, a `difficultyMin` above `difficulty`, and a new
+   row for a map the target does not have.
+
+A row is only half of a spawn: the map needs a spawn point with the same number (add it in the Maps view), and the
+server must ingest again before it uses the row.
+
 ## Quests
 
 The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,
