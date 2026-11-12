@@ -256,15 +256,13 @@ namespace MS2.ModKit
         EditOp Edit(bool create)
         {
             List<EditOp> list = Edits();
-            if (list.Count > 0)
-            {
-                // a line the editor writes into an <edit> of the mod: that edit is now for this side only too
-                if (create && NoMirror) foreach (EditOp e in list) e.Mirror = false;
-                return list[0];
-            }
-            if (!create) return null;
+            if (!create) return list.Count > 0 ? list[0] : null;
+            // a new line of a NoMirror draft goes into an <edit mirror="false">: one the mod has, else a new one after
+            // the entry's other edits. An <edit> written to be mirrored stays as it is (its lines are the author's)
+            foreach (EditOp e in list) if (e.Mirror == !NoMirror || !NoMirror) return e;
             var ed = new EditOp { Archive = Archive, Entry = Entry, Mirror = !NoMirror };
-            Mod.Ops.Add(ed);
+            int at = list.Count == 0 ? Mod.Ops.Count : Mod.Ops.IndexOf(list[list.Count - 1]) + 1;
+            Mod.Ops.Insert(at, ed);
             return ed;
         }
 

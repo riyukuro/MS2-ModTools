@@ -38,9 +38,28 @@ namespace MS2.ModKit.Tests
             "\t<option code=\"800000500\" grade=\"4\" optionNumPick=\"1,1\" str_value_base=\"4,6\" />\n" +
             "</ms2>\n";
 
-        static string ItemFile(long id, string constant, string stat)
+        // kms random: 800000700 picks 2 of 2 lines (1 at grade 2, none at grade 1), pen with weight 3; 800000800 is in
+        // the kms table only and its statID has no variation row
+        public const string KmsRandom = Head + "<ms2>\n" +
+            "\t<option code=\"800000700\" statGroup=\"3\" levelGroupID=\"1\" pickCount=\"2\" isRarePickOne=\"1\">\n" +
+            "\t\t<v name=\"str\" statID=\"8001\" />\n\t\t<v name=\"pen\" statID=\"8002\" weight=\"3\" />\n\t</option>\n" +
+            "\t<option code=\"800000800\" statGroup=\"3\" levelGroupID=\"1\" pickCount=\"1\">\n\t\t<v name=\"dex\" statID=\"8009\" />\n\t</option>\n" +
+            "</ms2>\n";
+
+        public const string KmsVariation = Head + "<ms2>\n" +
+            "\t<option id=\"8001\" groupType=\"1\" name=\"str\" levelGroupID=\"1\" highStat=\"5\">\n\t\t<v stat=\"3\" />\n\t\t<v stat=\"4\" />\n\t\t<v stat=\"5\" />\n\t</option>\n" +
+            "\t<option id=\"8002\" groupType=\"1\" name=\"pen\" levelGroupID=\"1\" highStat=\"7\">\n\t\t<v stat=\"7\" />\n\t</option>\n" +
+            "</ms2>\n";
+
+        public const string Random = Head + "<ms2>\n" +
+            "\t<option code=\"800000700\" grade=\"1\" optionNumPick=\"0,0\" str_value_base=\"3,5\" pen_rate_base=\"0.01,0.02\" />\n" +
+            "\t<option code=\"800000700\" grade=\"2\" optionNumPick=\"1,1\" str_value_base=\"3,5\" pen_rate_base=\"0.01,0.02\" />\n" +
+            "\t<option code=\"800000700\" grade=\"3\" optionNumPick=\"2,2\" str_value_base=\"3,5\" pen_rate_base=\"0.01,0.02\" />\n" +
+            "</ms2>\n";
+
+        static string ItemFile(long id, string constant, string stat, string random = "0")
         {
-            return Head + "<ms2>\n\t<environment>\n\t\t<basic itemID=\"" + id + "\" />\n\t\t<option constant=\"" + constant + "\" static=\"" + stat + "\" random=\"0\" />\n\t</environment>\n</ms2>\n";
+            return Head + "<ms2>\n\t<environment>\n\t\t<basic itemID=\"" + id + "\" />\n\t\t<option constant=\"" + constant + "\" static=\"" + stat + "\" random=\"" + random + "\" />\n\t</environment>\n</ms2>\n";
         }
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
@@ -69,7 +88,7 @@ namespace MS2.ModKit.Tests
             string k = Path.Combine(Dir, "kms"), s = Path.Combine(Dir, "server");
             foreach (string d in new[] { k, s }) Directory.CreateDirectory(d);
             string rows = Head + "<ms2>\n" +
-                "\t<item id=\"99100001\">\n\t\t<option constantID=\"800000100\" optionLevel=\"1\" />\n\t</item>\n" +
+                "\t<item id=\"99100001\">\n\t\t<option constantID=\"800000100\" randomID=\"800000700\" optionLevel=\"1\" />\n\t</item>\n" +
                 "\t<item id=\"99100002\">\n\t\t<option constantID=\"800000100\" optionLevel=\"1\" />\n\t</item>\n" +
                 "\t<item id=\"99100003\">\n\t\t<option constantID=\"800000200\" optionLevel=\"1\" />\n\t</item>\n" +
                 // two options, the first naming no code: the pointer check goes option by option
@@ -77,14 +96,15 @@ namespace MS2.ModKit.Tests
                 "</ms2>\n";
             M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                E(ItemOptionRules.KmsEntry, Kms), E("itemdata/991.xml", rows),
+                E(ItemOptionRules.KmsEntry, Kms), E(ItemOptionRules.KmsRandomEntry, KmsRandom), E(ItemOptionRules.KmsVariationEntry, KmsVariation), E("itemdata/991.xml", rows),
             });
             M2dWriter.Create(Path.Combine(s, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
                 E(ItemOptionRules.ConstantPrefix + "equip.xml", Constant),
                 twoFiles ? E(ItemOptionRules.StaticPrefix + "55.xml", Static55) : E("table/none.xml", Head + "<ms2 />\n"),
                 E(ItemOptionRules.StaticPrefix + "12.xml", Static),
-                E("item/9/91/99100001.xml", ItemFile(99100001, "800000100", "800000500")),
+                E(ItemOptionRules.RandomPrefix + "12.xml", Random),
+                E("item/9/91/99100001.xml", ItemFile(99100001, "800000100", "800000500", "800000700")),
                 E("item/9/91/99100002.xml", ItemFile(99100002, "800000100", "0")),
                 E("item/9/91/99100003.xml", ItemFile(99100003, "800000200", "0")),
             });
@@ -510,15 +530,20 @@ namespace MS2.ModKit.Tests
                 // a hand line on the global client is mirrored to the server, as any line
                 Assert.That(Line(Fake.Text(PlanOf(f, m), S, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"6\""));
 
-                // an edit on the global client stays there: the editor marks the mod's edit there mirror="false"
+                // an edit on the global client stays there: the editor writes it into an <edit mirror="false"> of its
+                // own; the hand line keeps its edit and is mirrored as before
                 ed.Set(gms, 800000100, 1, "mar_value_base", "7");
                 Plan p = PlanOf(f, m);
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(Line(Fake.Text(p, G, CFile), "800000100", "1"), Does.Contain("mar_value_base=\"7\""));
                 Assert.That(Line(Fake.Text(p, G, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"6\""));
-                Assert.That(Fake.Text(p, S, CFile), Is.Null, "the server stays as shipped");
-                Assert.That(m.ToXml(), Does.Contain("mirror=\"false\""));
-                Assert.That(Mod.Parse(m.ToXml(), "mod.xml").Ops.OfType<EditOp>().All(x => !x.Mirror), Is.True, "mirror=\"false\" loads back");
+                Assert.That(Line(Fake.Text(p, S, CFile), "800000100", "1"), Does.Contain("mar_value_base=\"4\""), "the editor's line is not mirrored");
+                Assert.That(Line(Fake.Text(p, S, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"6\""), "the hand line still is");
+                Assert.That(Mod.Parse(m.ToXml(), "mod.xml").Ops.OfType<EditOp>().Select(x => x.Mirror), Is.EqualTo(new[] { true, false }), "mirror=\"false\" loads back");
+                // a second edit goes into the same <edit mirror="false">
+                ed.Set(gms, 800000100, 3, "mar_value_base", "9");
+                Assert.That(m.Ops.OfType<EditOp>().Count(), Is.EqualTo(2));
+                ed.Set(gms, 800000100, 3, "mar_value_base", "8");
 
                 // a fork copies the rows on every flat side that has the code
                 long code = ed.NextCodes(1)[0];

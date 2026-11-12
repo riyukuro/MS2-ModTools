@@ -407,6 +407,36 @@ namespace MS2.ModKit
         }
     }
 
+    /// <summary>A &lt;v&gt; line of a kms random row: a stat the client may pick.</summary>
+    public sealed class KmsRandomLine
+    {
+        public string Name = "", StatId = "", Weight = "";
+        /// <summary>The range the client rolls (the statID's row of the variation table); HasRange false when it has no row.</summary>
+        public string First = "", Last = "";
+        public bool HasRange;
+        public string RangeText { get { return !HasRange ? "" : First == Last ? First : First + ".." + Last; } }
+    }
+
+    /// <summary>A kms random row as the editor shows it.</summary>
+    public sealed class KmsRandomRow
+    {
+        public long Code;
+        /// <summary>The row's attributes but code, in file order (pickCount, isRarePickOne, statGroup, levelGroupID, copyID ...).</summary>
+        public readonly List<KeyValuePair<string, string>> Attrs = new List<KeyValuePair<string, string>>();
+        public readonly List<KmsRandomLine> Lines = new List<KmsRandomLine>();
+        /// <summary>True when the mod changed or added the row.</summary>
+        public bool Edited;
+
+        public string Attr(string name)
+        {
+            foreach (KeyValuePair<string, string> a in Attrs) if (a.Key == name) return a.Value;
+            return "";
+        }
+
+        /// <summary>The lines an item of a grade gets (GetPickCount).</summary>
+        public int PickCount(int grade) { return ItemOptionRules.KmsPickCount(Attr("pickCount"), Attr("isRarePickOne"), grade); }
+    }
+
     public sealed class ItemOptionEditor
     {
         public readonly DataSet Data;
@@ -417,6 +447,8 @@ namespace MS2.ModKit
         public readonly List<string> FlatArchives = new List<string>();
         /// <summary>The kms client's archive with the option table; null when the data set has none.</summary>
         public readonly string KmsArchive;
+        /// <summary>True when the kms archive has the constant table, and the random table.</summary>
+        public readonly bool KmsConstant, KmsRandom;
 
         readonly Dictionary<string, TableDraft> drafts = new Dictionary<string, TableDraft>(StringComparer.OrdinalIgnoreCase);
         // code -> rows of one flat draft (built at first use, dropped at each write)
@@ -433,7 +465,12 @@ namespace MS2.ModKit
             {
                 string a = Profile.KmsClient.ArchiveIn("x:Xml.m2d");
                 M2dArchive arch = TryOpen(a);
-                if (arch != null && arch.Find(ItemOptionRules.KmsEntry) != null) KmsArchive = a;
+                if (arch != null)
+                {
+                    KmsConstant = arch.Find(ItemOptionRules.KmsEntry) != null;
+                    KmsRandom = arch.Find(ItemOptionRules.KmsRandomEntry) != null;
+                    if (KmsConstant || KmsRandom) KmsArchive = a;
+                }
             }
             foreach (Profile p in new[] { Profile.Server, Profile.GmsClient })
             {
@@ -476,11 +513,11 @@ namespace MS2.ModKit
             }
         }
 
-        /// <summary>The sides of a kind: the kms table (constant only), then the flat archives.</summary>
+        /// <summary>The sides of a kind: the kms table (constant and random; kms has no static), then the flat archives.</summary>
         public List<OptionSide> Sides(OptionKind kind)
         {
             var l = new List<OptionSide>();
-            if (kind == OptionKind.Constant && KmsArchive != null) l.Add(new OptionSide { Archive = KmsArchive, Kms = true, Kind = kind, Title = "kms client" });
+            if (kind == OptionKind.Constant ? KmsConstant : kind == OptionKind.Random && KmsRandom) l.Add(new OptionSide { Archive = KmsArchive, Kms = true, Kind = kind, Title = "kms client" });
             foreach (string a in FlatArchives) l.Add(new OptionSide { Archive = a, Kind = kind, Title = TitleOf(a) });
             return l;
         }
@@ -493,7 +530,8 @@ namespace MS2.ModKit
             internal readonly Dictionary<string, Dictionary<long, List<string>>> Codes = new Dictionary<string, Dictionary<long, List<string>>>();
             // side key -> code -> grades with a row (kms: rank grades, 0 for a rank without one)
             internal readonly Dictionary<string, Dictionary<long, SortedDictionary<int, bool>>> Grades = new Dictionary<string, Dictionary<long, SortedDictionary<int, bool>>>();
-            // side key -> stat names the side's files use (flat: attribute names; kms: X_value_base for <v name=X>)
+            // side key -> stat names the side's files use (flat: attribute names; kms constant: X_value_base for
+            // <v name=X>; kms random: the <v name> itself, one name stands for X_value_base and X_rate_base)
             internal readonly Dictionary<string, SortedDictionary<string, bool>> Stats = new Dictionary<string, SortedDictionary<string, bool>>();
             // side key -> code -> items naming it as shipped
             internal readonly Dictionary<string, Dictionary<long, List<long>>> Items = new Dictionary<string, Dictionary<long, List<long>>>();
@@ -516,7 +554,7 @@ namespace MS2.ModKit
             object o;
             if (Data.Cache.TryGetValue(key, out o)) return index = (ShippedIndex)o;
             var ix = new ShippedIndex();
-            if (KmsArchive != null)
+            if (KmsConstant)
             {
                 string side = KmsArchive + "\nconstant";
                 M2dArchive a = Data.Open(KmsArchive);
@@ -538,6 +576,23 @@ namespace MS2.ModKit
                         foreach (XmlElem v in r.Children) if (v.Name == "v" && v.Attr("name") != null) stats[ItemOptionRules.FlatName(v.Attr("name"))] = true;
                     }
                 }
+            }
+            if (KmsRandom)
+            {
+                // no grades: a row serves every grade
+                string side = KmsArchive + "\nrandom";
+                M2dArchive a = Data.Open(KmsArchive);
+                XmlDoc d = XmlDoc.Parse(a.Read(a.Find(ItemOptionRules.KmsRandomEntry)), KmsArchive + " " + ItemOptionRules.KmsRandomEntry);
+                Dictionary<long, List<string>> codes = Get(ix.Codes, side);
+                SortedDictionary<string, bool> stats = Get(ix.Stats, side);
+                if (d.Root != null)
+                    foreach (XmlElem row in d.Root.Children)
+                    {
+                        long code;
+                        if (row.Name != "option" || !TryCode(row.Attr("code"), out code)) continue;
+                        Get(codes, code).Add(ItemOptionRules.KmsRandomEntry);
+                        foreach (XmlElem v in row.Children) if (v.Name == "v" && v.Attr("name") != null) stats[v.Attr("name")] = true;
+                    }
             }
             foreach (string archive in FlatArchives)
             {
@@ -566,20 +621,25 @@ namespace MS2.ModKit
                     }
                 }
             }
-            // the items: kms constantID, flat constant and static
+            // the items: kms constantID and randomID, flat constant, static and random
             var items = new ItemEditor(Data, new Mod { Id = "itemoptions-scan" });
             Action<long, XmlElem> visit = delegate(long id, XmlElem root)
             {
                 bool bundle = root.Name == "item";
                 foreach (XmlElem opt in Options(root))
                 {
-                    if (bundle) { if (KmsArchive != null) Name(ix, KmsArchive + "\nconstant", opt.Attr("constantID"), id); }
+                    if (bundle)
+                    {
+                        if (KmsConstant) Name(ix, KmsArchive + "\nconstant", opt.Attr("constantID"), id);
+                        if (KmsRandom) Name(ix, KmsArchive + "\nrandom", opt.Attr("randomID"), id);
+                    }
                     else if (items.FileXml != null && FlatArchives.Contains(items.FileXml))
                     {
                         // the per-id item files are read from one archive (the server's): its pointers count for that
                         // archive's option files only, not for another flat side's
                         Name(ix, items.FileXml + "\nconstant", opt.Attr("constant"), id);
                         Name(ix, items.FileXml + "\nstatic", opt.Attr("static"), id);
+                        Name(ix, items.FileXml + "\nrandom", opt.Attr("random"), id);
                     }
                 }
             };
@@ -616,13 +676,13 @@ namespace MS2.ModKit
         /// <summary>The files skipped while the shipped data was read (a parse error), for the view to say.</summary>
         public List<string> Skipped { get { return Index().Skipped; } }
 
-        /// <summary>The stat names a side's shipped files use (flat attribute names; kms as X_value_base), sorted.</summary>
+        /// <summary>The stat names a side's shipped files use (flat attribute names; kms constant as X_value_base; kms random the &lt;v name&gt;), sorted.</summary>
         public List<string> StatNames(OptionSide side)
         {
             SortedDictionary<string, bool> s;
             var l = new List<string>();
             if (Index().Stats.TryGetValue(side.Key, out s)) l.AddRange(s.Keys);
-            if (!side.Kms && !l.Contains(ItemOptionRules.Pick) && side.Kind == OptionKind.Static) l.Add(ItemOptionRules.Pick);
+            if (!side.Kms && !l.Contains(ItemOptionRules.Pick) && side.Kind != OptionKind.Constant) l.Add(ItemOptionRules.Pick);
             return l;
         }
 
@@ -644,7 +704,11 @@ namespace MS2.ModKit
         /// <summary>True when the server and the global client are both sides: their edits carry mirror="false".</summary>
         public bool SidesApart { get { return FlatArchives.Count > 1; } }
 
-        TableDraft KmsDraft { get { return KmsArchive == null ? null : Draft(KmsArchive, ItemOptionRules.KmsEntry); } }
+        TableDraft KmsDraft(OptionKind kind)
+        {
+            if (kind == OptionKind.Constant ? !KmsConstant : kind != OptionKind.Random || !KmsRandom) return null;
+            return Draft(KmsArchive, ItemOptionRules.KmsEntryOf(kind));
+        }
 
         Dictionary<string, List<TableRow>> RowsByCode(TableDraft d)
         {
@@ -692,7 +756,7 @@ namespace MS2.ModKit
                 if (ed == null || !string.Equals(ed.Archive, side.Archive, StringComparison.OrdinalIgnoreCase)) continue;
                 OptionKind k;
                 string entry = ed.Entry.Replace('\\', '/');
-                if (side.Kms ? string.Equals(entry, ItemOptionRules.KmsEntry, StringComparison.OrdinalIgnoreCase)
+                if (side.Kms ? string.Equals(entry, ItemOptionRules.KmsEntryOf(side.Kind), StringComparison.OrdinalIgnoreCase)
                     : ItemOptionRules.IsFlatEntry(entry, out k) && k == side.Kind)
                 {
                     M2dEntry me = Data.Open(side.Archive).Find(entry);
@@ -704,10 +768,10 @@ namespace MS2.ModKit
         }
 
         // the kms rows of a code: the shipped one (maybe deleted) and the mod's replacement
-        void KmsRows(long code, out TableRow shipped, out TableRow added)
+        void KmsRows(OptionKind kind, long code, out TableRow shipped, out TableRow added)
         {
             shipped = added = null;
-            TableDraft d = KmsDraft;
+            TableDraft d = KmsDraft(kind);
             if (d == null) return;
             List<TableRow> rows;
             if (!RowsByCode(d).TryGetValue(CodeText(code), out rows)) return;
@@ -745,19 +809,19 @@ namespace MS2.ModKit
         }
 
         /// <summary>The kms row of a code as the mod leaves it; null when the side has none.</summary>
-        OptNode KmsNow(long code)
+        OptNode KmsNow(OptionKind kind, long code)
         {
             TableRow shipped, added;
-            KmsRows(code, out shipped, out added);
+            KmsRows(kind, code, out shipped, out added);
             if (added != null) return KmsNode(added);
             if (shipped != null && !shipped.IsDeleted) return KmsNode(shipped);
             return null;
         }
 
-        OptNode KmsShipped(long code)
+        OptNode KmsShipped(OptionKind kind, long code)
         {
             TableRow shipped, added;
-            KmsRows(code, out shipped, out added);
+            KmsRows(kind, code, out shipped, out added);
             return shipped == null ? null : OptNode.Of(shipped.Original);
         }
 
@@ -766,7 +830,7 @@ namespace MS2.ModKit
         /// <summary>True when a side has the code (shipped or added by the mod).</summary>
         public bool Has(OptionSide side, long code)
         {
-            if (side.Kms) return KmsNow(code) != null;
+            if (side.Kms) return KmsNow(side.Kind, code) != null;
             return EntriesOf(side, code).Count > 0;
         }
 
@@ -795,11 +859,24 @@ namespace MS2.ModKit
         public OptionCell Cell(OptionSide side, long code, int grade, string stat)
         {
             var c = new OptionCell();
+            if (side.Kms && side.Kind == OptionKind.Random)
+            {
+                // no grades: the row's pick count at the grade, and a line's range; both are edited in the random detail
+                OptNode now = KmsNow(side.Kind, code), was = KmsShipped(side.Kind, code);
+                c.Shipped = RandomCell(was, grade, stat);
+                if (now == null) { c.ReadOnly = "the kms client has no row " + CodeText(code); return c; }
+                for (int g = 1; g <= ItemOptionRules.MaxGrade; g++) c.Grades.Add(g);
+                c.Value = RandomCell(now, grade, stat);
+                c.Source = stat == ItemOptionRules.Pick ? "pickCount " + (now.Attr("pickCount") ?? "") + (ItemOptionRules.KmsPickCount("1", now.Attr("isRarePickOne"), 1) == 0 ? ", isRarePickOne (grade 1: 0, grade 2: 1)" : "")
+                    : c.Value.Length == 0 ? "no line of the stat" : "the line's statID range (every grade)";
+                c.ReadOnly = "a kms random row has no grades: edit it in the random detail";
+                return c;
+            }
             if (side.Kms)
             {
                 string name = ItemOptionRules.KmsName(stat);
                 if (name == null) { c.ReadOnly = "the kms client has no " + stat; return c; }
-                OptNode now = KmsNow(code), was = KmsShipped(code);
+                OptNode now = KmsNow(side.Kind, code), was = KmsShipped(side.Kind, code);
                 if (was != null) c.Shipped = OptNode.V(was.RankFor(grade), name);
                 if (now == null) { c.ReadOnly = "the kms client has no row " + CodeText(code); return c; }
                 OptNode rank = now.RankFor(grade);
@@ -818,6 +895,21 @@ namespace MS2.ModKit
             c.Shipped = r.Original != null ? (r.Original.Attr(stat) ?? "") : "";
             c.Source = "row grade " + grade + " in " + Short(d.Entry) + (ItemOptionRules.ServerReads(side.Kind, d.Entry) ? "" : " (the server does not read this file)");
             return c;
+        }
+
+        // a kms random row in the grade grid: the lines an item of the grade gets, or the range of the stat's line
+        string RandomCell(OptNode row, int grade, string stat)
+        {
+            if (row == null) return "";
+            if (stat == ItemOptionRules.Pick) return ItemOptionRules.KmsPickCount(row.Attr("pickCount"), row.Attr("isRarePickOne"), grade).ToString(CultureInfo.InvariantCulture);
+            foreach (OptNode v in row.Children)
+            {
+                if (v.Name != "v" || v.Attr("name") == null || !ItemOptionRules.IsFlatOf(v.Attr("name"), stat)) continue;
+                string first, last;
+                string id = (v.Attr("statID") ?? "").Trim();
+                return VariationRange(id, out first, out last) ? (first == last ? first : first + ".." + last) : "statID " + id;
+            }
+            return "";
         }
 
         static string Short(string entry) { int i = entry.LastIndexOf('/'); return i < 0 ? entry : entry.Substring(i + 1); }
@@ -839,12 +931,21 @@ namespace MS2.ModKit
         {
             var l = new List<string>();
             var rest = new SortedDictionary<string, bool>(StringComparer.Ordinal);
-            if (kind == OptionKind.Static) l.Add(ItemOptionRules.Pick);
+            if (kind != OptionKind.Constant) l.Add(ItemOptionRules.Pick);
+            var kmsLines = new List<string>();
             foreach (OptionSide s in Sides(kind))
             {
+                if (s.Kms && kind == OptionKind.Random)
+                {
+                    foreach (OptNode node in new[] { KmsNow(kind, code), KmsShipped(kind, code) })
+                        if (node != null)
+                            foreach (OptNode v in node.Children)
+                                if (v.Name == "v" && v.Attr("name") != null && !kmsLines.Contains(v.Attr("name"))) kmsLines.Add(v.Attr("name"));
+                    continue;
+                }
                 if (s.Kms)
                 {
-                    OptNode n = KmsNow(code), w = KmsShipped(code);
+                    OptNode n = KmsNow(kind, code), w = KmsShipped(kind, code);
                     foreach (OptNode node in new[] { n, w })
                         if (node != null)
                             foreach (OptNode r in node.Ranks())
@@ -864,6 +965,13 @@ namespace MS2.ModKit
                         if (op != null) foreach (AttrOp a in op.Attrs) if (string.IsNullOrEmpty(a.At) && a.Kind == AttrOpKind.Set && !ItemOptionRules.IsKey(a.Name)) Add(l, rest, a.Name);
                     }
                 }
+            }
+            // a kms random line no flat side has a stat for shows as X_value_base
+            foreach (string name in kmsLines)
+            {
+                bool have = false;
+                foreach (string f in rest.Keys) if (ItemOptionRules.IsFlatOf(name, f)) have = true;
+                if (!have) rest[ItemOptionRules.FlatName(name)] = true;
             }
             l.AddRange(rest.Keys);
             return l;
@@ -887,7 +995,8 @@ namespace MS2.ModKit
             foreach (OptionSide s in Sides(kind))
             {
                 if (!Has(s, code)) continue;
-                if (s.Kms && ItemOptionRules.KmsName(stat) == null) continue;
+                // a kms random row has no values to compare (statID ranges and weights; the planner checks its pick count)
+                if (s.Kms && (kind == OptionKind.Random || ItemOptionRules.KmsName(stat) == null)) continue;
                 string v = ItemOptionRules.Normal(Cell(s, code, grade, stat).Value);
                 if (first == null) first = v;
                 else if (v != first) return true;
@@ -946,9 +1055,10 @@ namespace MS2.ModKit
                 info.Grades.Clear();
                 foreach (OptionSide s in Sides(kind))
                 {
+                    if (s.Kms && kind == OptionKind.Random) continue;
                     if (s.Kms)
                     {
-                        OptNode now = KmsNow(info.Code);
+                        OptNode now = KmsNow(kind, info.Code);
                         if (now != null) foreach (OptNode r in now.Ranks()) info.Grades[OptNode.GradeOf(r)] = true;
                         continue;
                     }
@@ -1009,7 +1119,13 @@ namespace MS2.ModKit
             return l;
         }
 
-        static string[] PointerFields(OptionKind kind) { return kind == OptionKind.Constant ? new[] { "constantID", "constant" } : new[] { "static" }; }
+        // the kms item's pointer first, then the item file's
+        static string[] PointerFields(OptionKind kind)
+        {
+            return kind == OptionKind.Constant ? new[] { "constantID", "constant" } : kind == OptionKind.Random ? new[] { "randomID", "random" } : new[] { "static" };
+        }
+
+        static bool IsKmsPointer(string field) { return field == "constantID" || field == "randomID"; }
 
         static List<long> Pointers(ItemDraft d, OptionKind kind)
         {
@@ -1063,6 +1179,7 @@ namespace MS2.ModKit
             value = value == null ? "" : value.Trim();
             if (grade < 1 || grade > ItemOptionRules.MaxGrade) throw new ModKitException("grade " + grade + " is outside 1.." + ItemOptionRules.MaxGrade);
             if (ItemOptionRules.IsKey(stat) || !TableDraft.IsAttrName(stat)) throw new ModKitException("\"" + stat + "\" is no stat");
+            if (side.Kms && side.Kind == OptionKind.Random) throw new ModKitException("a kms random row has no grades: set its pick count and lines (SetKmsRandom, SetKmsRandomLine)");
             string bad = ItemOptionRules.CheckValue(side.Kind, side.Kms, stat, value);
             if (bad != null) throw new ModKitException(bad);
             if (value.Length > 0 && !StatNames(side).Contains(stat))
@@ -1077,7 +1194,7 @@ namespace MS2.ModKit
             foreach (OptionSide o in Sides(side.Kind))
             {
                 if (o.Key == side.Key || !Has(o, code)) continue;
-                if (o.Kms && ItemOptionRules.KmsName(stat) == null) continue;
+                if (o.Kms && (o.Kind == OptionKind.Random || ItemOptionRules.KmsName(stat) == null)) continue;
                 if (!o.Kms && value.Length > 0 && !StatNames(o).Contains(stat)) continue;
                 var gs = new List<int>();
                 if (o.Kms)
@@ -1109,7 +1226,7 @@ namespace MS2.ModKit
             if (side.Kms)
             {
                 string name = ItemOptionRules.KmsName(stat);
-                OptNode n = KmsNow(code).Copy();
+                OptNode n = KmsNow(side.Kind, code).Copy();
                 OptNode rank = n.RankFor(grades[0]);
                 if (rank == null)
                 {
@@ -1132,7 +1249,7 @@ namespace MS2.ModKit
                     v.SetAttr("value", value);
                     rank.Children.Add(v);
                 }
-                ReplaceKms(code, n);
+                ReplaceKms(side.Kind, code, n);
                 return side.Title + ": " + (rank.Attr("grade") == null ? "rank without grade" : "rank grade " + rank.Attr("grade")) + " (grades " + Span(served) + ") " + name + (value.Length == 0 ? " removed" : " = " + value);
             }
             var done = new List<string>();
@@ -1183,11 +1300,11 @@ namespace MS2.ModKit
         }
 
         // the kms row of a code becomes n: the shipped row is deleted and n added, or the shipped row restored when n is it
-        void ReplaceKms(long code, OptNode n)
+        void ReplaceKms(OptionKind kind, long code, OptNode n)
         {
-            TableDraft d = KmsDraft;
+            TableDraft d = KmsDraft(kind);
             TableRow shipped, added;
-            KmsRows(code, out shipped, out added);
+            KmsRows(kind, code, out shipped, out added);
             if (added != null) d.Delete(added);
             if (shipped != null && OptNode.Of(shipped.Original).Same(n)) d.Restore(shipped);
             else
@@ -1268,10 +1385,11 @@ namespace MS2.ModKit
                 if (s.Kms)
                 {
                     TableRow shipped, added;
-                    KmsRows(code, out shipped, out added);
-                    if (added != null) { KmsDraft.Delete(added); n++; }
-                    if (shipped != null && shipped.IsDeleted) { KmsDraft.Restore(shipped); n++; }
-                    if (KmsDraft != null) Changed(KmsDraft);
+                    TableDraft kd = KmsDraft(kind);
+                    KmsRows(kind, code, out shipped, out added);
+                    if (added != null) { kd.Delete(added); n++; }
+                    if (shipped != null && shipped.IsDeleted) { kd.Restore(shipped); n++; }
+                    if (kd != null) Changed(kd);
                     continue;
                 }
                 foreach (string e in EntriesOf(s, code))
@@ -1295,6 +1413,153 @@ namespace MS2.ModKit
             return n;
         }
 
+        // ---- the kms random row (no grades: its attributes and <v> lines) ----
+
+        /// <summary>The range the client rolls for a statID: the first and last &lt;v stat&gt; of its row in the kms
+        /// table/itemoptionvariation.xml (as shipped; the editor does not edit that table). False when there is no row.</summary>
+        public bool VariationRange(string statId, out string first, out string last)
+        {
+            first = last = "";
+            string[] r;
+            if (statId == null || !Variation().TryGetValue(statId.Trim(), out r)) return false;
+            first = r[0]; last = r[1];
+            return true;
+        }
+
+        Dictionary<string, string[]> Variation()
+        {
+            string key = "itemoptionvariation\n" + (KmsArchive ?? "");
+            object o;
+            if (Data.Cache.TryGetValue(key, out o)) return (Dictionary<string, string[]>)o;
+            var map = new Dictionary<string, string[]>(StringComparer.Ordinal);
+            M2dArchive a = KmsArchive == null ? null : TryOpen(KmsArchive);
+            M2dEntry e = a == null ? null : a.Find(ItemOptionRules.KmsVariationEntry);
+            if (e != null)
+            {
+                try
+                {
+                    XmlDoc d = XmlDoc.Parse(a.Read(e), KmsArchive + " " + ItemOptionRules.KmsVariationEntry);
+                    if (d.Root != null)
+                        foreach (XmlElem row in d.Root.Children)
+                        {
+                            string id = (row.Attr("id") ?? "").Trim();
+                            if (row.Name != "option" || id.Length == 0 || map.ContainsKey(id)) continue;
+                            string f = null, l = null;
+                            foreach (XmlElem v in row.Children)
+                            {
+                                if (v.Name != "v" || v.Attr("stat") == null) continue;
+                                if (f == null) f = v.Attr("stat").Trim();
+                                l = v.Attr("stat").Trim();
+                            }
+                            map[id] = new[] { f ?? "", l ?? "" };
+                        }
+                }
+                catch (ModKitException) { }
+            }
+            Data.Cache[key] = map;
+            return map;
+        }
+
+        /// <summary>The kms random row of a code as the mod leaves it; null when the kms table has none.</summary>
+        public KmsRandomRow KmsRandomOf(long code)
+        {
+            OptNode n = KmsRandom ? KmsNow(OptionKind.Random, code) : null;
+            if (n == null) return null;
+            var row = new KmsRandomRow { Code = code };
+            foreach (KeyValuePair<string, string> a in n.Attrs) if (a.Key != "code") row.Attrs.Add(a);
+            foreach (OptNode v in n.Children)
+            {
+                if (v.Name != "v") continue;
+                var line = new KmsRandomLine { Name = v.Attr("name") ?? "", StatId = (v.Attr("statID") ?? "").Trim(), Weight = (v.Attr("weight") ?? "").Trim() };
+                line.HasRange = VariationRange(line.StatId, out line.First, out line.Last);
+                row.Lines.Add(line);
+            }
+            OptNode was = KmsShipped(OptionKind.Random, code);
+            row.Edited = was == null || !was.Same(n);
+            return row;
+        }
+
+        OptNode RandomForEdit(long code)
+        {
+            OptNode n = KmsRandom ? KmsNow(OptionKind.Random, code) : null;
+            if (n == null) throw new ModKitException("the kms client has no option " + CodeText(code) + " (random)");
+            return n.Copy();
+        }
+
+        static OptNode LineAt(OptNode row, int index)
+        {
+            int i = 0;
+            foreach (OptNode v in row.Children) if (v.Name == "v" && i++ == index) return v;
+            throw new ModKitException("the row has no line " + (index + 1).ToString(CultureInfo.InvariantCulture));
+        }
+
+        static void SetOrRemove(OptNode n, string attr, string value)
+        {
+            if (value.Length > 0) { n.SetAttr(attr, value); return; }
+            n.Attrs.RemoveAll(a => a.Key == attr);
+        }
+
+        /// <summary>Sets pickCount, isRarePickOne, statGroup or levelGroupID of a kms random row ("" removes the attribute).</summary>
+        public string SetKmsRandom(long code, string attr, string value)
+        {
+            value = (value ?? "").Trim();
+            if (Array.IndexOf(ItemOptionRules.KmsRandomAttrs, attr) < 0) throw new ModKitException("\"" + attr + "\" is no attribute of a kms random row the editor sets");
+            string bad = ItemOptionRules.CheckKmsRandom(attr, value);
+            if (bad != null) throw new ModKitException(bad);
+            OptNode n = RandomForEdit(code);
+            if ((n.Attr(attr) ?? "") == value) return "kms client: nothing to change";
+            SetOrRemove(n, attr, value);
+            ReplaceKms(OptionKind.Random, code, n);
+            return "kms client: random " + CodeText(code) + " " + attr + (value.Length == 0 ? " removed" : " = " + value);
+        }
+
+        /// <summary>Sets statID or weight of the line at an index of a kms random row ("" removes weight: the client takes 1).</summary>
+        public string SetKmsRandomLine(long code, int index, string attr, string value)
+        {
+            value = (value ?? "").Trim();
+            if (attr != "statID" && attr != "weight") throw new ModKitException("\"" + attr + "\" is no attribute of a kms random line the editor sets");
+            if (attr == "statID" && value.Length == 0) throw new ModKitException("a line needs a statID (remove the line instead)");
+            string bad = ItemOptionRules.CheckKmsRandom(attr, value);
+            if (bad != null) throw new ModKitException(bad);
+            OptNode n = RandomForEdit(code);
+            OptNode v = LineAt(n, index);
+            if ((v.Attr(attr) ?? "") == value) return "kms client: nothing to change";
+            SetOrRemove(v, attr, value);
+            ReplaceKms(OptionKind.Random, code, n);
+            return "kms client: random " + CodeText(code) + " line " + (v.Attr("name") ?? "") + " " + attr + (value.Length == 0 ? " removed" : " = " + value);
+        }
+
+        /// <summary>Adds a line to a kms random row: a stat name the shipped table uses, a statID, and a weight ("" for 1).</summary>
+        public string AddKmsRandomLine(long code, string name, string statId, string weight)
+        {
+            name = (name ?? "").Trim(); statId = (statId ?? "").Trim(); weight = (weight ?? "").Trim();
+            // the client drops a line whose name is no stat: only names the shipped table uses are taken
+            string known = StatNames(new OptionSide { Archive = KmsArchive ?? "", Kms = true, Kind = OptionKind.Random }).Find(s => string.Equals(s, name, StringComparison.OrdinalIgnoreCase));
+            if (known == null) throw new ModKitException("the kms random table uses no stat name \"" + name + "\"");
+            if (statId.Length == 0) throw new ModKitException("a line needs a statID");
+            string bad = ItemOptionRules.CheckKmsRandom("statID", statId) ?? ItemOptionRules.CheckKmsRandom("weight", weight);
+            if (bad != null) throw new ModKitException(bad);
+            OptNode n = RandomForEdit(code);
+            var v = new OptNode { Name = "v" };
+            v.SetAttr("name", known);
+            v.SetAttr("statID", statId);
+            if (weight.Length > 0) v.SetAttr("weight", weight);
+            int at = n.Children.FindLastIndex(c => c.Name == "v") + 1;
+            n.Children.Insert(at, v);
+            ReplaceKms(OptionKind.Random, code, n);
+            return "kms client: random " + CodeText(code) + " line " + known + " added (statID " + statId + ")";
+        }
+
+        /// <summary>Removes the line at an index of a kms random row.</summary>
+        public string RemoveKmsRandomLine(long code, int index)
+        {
+            OptNode n = RandomForEdit(code);
+            OptNode v = LineAt(n, index);
+            n.Children.Remove(v);
+            ReplaceKms(OptionKind.Random, code, n);
+            return "kms client: random " + CodeText(code) + " line " + (v.Attr("name") ?? "") + " removed";
+        }
+
         // ---- a code of the mod's own ----
 
         /// <summary>
@@ -1305,7 +1570,7 @@ namespace MS2.ModKit
         {
             if (code < ItemOptionRules.From || code > ItemOptionRules.To)
                 return "option codes of mods are " + ItemOptionRules.From + "-" + ItemOptionRules.To;
-            foreach (OptionKind k in new[] { OptionKind.Constant, OptionKind.Static })
+            foreach (OptionKind k in ItemOptionRules.Kinds)
                 foreach (OptionSide s in Sides(k))
                     if (Has(s, code)) return "the " + s.Title + " already has option " + CodeText(code) + " (" + ItemOptionRules.KindName(k) + ")";
             foreach (Mod m in Others())
@@ -1335,8 +1600,8 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Copies a code's rows to a new code on every side of the kind that has it (into the same files), reserves the
-        /// new code and points the given items at it where they name the old code: the kms constantID when the kms
-        /// table has the old code, the item file's constant (or static) when a flat side has it. All or nothing: an
+        /// new code and points the given items at it where they name the old code: the kms constantID (randomID) when
+        /// the kms table has the old code, the item file's constant (static, random) when a flat side has it. All or nothing: an
         /// item that cannot be opened stops the fork before anything is written, and a failure while writing takes
         /// every row, pointer and reservation of the fork back. Returns the number of items changed.
         /// </summary>
@@ -1369,10 +1634,10 @@ namespace MS2.ModKit
                 {
                     if (s.Kms)
                     {
-                        OptNode n = KmsNow(code).Copy();
+                        OptNode n = KmsNow(kind, code).Copy();
                         n.SetAttr("code", CodeText(newCode));
-                        KmsDraft.AddRow(n.Text());
-                        Changed(KmsDraft);
+                        KmsDraft(kind).AddRow(n.Text());
+                        Changed(KmsDraft(kind));
                         continue;
                     }
                     foreach (string e in EntriesOf(s, code))
@@ -1402,7 +1667,7 @@ namespace MS2.ModKit
                                 foreach (string f in PointerFields(kind))
                                 {
                                     // a pointer is moved only on a layout that gets the new code
-                                    if (!(f == "constantID" ? kmsHas : flatHas)) continue;
+                                    if (!(IsKmsPointer(f) ? kmsHas : flatHas)) continue;
                                     if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode), false); hit = true; }
                                 }
                             }
@@ -1426,20 +1691,22 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// Drops the parsed flat files (a view calls it when it leaves a code); they are read again when needed. The kms
-        /// table is one file every code reads, so it stays.
+        /// Drops the parsed flat files (a view calls it when it leaves a code); they are read again when needed. A kms
+        /// table (constant, random) is one file every code reads, so it stays.
         /// </summary>
         public void DropDrafts()
         {
             foreach (string k in new List<string>(drafts.Keys))
             {
-                if (KmsArchive != null && string.Equals(k, KmsArchive + "\n" + ItemOptionRules.KmsEntry, StringComparison.OrdinalIgnoreCase)) continue;
+                OptionKind kind;
+                int cut = k.IndexOf('\n');
+                if (KmsArchive != null && string.Equals(k.Substring(0, cut), KmsArchive, StringComparison.OrdinalIgnoreCase) && ItemOptionRules.IsKmsEntry(k.Substring(cut + 1), out kind)) continue;
                 byCode.Remove(drafts[k]);
                 drafts.Remove(k);
             }
         }
 
-        /// <summary>The number of parsed option files the editor holds (the kms table counts as one).</summary>
+        /// <summary>The number of parsed option files the editor holds (a kms table counts as one).</summary>
         public int DraftCount { get { return drafts.Count; } }
 
         /// <summary>True when an op of the mod adds a row of the option code to an option table (kms or flat).</summary>
@@ -1452,7 +1719,7 @@ namespace MS2.ModKit
                 OptionKind k;
                 if (ed == null) continue;
                 string entry = ed.Entry.Replace('\\', '/');
-                if (!string.Equals(entry, ItemOptionRules.KmsEntry, StringComparison.OrdinalIgnoreCase) && !ItemOptionRules.IsFlatEntry(entry, out k)) continue;
+                if (!ItemOptionRules.IsKmsEntry(entry, out k) && !ItemOptionRules.IsFlatEntry(entry, out k)) continue;
                 foreach (RowOp r in ed.Rows)
                 {
                     if (r.Kind == RowOpKind.Delete) continue;
