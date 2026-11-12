@@ -263,6 +263,13 @@ namespace MS2.ModKit
                 foreach (string ar in new[] { "client:Xml.m2d", "server:Xml.m2d", "gms-client:Xml.m2d" })
                     l.Add(new IdPlace { Archive = ar, Entry = ItemSetRules.InfoEntry, Rows = ItemSetRules.Rows, Key = "id" });
             }
+            else if (space == DungeonRules.Space)
+            {
+                // the kms client keeps the table in table/, the server and the global client in table/na/
+                l.Add(new IdPlace { Archive = "client:Xml.m2d", Entry = DungeonRules.KmsEntry, Rows = DungeonRules.Rows, Key = DungeonRules.Key });
+                foreach (string ar in new[] { "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    l.Add(new IdPlace { Archive = ar, Entry = "table/*/dungeonroom.xml", Rows = DungeonRules.Rows, Key = DungeonRules.Key });
+            }
             else throw new ModKitException("no default places for the id space \"" + space + "\"");
             return l;
         }
@@ -277,6 +284,7 @@ namespace MS2.ModKit
             else if (space == RecipeRules.Space) { from = RecipeRules.From; to = RecipeRules.To; }
             else if (space == ItemOptionRules.Space) { from = ItemOptionRules.From; to = ItemOptionRules.To; }
             else if (space == ItemSetRules.Space) { from = ItemSetRules.From; to = ItemSetRules.To; }
+            else if (space == DungeonRules.Space) { from = DungeonRules.From; to = DungeonRules.To; }
             else throw new ModKitException("no reserved range for the id space \"" + space + "\"");
         }
 
