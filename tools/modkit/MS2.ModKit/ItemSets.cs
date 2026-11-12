@@ -214,9 +214,10 @@ namespace MS2.ModKit
                     return;
                 }
                 string v = Unscale(field, value);
-                if (get("sgi_target") == "4")
+                if (get("sgi_target") == "4" && Scale(get("sgi_boss_rate_base")).Length == 0)
                 {
                     // the boss bonus sits in the slot elites need: it moves to its own attributes
+                    // (a part with a boss bonus of its own keeps that one: it is the one read)
                     set("sgi_boss_rate_base", get("sgi_rate_base"));
                     set("sgi_boss_target", "4");
                 }
@@ -667,9 +668,14 @@ namespace MS2.ModKit
 
         static long Num(string v) { long n; return long.TryParse(v, NumberStyles.None, CultureInfo.InvariantCulture, out n) ? n : long.MaxValue; }
 
-        /// <summary>A field of a bonus in the editor's notation (ItemSetRules.Stats, Texts, Effects, Count), of the first side that has it.</summary>
+        /// <summary>
+        /// A field of a bonus in the editor's notation (ItemSetRules.Stats, Texts, Effects, Count), of the first side
+        /// that has it; car of the first side that reads it (not the kms client).
+        /// </summary>
         public string Get(SetPart p, string field)
         {
+            if (field == ItemSetRules.Car)
+                foreach (PartRef r in p.Refs) if (r != null && !Sides[r.Side].Kms) return ItemSetRules.Read(r.Raw, false, field);
             foreach (PartRef r in p.Refs) if (r != null) return ItemSetRules.Read(r.Raw, Sides[r.Side].Kms, field);
             return "";
         }
@@ -962,6 +968,26 @@ namespace MS2.ModKit
             return l;
         }
 
+        // the part as a side has it, with every attribute: a copy keeps those the editor has no field for
+        void CopyRaw(PartRef r, Bag b)
+        {
+            if (r.Row != null)
+            {
+                foreach (string c in r.Draft.Columns) { string v = r.Draft.Get(r.Row, c); if (v != null) b.Set(c, v); }
+            }
+            else foreach (XmlAttr a in r.Elem.Attrs) b.Set(a.Name, a.Value);
+            // but not a car of the kms client, which reads none
+            if (Sides[r.Side].Kms) b.Set(ItemSetRules.Car, null);
+        }
+
+        // the part of this side, or of another side in the same notation; null for none
+        PartRef SameNotation(SetPart p, int side)
+        {
+            if (p.Refs[side] != null) return p.Refs[side];
+            foreach (PartRef r in p.Refs) if (r != null && Sides[r.Side].Kms == Sides[side].Kms) return r;
+            return null;
+        }
+
         static bool IsCell(AttrOp a) { return string.IsNullOrEmpty(a.At) && a.Kind != AttrOpKind.Text; }
 
         // a row the mod adds holds its parts in its own text: the text is written again with the change
@@ -1049,6 +1075,8 @@ namespace MS2.ModKit
                 if ((had != null && had.Refs[i] != null) || !Holder(i, s, out hd, out hr)) continue;
                 bool kms = Sides[i].Kms;
                 var b = new Bag { Name = ItemSetRules.PartRows };
+                PartRef same = had == null ? null : SameNotation(had, i);
+                if (same != null) CopyRaw(same, b);
                 b.Set(ItemSetRules.Count, c);
                 ItemSetRules.Write(b.Get, b.Set, kms, ItemSetRules.Effects, had == null ? "" : Get(had, ItemSetRules.Effects));
                 if (had != null)
@@ -1118,6 +1146,9 @@ namespace MS2.ModKit
         ItemSet Make(long newId, ItemSet source)
         {
             CheckNewId(newId);
+            foreach (ItemSetSide side in Sides)
+                if (!side.Kms && side.Options == null)
+                    throw new ModKitException(side.Archive + " has no " + ItemSetRules.OptionEntry + ": a new set would have no row for its bonuses there");
             string id = newId.ToString(CultureInfo.InvariantCulture);
             List<SetPart> parts = source == null ? new List<SetPart>() : Parts(source);
             var made = new ItemSet(Sides.Count);
@@ -1144,6 +1175,8 @@ namespace MS2.ModKit
                 foreach (SetPart p in parts)
                 {
                     var b = new Bag { Name = ItemSetRules.PartRows };
+                    PartRef same = SameNotation(p, i);
+                    if (same != null) CopyRaw(same, b);
                     foreach (string f in new[] { ItemSetRules.Count, ItemSetRules.Effects }) ItemSetRules.Write(b.Get, b.Set, side.Kms, f, Get(p, f));
                     foreach (string f in ItemSetRules.Stats) ItemSetRules.Write(b.Get, b.Set, side.Kms, f, Get(p, f));
                     foreach (string f in ItemSetRules.Texts) ItemSetRules.Write(b.Get, b.Set, side.Kms, f, Get(p, f));

@@ -906,7 +906,7 @@ a character gets for wearing a number of them. Each side reads its own files:
    have a bonus. A set the mod changes has `*`, a new one `(new)`.
 2. Pick a set. The left grid has the name and the set's flags, the list under it the items with their names; type an
    item id in the last row to add one, clear a row to drop it. The bonus list has a row per count; pick one and the
-   right grid shows its stats and effects with a column per side. `≠` marks a value the sides do not agree on. An edit
+   right grid shows its stats and effects as one value each. `≠` marks a value the sides do not agree on. An edit
    is written to every side that has the set: to the `<part>` child on the Korean client, to the option row on the
    server.
 3. **Add bonus** adds a bonus for the count typed next to it, **Remove bonus** drops the chosen one. **Add** makes an

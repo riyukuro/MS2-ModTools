@@ -417,6 +417,74 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void CarIsReadWhereItIsRead()
+        {
+            using (var f = new FakeSets())
+            {
+                // the kms part has no car; the server's value is the one shown, copied and kept
+                Mod mod = Empty();
+                var ed = new ItemSetEditor(f.Data, mod);
+                ItemSet a = Find(ed, "8100001");
+                ed.Set(a, Part(ed, a, "2"), "car", "7");
+                Assert.That(ed.Get(Part(ed, a, "2"), "car"), Is.EqualTo("7"));
+                Assert.That(ed.Summary(Part(ed, a, "2")), Does.Contain("car 7"));
+                ed.Clone(a, 99000006);
+
+                var again = new ItemSetEditor(f.Data, Reload(mod));
+                Assert.That(again.Get(Part(again, Find(again, "8100001"), "2"), "car"), Is.EqualTo("7"));
+                Assert.That(again.Get(Part(again, Find(again, "99000006"), "2"), "car"), Is.EqualTo("7"));
+
+                Plan p = PlanOf(f, mod);
+                Assert.That(p.Errors, Is.Empty);
+                string o = Text(p, S, ItemSetRules.OptionEntry);
+                int at = o.IndexOf("<option id=\"99000006\">", StringComparison.Ordinal);
+                Assert.That(at, Is.GreaterThan(0));
+                Assert.That(o.Substring(at), Does.Contain("<part count=\"2\" additionalEffectID=\"0\" additionalEffectLevel=\"1\" str_value_base=\"9\" car_value_base=\"7\" />"));
+                string k = Text(p, K, ItemSetRules.InfoEntry);
+                Assert.That(k.Substring(k.IndexOf("<set id=\"99000006\"", StringComparison.Ordinal)), Does.Not.Contain("car="));
+            }
+        }
+
+        [Test]
+        public void AddedBonusOfASideKeepsCarAndUnknownAttributes()
+        {
+            using (var f = new FakeSets())
+            {
+                // the gms client alone has a bonus for 1 item, with car and an attribute the editor has no field for
+                Mod mod = FakeSets.ModOf(
+                    "<edit archive=\"" + G + "\" entry=\"" + ItemSetRules.OptionEntry + "\">\n" +
+                    "<add in=\"option[id=8100001]\"><xml><part count=\"1\" additionalEffectID=\"0\" additionalEffectLevel=\"1\" car_value_base=\"3\" zzz_rate_base=\"0.5\" /></xml></add>\n" +
+                    "</edit>");
+                var ed = new ItemSetEditor(f.Data, mod);
+                ItemSet a = Find(ed, "8100001");
+                Assert.That(ed.Get(Part(ed, a, "1"), "car"), Is.EqualTo("3"));
+                ed.AddPart(a, 1);
+                Plan p = PlanOf(f, mod);
+                Assert.That(p.Errors, Is.Empty);
+                Assert.That(Text(p, S, ItemSetRules.OptionEntry), Does.Contain("<part count=\"1\" additionalEffectID=\"0\" additionalEffectLevel=\"1\" car_value_base=\"3\" zzz_rate_base=\"0.5\" />"));
+                Assert.That(Text(p, K, ItemSetRules.InfoEntry), Does.Contain("<part count=\"1\" />"));
+
+                // a clone keeps it on the sides that have it
+                ItemSet c = ed.Clone(a, 99000007);
+                Assert.That(ed.Get(Part(ed, c, "1"), "car"), Is.EqualTo("3"));
+                string o = Text(PlanOf(f, mod), S, ItemSetRules.OptionEntry);
+                Assert.That(o.Substring(o.IndexOf("<option id=\"99000007\">", StringComparison.Ordinal)), Does.Contain("zzz_rate_base=\"0.5\""));
+            }
+        }
+
+        [Test]
+        public void EliteValueKeepsABossValueOfItsOwn()
+        {
+            var row = new Dictionary<string, string> { { "sgi_target", "4" }, { "sgi_rate_base", "0.01" }, { "sgi_boss_rate_base", "0.05" }, { "sgi_boss_target", "4" } };
+            Func<string, string> get = k => { string v; return row.TryGetValue(k, out v) ? v : null; };
+            Action<string, string> set = (k, v) => { if (v == null) row.Remove(k); else row[k] = v; };
+            Assert.That(ItemSetRules.Read(get, false, "sgi_boss"), Is.EqualTo("50"));
+            ItemSetRules.Write(get, set, false, "sgi_elite", "20");
+            Assert.That(ItemSetRules.Read(get, false, "sgi_boss"), Is.EqualTo("50"));
+            Assert.That(ItemSetRules.Read(get, false, "sgi_elite"), Is.EqualTo("20"));
+        }
+
+        [Test]
         public void RemovesAndRestoresAShippedSet()
         {
             using (var f = new FakeSets())
@@ -453,6 +521,22 @@ namespace MS2.ModKit.Tests
                     "<add><xml><set id=\"99000002\" itemIDs=\"5004\" optionID=\"99000002\" /></xml></add>\n" +
                     "</edit>");
                 Plan p = Planner.Build(f.Data, new[] { mod }, new PlanOptions());
+                // what stops a side from loading its table is an error (Apply is refused), the rest a warning
+                var errors = new List<string>();
+                foreach (PlanMessage m in p.Errors) errors.Add(m.ToString());
+                Assert.That(errors.Count, Is.EqualTo(3), string.Join("\n", errors.ToArray()));
+                Assert.That(errors[0], Does.Contain("set 99000001: two bonuses for 2 items: the kms client fails to load the whole set table"));
+                Assert.That(errors[1], Does.Contain("set 8100004 is in the table 2 times: the kms client fails to load the whole set table"));
+                Assert.That(errors[2], Does.Contain("set 99000002: optionID \"99000002\" has no <option> row in " + ItemSetRules.OptionEntry + ": the server's data ingest fails"));
+                Assert.That(errors[2], Does.Contain(S));
+                int twice = 0;
+                foreach (PlanMessage m in p.Warnings)
+                {
+                    string t = m.ToString();
+                    Assert.That(t, Does.Not.Contain("fails"));
+                    if (t.Contains("set 99000002")) { twice++; Assert.That(t, Does.Not.Contain(G)); }
+                }
+                Assert.That(twice, Is.EqualTo(1));     // "added here but not in": once, for the server, not for its mirror
                 string w = Dump(p);
                 Assert.That(w, Does.Contain("set 99000001: item 5009 is not an item of the "));
                 Assert.That(w, Does.Contain("set 99000001: bonus for 2 items: effect 70000009 is not an additional effect of the "));

@@ -152,6 +152,17 @@ namespace MS2.ModKit
             // the new sets of each side, for the comparison between the sides: id -> row and holder
             var added = new List<Dictionary<string, KeyValuePair<XmlElem, XmlElem>>>();
             var has = new List<HashSet<string>>();
+            // the server's sets without an option row: a line mirrored to the gms client gives one message
+            int server = -1;
+            var missing = new HashSet<string>();
+            for (int i = 0; i < sides.Count; i++)
+            {
+                if (sides[i].Profile != Profile.Server) continue;
+                server = i;
+                Dictionary<string, XmlElem> so = SetOptions(sides[i].Opt);
+                foreach (XmlElem e in sides[i].Info.Root.Children)
+                    if (e.Name == ItemSetRules.Rows && !so.ContainsKey(e.Attr("optionID") ?? "")) missing.Add(e.Attr("id") ?? "");
+            }
             foreach (SetSide s in sides)
             {
                 var mine = new Dictionary<string, KeyValuePair<XmlElem, XmlElem>>();
@@ -190,13 +201,14 @@ namespace MS2.ModKit
 
                     long n;
                     if (!long.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out n) || n <= 0)
-                        plan.Msg(plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + ": id \"" + id + "\" is not a number above 0" + (s.Kms ? ItemSetRules.TableFails : ""));
+                        plan.Msg(s.Kms ? plan.Errors : plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + ": id \"" + id + "\" is not a number above 0" + (s.Kms ? ItemSetRules.TableFails : ""));
                     var parts = new List<Func<string, string>>();
                     foreach (XmlElem p in SetParts(holder)) parts.Add(p.Attr);
                     foreach (string t in ItemSetRules.CheckSet(row.Attr, parts, s.Kms))
-                        plan.Msg(plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + ": " + t);
-                    if (!s.Kms && holder == null)
-                        plan.Msg(plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + ": optionID \"" + row.Attr("optionID") + "\" has no <option> row in " + ItemSetRules.OptionEntry
+                        plan.Msg(s.Kms && t.EndsWith(ItemSetRules.TableFails, StringComparison.Ordinal) ? plan.Errors : plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + ": " + t);
+                    // the server's mirror on the gms client says it once, on the server
+                    if (!s.Kms && holder == null && !(s.Profile != Profile.Server && server >= 0 && missing.Contains(id)))
+                        plan.Msg(s.Profile == Profile.Server ? plan.Errors : plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + ": optionID \"" + row.Attr("optionID") + "\" has no <option> row in " + ItemSetRules.OptionEntry
                             + (s.Profile == Profile.Server ? ": the server's data ingest fails" : ""));
 
                     if (!read)
@@ -223,7 +235,7 @@ namespace MS2.ModKit
                 if (s.Kms)
                     foreach (KeyValuePair<string, int> kv in seen)
                         if (kv.Value > 1)
-                            plan.Msg(plan.Warnings, SetMod(run, kv.Key), s.Archive, ItemSetRules.InfoEntry, "set " + kv.Key + " is in the table " + kv.Value + " times" + ItemSetRules.TableFails);
+                            plan.Msg(plan.Errors, SetMod(run, kv.Key), s.Archive, ItemSetRules.InfoEntry, "set " + kv.Key + " is in the table " + kv.Value + " times" + ItemSetRules.TableFails);
             }
 
             for (int i = 0; i < sides.Count; i++)
@@ -242,7 +254,7 @@ namespace MS2.ModKit
                         SetSide o = sides[k];
                         if (!has[k].Contains(kv.Key))
                         {
-                            if (!covered)
+                            if (!covered && !(!s.Kms && i != server && server >= 0 && added[server].ContainsKey(kv.Key)))
                                 plan.Msg(plan.Warnings, mod, s.Archive, ItemSetRules.InfoEntry, label + " is added here but not in " + o.Archive + ": client and server read sets from their own table");
                             continue;
                         }
