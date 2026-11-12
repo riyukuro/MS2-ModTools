@@ -98,13 +98,16 @@ namespace MS2.ModKit
                 has.Add(ids);
                 var orig = new Dictionary<string, string>();
                 var origIds = new Dictionary<string, int>();
+                var origHas = new HashSet<string>();
                 foreach (XmlElem e in s.Orig.Root.Children)
                 {
                     if (e.Name != DungeonRules.Rows) continue;
                     orig[RoomKey(e)] = RowText(e);
                     int n0;
-                    origIds.TryGetValue(e.Attr(DungeonRules.Key) ?? "", out n0);
-                    origIds[e.Attr(DungeonRules.Key) ?? ""] = n0 + 1;
+                    // counted per id, feature and locale: rows that differ there are variants of a room
+                    origIds.TryGetValue(RoomKey(e), out n0);
+                    origIds[RoomKey(e)] = n0 + 1;
+                    origHas.Add(e.Attr(DungeonRules.Key) ?? "");
                 }
                 bool mirror = hasServer && s.Profile != Profile.Server && !s.Kms;
                 Dictionary<long, bool> maps = null;
@@ -117,8 +120,8 @@ namespace MS2.ModKit
                     string id = row.Attr(DungeonRules.Key) ?? "";
                     ids.Add(id);
                     int times;
-                    seen.TryGetValue(id, out times);
-                    seen[id] = times + 1;
+                    seen.TryGetValue(RoomKey(row), out times);
+                    seen[RoomKey(row)] = times + 1;
                     string was;
                     bool isNew = !orig.TryGetValue(RoomKey(row), out was);
                     if (!isNew && was == RowText(row)) continue;
@@ -154,7 +157,7 @@ namespace MS2.ModKit
                         if (s.Profile == Profile.Server) said.Add(id + "\n" + t.Replace(s.Profile.Title, ""));
                         plan.Msg(plan.Warnings, mod, s.Archive, s.Entry, label + ": " + t);
                     }
-                    if (isNew && !origIds.ContainsKey(id)) mine.Add(id);
+                    if (isNew && !origHas.Contains(id)) mine.Add(id);
                 }
                 foreach (KeyValuePair<string, int> kv in seen)
                 {
@@ -165,7 +168,8 @@ namespace MS2.ModKit
                     bool error = s.Profile == Profile.Server && kv.Value > shipped;
                     if (mirror && kv.Value > shipped && said.Contains(kv.Key + "\ntwice")) continue;
                     if (error) said.Add(kv.Key + "\ntwice");
-                    plan.Msg(error ? plan.Errors : plan.Warnings, RoomMod(run, kv.Key), s.Archive, s.Entry, "dungeon " + kv.Key + " is in the table " + kv.Value + " times"
+                    string twice = kv.Key.Substring(0, kv.Key.IndexOf('\n'));
+                    plan.Msg(error ? plan.Errors : plan.Warnings, RoomMod(run, twice), s.Archive, s.Entry, "dungeon " + twice + " is in the table " + kv.Value + " times"
                         + (s.Kms ? ": the client reads the last row" : s.Profile == Profile.Server ? ": the server's data ingest fails" : ""));
                 }
             }

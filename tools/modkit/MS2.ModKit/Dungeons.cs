@@ -231,7 +231,8 @@ namespace MS2.ModKit
         internal DungeonRoom(int sides) { Rows = new TableRow[sides]; }
 
         public TableRow Shown { get { foreach (TableRow r in Rows) if (r != null) return r; return null; } }
-        public bool IsAdded { get { TableRow r = Shown; return r != null && r.IsAdded; } }
+        /// <summary>True when the mod adds the room on every side that has it (a room one side ships is not new).</summary>
+        public bool IsAdded { get { bool any = false; foreach (TableRow r in Rows) if (r != null) { if (!r.IsAdded) return false; any = true; } return any; } }
         public bool IsDeleted { get { foreach (TableRow r in Rows) if (r != null && !r.IsDeleted) return false; return true; } }
     }
 
@@ -417,6 +418,8 @@ namespace MS2.ModKit
         }
 
         readonly Dictionary<string, NameTable> names = new Dictionary<string, NameTable>();
+        /// <summary>The language files that could not be read so far, one line each (Check lists them too).</summary>
+        public readonly List<string> TextProblems = new List<string>();
         readonly Dictionary<string, List<string>> langs = new Dictionary<string, List<string>>();
 
         /// <summary>The language folders of an archive that hold string/{lang}/stringfieldenterance.xml.</summary>
@@ -453,7 +456,11 @@ namespace MS2.ModKit
                     rows.Add(r);
                 }
             }
-            catch (ModKitException) { n = null; }
+            catch (ModKitException ex)
+            {
+                n = null;
+                TextProblems.Add(archive + ": string/" + lang + "/" + DungeonRules.NameFile + " could not be read (" + ex.Message + "): names are not written there");
+            }
             names[key] = n;
             return n;
         }
@@ -489,28 +496,44 @@ namespace MS2.ModKit
             for (int i = 0; i < Sides.Count; i++)
             {
                 if (d.Rows[i] == null) continue;
-                foreach (string lang in Languages(Sides[i].Archive))
-                {
-                    NameTable n = Names(Sides[i].Archive, lang);
-                    if (n == null) continue;
-                    List<TableRow> rows;
-                    if (n.ById.TryGetValue(id, out rows))
-                    {
-                        foreach (TableRow r in rows.ToArray())
-                        {
-                            n.Draft.Set(r, field, value.Length == 0 ? null : value);
-                            if (r.IsAdded && string.IsNullOrEmpty(n.Draft.Get(r, "name")) && string.IsNullOrEmpty(n.Draft.Get(r, "uiDescription")))
-                            {
-                                n.Draft.Delete(r);
-                                rows.Remove(r);
-                            }
-                        }
-                        if (rows.Count == 0) n.ById.Remove(id);
-                    }
-                    else if (value.Length > 0)
-                        n.ById[id] = new List<TableRow> { n.Draft.AddRow("<key id=\"" + Esc(id) + "\" " + field + "=\"" + Esc(value) + "\" />") };
-                }
+                foreach (string lang in Languages(Sides[i].Archive)) SetTextAt(i, lang, id, field, value);
             }
+        }
+
+        /// <summary>The text of an id in one language file of a side: of the first row that has it; "" for none.</summary>
+        string TextAt(int side, string lang, string id, string field)
+        {
+            NameTable n = Names(Sides[side].Archive, lang);
+            List<TableRow> rows;
+            if (n == null || !n.ById.TryGetValue(id, out rows)) return "";
+            foreach (TableRow r in rows)
+            {
+                string v = n.Draft.Get(r, field);
+                if (!string.IsNullOrEmpty(v)) return v;
+            }
+            return "";
+        }
+
+        void SetTextAt(int i, string lang, string id, string field, string value)
+        {
+            NameTable n = Names(Sides[i].Archive, lang);
+            if (n == null) return;
+            List<TableRow> rows;
+            if (n.ById.TryGetValue(id, out rows))
+            {
+                foreach (TableRow r in rows.ToArray())
+                {
+                    n.Draft.Set(r, field, value.Length == 0 ? null : value);
+                    if (r.IsAdded && string.IsNullOrEmpty(n.Draft.Get(r, "name")) && string.IsNullOrEmpty(n.Draft.Get(r, "uiDescription")))
+                    {
+                        n.Draft.Delete(r);
+                        rows.Remove(r);
+                    }
+                }
+                if (rows.Count == 0) n.ById.Remove(id);
+            }
+            else if (value.Length > 0)
+                n.ById[id] = new List<TableRow> { n.Draft.AddRow("<key id=\"" + Esc(id) + "\" " + field + "=\"" + Esc(value) + "\" />") };
         }
 
         // ---- checks ----
@@ -530,12 +553,16 @@ namespace MS2.ModKit
                 }
                 int same = 0;
                 string id = Sides[i].Table.Get(d.Rows[i], DungeonRules.Key);
+                // rows of one id with another feature or locale are variants, not duplicates
+                string feature = Sides[i].Table.Get(d.Rows[i], "feature") ?? "", locale = Sides[i].Table.Get(d.Rows[i], "locale") ?? "";
                 foreach (TableRow r in Sides[i].Table.Rows)
-                    if (!r.IsDeleted && r.Base.Name == DungeonRules.Rows && Sides[i].Table.Get(r, DungeonRules.Key) == id) same++;
+                    if (!r.IsDeleted && r.Base.Name == DungeonRules.Rows && Sides[i].Table.Get(r, DungeonRules.Key) == id
+                        && (Sides[i].Table.Get(r, "feature") ?? "") == feature && (Sides[i].Table.Get(r, "locale") ?? "") == locale) same++;
                 if (same > 1)
                     l.Add(Sides[i].Archive + ": the id is in the table " + same + " times" + (Sides[i].Kms ? ": the client reads the last row" : ": the server's data ingest fails"));
             }
             foreach (string a in MissingOn(d)) l.Add("not in " + a + ": client and server read dungeons from their own table");
+            foreach (string t in TextProblems) if (!l.Contains(t)) l.Add(t);
             return l;
         }
 
@@ -681,27 +708,47 @@ namespace MS2.ModKit
         /// <summary>A new dungeon on every side: a normal one for 1 to 4 players, without a map yet.</summary>
         public DungeonRoom Add(long newId) { return Make(newId, null); }
 
-        /// <summary>A new dungeon that copies source as it is shown (each side its own row; name and description), with the new id.</summary>
+        /// <summary>A new dungeon that copies source as it is shown (each side its own row; name and description in each language), with the new id.</summary>
         public DungeonRoom Clone(DungeonRoom source, long newId)
         {
             if (source.IsDeleted) throw new ModKitException("dungeon " + Get(source, DungeonRules.Key) + " is removed; restore it before copying");
             DungeonRoom made = Make(newId, source);
+            // each language file gets the source's own text of that language; where the source has none there, the
+            // text the source is shown with
+            string from = Get(source, DungeonRules.Key), to = Get(made, DungeonRules.Key);
             foreach (string f in new[] { "name", "uiDescription" })
             {
-                string t = Text(source, f);
-                if (t.Length > 0) SetText(made, f, t);
+                string shown = Text(source, f);
+                for (int i = 0; i < Sides.Count; i++)
+                {
+                    if (made.Rows[i] == null) continue;
+                    foreach (string lang in Languages(Sides[i].Archive))
+                    {
+                        string t = source.Rows[i] == null ? "" : TextAt(i, lang, from, f);
+                        if (t.Length == 0) t = shown;
+                        if (t.Length > 0) SetTextAt(i, lang, to, f, t);
+                    }
+                }
             }
             return made;
         }
 
-        /// <summary>Removes a dungeon: a new one goes away with its texts (its id is free again); a shipped one is
-        /// deleted on every side (its text rows stay: nothing reads them without the room).</summary>
+        /// <summary>Removes a dungeon: a new one (added on every side that has it) goes away with its texts and its id
+        /// is free again; one that a side ships is deleted on every side and can be restored (its text rows stay:
+        /// nothing reads them without the room).</summary>
         public void Remove(DungeonRoom d)
         {
             bool added = d.IsAdded;
             long id = Id(d);
             if (added) { SetText(d, "name", ""); SetText(d, "uiDescription", ""); }
-            for (int i = 0; i < Sides.Count; i++) if (d.Rows[i] != null) Sides[i].Table.Delete(d.Rows[i]);
+            for (int i = 0; i < Sides.Count; i++)
+            {
+                if (d.Rows[i] == null) continue;
+                bool mine = d.Rows[i].IsAdded;
+                Sides[i].Table.Delete(d.Rows[i]);
+                // a row the mod added on one side of a shipped room goes away; the shipped rows stay, as deleted
+                if (mine && !added) d.Rows[i] = null;
+            }
             if (!added) return;
             Rooms.Remove(d);
             bool still = false;

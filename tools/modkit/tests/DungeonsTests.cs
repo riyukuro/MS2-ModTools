@@ -40,21 +40,26 @@ namespace MS2.ModKit.Tests
         public FakeRooms() : this(null) { }
 
         /// <summary>srv: another shipped room table of the server and the global client.</summary>
-        public FakeRooms(string srv)
+        public FakeRooms(string srv) : this(srv, false) { }
+
+        /// <summary>badLang: the Korean client also has a language folder whose name file is no xml.</summary>
+        public FakeRooms(string srv, bool badLang)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-rooms-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
             foreach (string d in new[] { k, g, s }) Directory.CreateDirectory(d);
             const string missions = Head + "<ms2>\n\t<DungeonMission id=\"31\" />\n\t<DungeonMission id=\"32\" />\n</ms2>\n";
             const string roundGroups = Head + "<ms2>\n\t<DungeonRoundGroup id=\"5\" />\n</ms2>\n";
-            M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
+            var kl = new List<KeyValuePair<string, byte[]>>
             {
                 E(DungeonRules.KmsEntry, Kms),
                 E("table/fielddata.xml", Head + "<ms2>\n\t<fieldData id=\"7000001\" />\n\t<fieldData id=\"7000002\" />\n\t<fieldData id=\"7000003\" />\n</ms2>\n"),
                 E("table/dungeonmission.xml", missions), E("table/dungeonrounddata.xml", roundGroups),
-                E("string/kr/" + DungeonRules.NameFile, Keys("9100001", "Tin Cellar")),
+                E("string/kr/" + DungeonRules.NameFile, Keys("9100001", "Zinc Cellar")),
                 E("string/en/" + DungeonRules.NameFile, Keys("9100001", "Tin Cellar", "9100001", "Tin Cellar B")),
-            });
+            };
+            if (badLang) kl.Add(E("string/jp/" + DungeonRules.NameFile, "<ms2><key id="));
+            M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, kl);
             foreach (string d in new[] { g, s })
             {
                 var l = new List<KeyValuePair<string, byte[]>>
@@ -286,6 +291,79 @@ namespace MS2.ModKit.Tests
                 ed.Remove(made);
                 Assert.That(PlanOf(f, mod).Changes, Is.Empty);
                 Assert.That(mod.Ids, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void RemoveOfARoomAddedOnOneSideOnly_KeepsTheShippedRowRestorable()
+        {
+            using (var f = new FakeRooms())
+            {
+                // 9100003 ships on the server only; the mod adds it to the Korean client by hand
+                Mod mod = FakeRooms.ModOf("<edit archive=\"" + K + "\" entry=\"" + DungeonRules.KmsEntry + "\">\n" +
+                    "<add><xml><dungeonRoom dungeonRoomID=\"9100003\" groupType=\"1\" fieldIDs=\"7000001\" minUserCount=\"1\" maxUserCount=\"4\" /></xml></add>\n</edit>");
+                var ed = new DungeonEditor(f.Data, mod);
+                DungeonRoom d = Find(ed, "9100003");
+                Assert.That(d.IsAdded, Is.False);
+                ed.Remove(d);
+                Assert.That(ed.Rooms, Does.Contain(d));
+                Assert.That(d.IsDeleted, Is.True);
+                Assert.That(Body(mod), Does.Not.Contain("groupType=\"1\""));
+                ed.Restore(d);
+                Assert.That(d.IsDeleted, Is.False);
+                Assert.That(PlanOf(f, mod).Changes, Is.Empty);
+            }
+        }
+
+        [Test]
+        public void CloneCopiesTheTextOfEachLanguage()
+        {
+            using (var f = new FakeRooms())
+            {
+                Mod mod = Empty();
+                var ed = new DungeonEditor(f.Data, mod);
+                ed.Clone(Find(ed, "9100001"), 98000001);
+                Plan p = PlanOf(f, mod);
+                Assert.That(Fake.Text(p, K, "string/kr/" + DungeonRules.NameFile), Does.Contain("<key id=\"98000001\" name=\"Zinc Cellar\" />"));
+                Assert.That(Fake.Text(p, K, "string/en/" + DungeonRules.NameFile), Does.Contain("<key id=\"98000001\" name=\"Tin Cellar\" />"));
+                Assert.That(Fake.Text(p, S, "string/en/" + DungeonRules.NameFile), Does.Contain("<key id=\"98000001\" name=\"Tin Cellar\" />"));
+            }
+        }
+
+        [Test]
+        public void ALanguageFileThatCannotBeRead_IsReported()
+        {
+            using (var f = new FakeRooms(null, true))
+            {
+                Mod mod = Empty();
+                var ed = new DungeonEditor(f.Data, mod);
+                DungeonRoom d = ed.Add(98000001);
+                ed.SetText(d, "name", "Brass Attic");
+                Assert.That(ed.TextProblems, Has.Count.EqualTo(1));
+                Assert.That(ed.TextProblems[0], Does.Contain("string/jp/").And.Contain("names are not written there"));
+                Assert.That(ed.Check(d), Has.Some.Contains("string/jp/"));
+                Assert.That(Fake.Text(PlanOf(f, mod), K, "string/en/" + DungeonRules.NameFile), Does.Contain("Brass Attic"));
+            }
+        }
+
+        [Test]
+        public void RowsOfOneIdWithAnotherFeature_AreNotDuplicates()
+        {
+            string srv = FakeRooms.Srv.Replace("\t<dungeonRoom dungeonRoomID=\"9100003\"",
+                "\t<dungeonRoom dungeonRoomID=\"9100002\" feature=\"Tinfoil\" groupType=\"raid\" fieldIDs=\"07000002\" minUserCount=\"4\" maxUserCount=\"10\" playType=\"limitReward\" clearType=\"trigger\" cooldownType=\"dayOfWeeks\" />\n\t<dungeonRoom dungeonRoomID=\"9100003\"");
+            using (var f = new FakeRooms(srv))
+            {
+                Mod mod = Empty();
+                var ed = new DungeonEditor(f.Data, mod);
+                foreach (DungeonRoom d in ed.Rooms)
+                    if (ed.Get(d, DungeonRules.Key) == "9100002")
+                    {
+                        Assert.That(ed.Check(d), Has.None.Contains("times"));
+                        ed.Set(d, "gearScore", "1700");
+                    }
+                Plan p = PlanOf(f, mod);
+                Assert.That(Lines(p.Errors), Is.Empty);
+                Assert.That(Lines(p.Warnings), Has.None.Contains("times"));
             }
         }
 

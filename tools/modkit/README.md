@@ -951,8 +951,10 @@ own table and the two do not write a room the same way:
 2. Pick a room. The grid has the name, the description and a row per field, with a column for **every side** and a
    column per side. `≠` marks a field the sides do not agree on (many shipped rooms differ). An edit in **every side**
    sets the field on each side in that side's notation: 600 seconds become `durationSeconds="600"` on the Korean
-   client and `durationTick="600000"` on the server. A side's column shows the value in the Korean notation too. An edit in a side's column sets that side only. A grey cell is a field
-   that side does not have. **set fields only** hides the fields no side has a value for.
+   client and `durationTick="600000"` on the server. A side's column shows that side's value in the same form as
+   **every side**: the group type as a word, the time in seconds, map ids without leading zeros. An edit in a
+   side's column sets that side only. A grey cell is a field that side does not have. **set fields only** hides
+   the fields no side has a value for.
 3. **Add** makes a normal room for 1 to 4 players without a map and **Clone** a copy of the chosen room, under the id
    in **new id** or the next free one from 98000000 to 98009999, on every side. **Remove / restore** removes the room
    or brings a removed one back, **Undo changes** drops every change the mod makes to a shipped room. **Save mod**,
