@@ -875,16 +875,21 @@ For a random code the server cells are `min,max` pairs, and a panel under the gr
 number of lines an item gets per grade on the server (`optionNumPick`) and on the Korean client (`pickCount`), and
 the Korean row's lines with their `statID`, `weight`, the client range and the server `min,max` of the grade column
 chosen in the grid. The boxes over the lines set `pickCount`, `isRarePickOne`, `statGroup` and `levelGroupID`; type in
-a `statID` or `weight` cell to change a line, or fill **new line**, **statID** and **weight** and press **Add**;
-**Remove** drops the chosen line. The server ignores the weights. Fork and Revert code
+a `statID` or `weight` cell to change a line, or fill **new line** and **statID** and press **Add** (then type the
+weight in the new line's cell); **Remove** drops the chosen line. The server ignores the weights. Fork and Revert code
 work as for the other kinds and move `randomID` and `random` together.
+
+When the mod already changes a row in a hand-written `<edit>` that is mirrored to the other side, a cell you edit in
+the view on one side only is moved out of that line into a `mirror="false"` edit of the row, so the other side keeps
+its value; the other cells of the hand-written line stay mirrored.
 
 Plan checks every option the mods touch as it ends up in each target: an unknown stat, a value that is not a number,
 an `optionNumPick` that is empty (the server skips the row) or picks more lines than the row lists, a code twice in
 the Korean table, an item naming a code no server file has, and a code whose Korean tooltip and server stats differ. For a
 Korean random row the mods change: the row twice in the table, a `pickCount`, `statID` or `weight` that is not a
-number (a weight of 0 never picks the line), a `statID` without a row in the variation table (the client has no range
-for the line), and a `pickCount` larger than the number of lines.
+number (a weight of 0 never picks the line), an `isRarePickOne` that is not 0, 1, true or false, a `statID` without a
+row in the variation table (the client has no range for the line), a line whose name no shipped row uses (a warning:
+the client drops a line whose name is no stat), and a `pickCount` larger than the number of lines with a known name.
 
 ## Quests
 

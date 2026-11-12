@@ -140,7 +140,7 @@ namespace MS2.ModKit.Tests
                 // what the client cannot read is refused
                 Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandomLine(800000700, 0, "weight", "0")).Message, Does.Contain("never picks"));
                 Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandom(800000700, "pickCount", "-1")).Message, Does.Contain("whole number"));
-                Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandom(800000700, "isRarePickOne", "2")).Message, Does.Contain("0 or 1"));
+                Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandom(800000700, "isRarePickOne", "2")).Message, Does.Contain("0, 1, true or false"));
                 Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandom(800000700, "code", "5")).Message, Does.Contain("no attribute"));
                 Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandomLine(800000700, 0, "statID", "")).Message, Does.Contain("needs a statID"));
                 Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandomLine(800000700, 5, "weight", "2")).Message, Does.Contain("no line 6"));
@@ -148,6 +148,10 @@ namespace MS2.ModKit.Tests
                 Assert.That(Assert.Throws<ModKitException>(() => ed.SetKmsRandom(800000999, "pickCount", "1")).Message, Does.Contain("no option 800000999"));
                 Assert.That(m.Ops, Is.Empty);
 
+                // TinyXml's bool: "true" is the flag too, and the plan takes it
+                ed.SetKmsRandom(800000700, "isRarePickOne", "true");
+                Assert.That(ed.KmsRandomOf(800000700).PickCount(1), Is.EqualTo(0));
+                Assert.That(PlanOf(f, m).Errors, Is.Empty);
                 ed.SetKmsRandom(800000700, "isRarePickOne", "");
                 ed.SetKmsRandom(800000700, "pickCount", "3");
                 ed.SetKmsRandomLine(800000700, 1, "weight", "");
@@ -157,6 +161,9 @@ namespace MS2.ModKit.Tests
                 Assert.That(row.Edited, Is.True);
                 Assert.That(row.Lines.Select(l => l.Name + " " + l.StatId + " " + l.Weight), Is.EqualTo(new[] { "str 8001 5", "pen 8002 ", "dex 8002 2" }));
                 Assert.That(row.PickCount(1), Is.EqualTo(3));
+                // a cell is edited when what it shows changed: the pick count, not the line whose range is the same
+                Assert.That(ed.Cell(Side(ed, true), 800000700, 3, ItemOptionRules.Pick).Edited, Is.True);
+                Assert.That(ed.Cell(Side(ed, true), 800000700, 3, "str_value_base").Edited, Is.False);
                 Plan p = PlanOf(f, m);
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(p.Warnings, Is.Empty, Fake.Dump(p));
@@ -247,7 +254,7 @@ namespace MS2.ModKit.Tests
             {
                 string body = Edit(K, ItemOptionRules.KmsRandomEntry,
                     "<add><xml><option code=\"800000800\" pickCount=\"1\"><v name=\"dex\" statID=\"8001\" /></option></xml></add>" +
-                    "<add><xml><option code=\"900100007\" statGroup=\"x\" pickCount=\"4\"><v name=\"str\" statID=\"8001\" weight=\"0\" /><v name=\"pen\" statID=\"8555\" /></option></xml></add>") +
+                    "<add><xml><option code=\"900100007\" statGroup=\"x\" pickCount=\"4\"><v name=\"str\" statID=\"8001\" weight=\"0\" /><v name=\"pen\" statID=\"8555\" /><v name=\"nosuch\" statID=\"8001\" /></option></xml></add>") +
                     Edit(K, KItems, "<change at=\"item[id=99100001]/option\"><set name=\"randomID\" value=\"900100009\" /></change>") +
                     Edit(S, SItem, "<change at=\"environment/option\"><set name=\"random\" value=\"900100009\" /></change>") +
                     Edit(S, RFile, "<add><xml><option code=\"800000700\" grade=\"3\" optionNumPick=\"1,1\" str_value_base=\"1\" /></xml></add>" +
@@ -260,6 +267,7 @@ namespace MS2.ModKit.Tests
                 Assert.That(Has(p.Warnings, "random option 900100007: line pen: statID 8555 has no row in table/itemoptionvariation.xml"), Is.True, dump);
                 Assert.That(Has(p.Warnings, "random option 900100007: pickCount picks 4 lines but the row lists 2"), Is.True, dump);
                 Assert.That(Has(p.Warnings, "line str: statID 8001 has no row"), Is.False, dump);
+                Assert.That(Has(p.Warnings, "random option 900100007: line nosuch: no shipped row has a line of this name"), Is.True, dump);
                 Assert.That(Has(p.Errors, "item 99100001 names random option 900100009 (randomID, was 800000700) but the kms table table/itemoptionrandom.xml has no row of it"), Is.True, dump);
                 Assert.That(Has(p.Errors, "the item names random option 900100009 but no random option file the server reads has it"), Is.True, dump);
                 Assert.That(Has(p.Errors, "option 800000700 grade 3 is in"), Is.True, dump);

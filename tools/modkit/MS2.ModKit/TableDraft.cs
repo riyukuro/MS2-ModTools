@@ -24,10 +24,15 @@ namespace MS2.ModKit
         /// <summary>The selector a change or delete of this row uses; null for an added row.</summary>
         public string Selector;
         public RowOp Change, Delete, Add;
+        /// <summary>A second change of the row, in an &lt;edit mirror="false"&gt; after the mirrored edit that holds
+        /// Change: what an editor that edits each side itself sets on a row a hand-written, mirrored change names.
+        /// The two never set the same cell: a cell the editor sets leaves Change, the rest of Change is mirrored as written.</summary>
+        public RowOp Own;
+        internal bool ChangeMirrored;
 
         public bool IsAdded { get { return Add != null; } }
         public bool IsDeleted { get { return Delete != null; } }
-        public bool IsChanged { get { return Change != null; } }
+        public bool IsChanged { get { return Change != null || Own != null; } }
 
         /// <summary>A short name for the row header: "pet[id=100]", or "+ pet (copy of pet[id=101])".</summary>
         public string Label
@@ -91,14 +96,28 @@ namespace MS2.ModKit
         /// <summary>The value the row will have (null: the row has no such attribute).</summary>
         public string Get(TableRow row, string column)
         {
+            string v;
+            if (row.Own != null && Has(row.Own, column, out v)) return v;
+            return Under(row, column);
+        }
+
+        // the value without the row's own (not mirrored) change
+        string Under(TableRow row, string column)
+        {
+            string v;
             RowOp op = row.Add ?? row.Change;
-            if (op != null)
-                for (int i = op.Attrs.Count - 1; i >= 0; i--)
-                {
-                    AttrOp a = op.Attrs[i];
-                    if (IsCell(a) && a.Name == column) return a.Kind == AttrOpKind.Set ? a.Value : null;
-                }
-            return row.Base.Attr(column);
+            return op != null && Has(op, column, out v) ? v : row.Base.Attr(column);
+        }
+
+        static bool Has(RowOp op, string column, out string value)
+        {
+            for (int i = op.Attrs.Count - 1; i >= 0; i--)
+            {
+                AttrOp a = op.Attrs[i];
+                if (IsCell(a) && a.Name == column) { value = a.Kind == AttrOpKind.Set ? a.Value : null; return true; }
+            }
+            value = null;
+            return false;
         }
 
         /// <summary>The value in the original entry (for an added row: of the row it starts from).</summary>
@@ -117,6 +136,36 @@ namespace MS2.ModKit
         {
             if (!IsAttrName(column)) throw new ModKitException("\"" + column + "\" is not an XML attribute name");
             if (row.IsDeleted) throw new ModKitException("row " + row.Label + " is deleted; restore it before editing");
+            if (row.Add == null && row.Change != null && (row.Own != null || (NoMirror && row.ChangeMirrored)))
+            {
+                // the row's change is in an <edit> written to be mirrored: its other cells stay as written, and
+                // this value goes into a change of its own in the <edit mirror="false">. The mirrored change no
+                // longer sets this cell (Plan takes two values for one cell in a mod as a conflict), so the cell
+                // is no longer mirrored either
+                if (row.Own != null) row.Own.Attrs.RemoveAll(a => IsCell(a) && a.Name == column);
+                row.Change.Attrs.RemoveAll(a => IsCell(a) && a.Name == column);
+                if (row.Change.Attrs.Count == 0)
+                {
+                    Remove(row.Change);
+                    row.Change = row.Own;
+                    row.Own = null;
+                    row.ChangeMirrored = false;
+                    Set(row, column, value);    // nothing mirrored is left on the row: the plain case
+                    return;
+                }
+                if (value != row.Base.Attr(column))
+                {
+                    if (row.Own == null)
+                    {
+                        row.Own = new RowOp { Kind = RowOpKind.Change, At = row.Selector };
+                        Edit(true).Rows.Add(row.Own);
+                    }
+                    row.Own.Attrs.Add(value == null ? new AttrOp { Kind = AttrOpKind.Unset, Name = column } : new AttrOp { Kind = AttrOpKind.Set, Name = column, Value = value });
+                    AddColumn(column);
+                }
+                else if (row.Own != null && row.Own.Attrs.Count == 0) { Remove(row.Own); row.Own = null; }
+                return;
+            }
             RowOp op = row.Add ?? row.Change;
             if (op != null) op.Attrs.RemoveAll(a => IsCell(a) && a.Name == column);
             if (value != row.Base.Attr(column))
@@ -124,7 +173,9 @@ namespace MS2.ModKit
                 if (op == null)
                 {
                     op = row.Change = new RowOp { Kind = RowOpKind.Change, At = row.Selector };
-                    Edit(true).Rows.Add(op);
+                    EditOp into = Edit(true);
+                    into.Rows.Add(op);
+                    row.ChangeMirrored = into.Mirror;
                 }
                 op.Attrs.Add(value == null ? new AttrOp { Kind = AttrOpKind.Unset, Name = column } : new AttrOp { Kind = AttrOpKind.Set, Name = column, Value = value });
                 AddColumn(column);
@@ -157,9 +208,10 @@ namespace MS2.ModKit
             if (row.Add != null) { op.Copy = row.Add.Copy; op.Xml = row.Add.Xml; op.After = row.Add.After; op.Before = row.Add.Before; op.In = row.Add.In; }
             else op.Copy = row.Selector;
             RowOp from = row.Add ?? row.Change;
-            if (from != null)
-                foreach (AttrOp a in from.Attrs)
-                    op.Attrs.Add(new AttrOp { Kind = a.Kind, Name = a.Name, Value = a.Value, At = a.At });
+            foreach (RowOp o in new[] { from, row.Own })
+                if (o != null)
+                    foreach (AttrOp a in o.Attrs)
+                        op.Attrs.Add(new AttrOp { Kind = a.Kind, Name = a.Name, Value = a.Value, At = a.At });
             Edit(true).Rows.Add(op);
             var made = new TableRow { Add = op, Base = row.Base };
             Rows.Add(made);
@@ -195,9 +247,19 @@ namespace MS2.ModKit
                 return;
             }
             if (row.IsDeleted) return;
+            if (row.Own != null) { Remove(row.Own); row.Own = null; }
             if (row.Change != null) { Remove(row.Change); row.Change = null; }
             row.Delete = new RowOp { Kind = RowOpKind.Delete, At = row.Selector };
             Edit(true).Rows.Add(row.Delete);
+        }
+
+        /// <summary>Drops every cell the mod sets on an original row: its own change and the cells of a hand-written one.</summary>
+        public void RevertCells(TableRow row)
+        {
+            if (row.Own != null) { Remove(row.Own); row.Own = null; }
+            if (row.Change == null) return;
+            row.Change.Attrs.RemoveAll(IsCell);
+            if (row.Change.Attrs.Count == 0) { Remove(row.Change); row.Change = null; }
         }
 
         /// <summary>Takes back the delete of an original row.</summary>
@@ -303,7 +365,13 @@ namespace MS2.ModKit
                     if (row.Delete == null) row.Delete = r; else ed.Rows.Remove(r);
                     return;
                 }
-                if (row.Change == null) row.Change = r;
+                if (row.Change == null) { row.Change = r; row.ChangeMirrored = ed.Mirror; }
+                else if (row.ChangeMirrored && !ed.Mirror)
+                {
+                    // a change in an <edit mirror="false"> after a mirrored one stays apart (TableRow.Own)
+                    if (row.Own == null) row.Own = r;
+                    else { row.Own.Attrs.AddRange(r.Attrs); ed.Rows.Remove(r); }
+                }
                 else { row.Change.Attrs.AddRange(r.Attrs); ed.Rows.Remove(r); }     // two changes of one row are one change
                 foreach (AttrOp a in r.Attrs) if (IsCell(a)) AddColumn(a.Name);
                 return;

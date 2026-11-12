@@ -238,7 +238,7 @@ namespace MS2.ModKit
                         Dictionary<string, XmlElem> kmsRandomOrig = KmsRows(orig, origTwice);
                         foreach (string c in twice)
                             if (!origTwice.Contains(c)) plan.Msg(plan.Errors, mod, kmsArchive, e.Name, "random option " + c + " is in the table twice");
-                        HashSet<string> variation = null;
+                        HashSet<string> variation = null, names = null;
                         foreach (KeyValuePair<string, XmlElem> kv in kmsRandomFinal)
                         {
                             XmlElem had;
@@ -250,12 +250,20 @@ namespace MS2.ModKit
                                 if (bad != null) plan.Msg(plan.Errors, mod, kmsArchive, e.Name, label + bad);
                             }
                             if (variation == null) variation = VariationIds(run, kmsArchive);
+                            if (names == null)
+                            {
+                                // the line names the client knows are the ones the shipped table uses
+                                names = new HashSet<string>(StringComparer.Ordinal);
+                                foreach (XmlElem row in kmsRandomOrig.Values)
+                                    foreach (XmlElem v in row.Children) if (v.Name == "v" && v.Attr("name") != null) names.Add(v.Attr("name"));
+                            }
                             int lines = 0;
                             foreach (XmlElem v in kv.Value.Children)
                             {
                                 if (v.Name != "v") continue;
-                                lines++;
                                 string name = v.Attr("name") ?? "?";
+                                if (names.Contains(name)) lines++;
+                                else plan.Msg(plan.Warnings, mod, kmsArchive, e.Name, label + "line " + name + ": no shipped row has a line of this name; the client drops a line whose name is no stat");
                                 foreach (string at in new[] { "statID", "weight" })
                                 {
                                     string bad = ItemOptionRules.CheckKmsRandom(at, v.Attr(at));

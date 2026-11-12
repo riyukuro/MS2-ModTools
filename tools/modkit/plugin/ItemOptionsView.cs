@@ -60,7 +60,7 @@ namespace MS2.Tables
         readonly Label detailLabel = new Label { Dock = DockStyle.Top, AutoSize = false, Height = 34 };
         readonly DataGridView lineGrid = new DataGridView { Dock = DockStyle.Fill };
         readonly Dictionary<string, TextBox> attrBoxes = new Dictionary<string, TextBox>();
-        readonly TextBox addName = new TextBox { Width = 50 }, addId = new TextBox { Width = 62 }, addWeight = new TextBox { Width = 30 };
+        readonly TextBox addName = new TextBox { Width = 50 }, addId = new TextBox { Width = 58 };
         int detailGrade;
         readonly ToolTip tips = new ToolTip();
         readonly List<Control> lockable = new List<Control>();
@@ -150,9 +150,9 @@ namespace MS2.Tables
             foreach (string a in ItemOptionRules.KmsRandomAttrs)
             {
                 string name = a;
-                var box = new TextBox { Width = name == "isRarePickOne" ? 22 : 34 };
+                var box = new TextBox { Width = name == "isRarePickOne" ? 22 : 28 };
                 attrBoxes[name] = box;
-                attrBar.Controls.Add(Lbl(name));
+                attrBar.Controls.Add(Tight(name == "isRarePickOne" ? "rarePickOne" : name));
                 attrBar.Controls.Add(box);
                 box.Leave += delegate { if (!filling) Guard(delegate { SetAttr(name, box); }); };
                 box.KeyDown += delegate(object sender, KeyEventArgs e)
@@ -166,13 +166,12 @@ namespace MS2.Tables
             tips.SetToolTip(attrBoxes["isRarePickOne"], "kms client: 1 = a normal item gets no line, a rare one gets one, the grades above get pickCount; empty or 0 = every grade gets pickCount");
             tips.SetToolTip(attrBoxes["statGroup"], "kms client: the stat group of the row");
             tips.SetToolTip(attrBoxes["levelGroupID"], "kms client: the level group of the row");
-            attrBar.Controls.Add(Lbl("  new line"));
+            // one line at 1280x800: the new line's weight is typed in its cell after Add (empty = 1)
+            attrBar.Controls.Add(Tight("new line"));
             attrBar.Controls.Add(addName);
             tips.SetToolTip(addName, "The stat of the new line, a name the shipped table uses (str, pen, ...)");
-            attrBar.Controls.Add(Lbl("statID"));
+            attrBar.Controls.Add(Tight("statID"));
             attrBar.Controls.Add(addId);
-            attrBar.Controls.Add(Lbl("weight"));
-            attrBar.Controls.Add(addWeight);
             attrBar.Controls.Add(Btn("Add", "Adds the line to the kms client's row of the code", delegate { AddLine(); }));
             attrBar.Controls.Add(Btn("Remove", "Removes the chosen line from the kms client's row of the code", delegate { RemoveLine(); }));
             tips.SetToolTip(detailLabel, "The server rolls each line between the min,max of its own row and ignores the kms weights; the kms client shows the range of the line's statID");
@@ -246,6 +245,8 @@ namespace MS2.Tables
         {
             return new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, WrapContents = true, Padding = new Padding(2) };
         }
+
+        static Label Tight(string text) { return new Label { Text = text, AutoSize = true, Margin = new Padding(4, 8, 0, 0) }; }
 
         static Label Lbl(string text) { return new Label { Text = text, AutoSize = true, Margin = new Padding(6, 8, 0, 0) }; }
 
@@ -806,7 +807,7 @@ namespace MS2.Tables
                 if (row == null) sb.Append("The kms client's table has no row of this code.");
                 else
                 {
-                    sb.Append("kms client (pickCount").Append(row.Attr("isRarePickOne") == "1" ? ", isRarePickOne" : "").Append(')');
+                    sb.Append("kms client (pickCount").Append( ItemOptionRules.Flag(row.Attr("isRarePickOne")) ? ", isRarePickOne" : "").Append(')');
                     foreach (int g in shown) sb.Append("  ").Append(GradeName(g)).Append(' ').Append(row.PickCount(g));
                     sb.Append(row.Edited ? "   (row edited by the mod)" : "").Append("   The server ignores the weights.");
                 }
@@ -897,8 +898,8 @@ namespace MS2.Tables
         {
             if (code == 0) throw new ModKitException("choose a code first");
             EndEdits();
-            AfterKms(Editor().AddKmsRandomLine(code, addName.Text.Trim(), addId.Text.Trim(), addWeight.Text.Trim()));
-            addName.Text = addId.Text = addWeight.Text = "";
+            AfterKms(Editor().AddKmsRandomLine(code, addName.Text.Trim(), addId.Text.Trim(), ""));
+            addName.Text = addId.Text = "";
         }
 
         void RemoveLine()

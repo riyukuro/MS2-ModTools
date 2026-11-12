@@ -554,6 +554,55 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        [Test]
+        public void AnEditOfAHandMirroredRowStaysOnItsSide()
+        {
+            using (var f = new FakeOptions(false, true))
+            {
+                string hand = "<change at=\"option[code=800000100][grade=2]\"><set name=\"mar_value_base\" value=\"6\" /><set name=\"str_value_base\" value=\"2\" /></change>";
+                Mod m = FakeOptions.ModOf(Edit(G, CFile, hand));
+                var ed = new ItemOptionEditor(f.Data, m);
+                OptionSide gms = ed.Sides(OptionKind.Constant)[2];
+
+                // the editor changes a cell of the row the hand line names: the hand line keeps its other cell and
+                // is mirrored as before; the editor's value is a change of its own in an <edit mirror="false">
+                ed.Set(gms, 800000100, 2, "mar_value_base", "7");
+                List<EditOp> edits = m.Ops.OfType<EditOp>().ToList();
+                Assert.That(edits.Select(x => x.Mirror), Is.EqualTo(new[] { true, false }));
+                Assert.That(edits[0].Rows.Single().Attrs.Select(a => a.Name + "=" + a.Value), Is.EqualTo(new[] { "str_value_base=2" }), "one value per cell in the mod");
+                Assert.That(edits[1].Rows.Single().Attrs.Select(a => a.Name + "=" + a.Value), Is.EqualTo(new[] { "mar_value_base=7" }));
+                Assert.That(ed.Cell(gms, 800000100, 2, "mar_value_base").Value, Is.EqualTo("7"));
+                Assert.That(ed.Cell(gms, 800000100, 2, "str_value_base").Value, Is.EqualTo("2"));
+                Plan p = PlanOf(f, m);
+                // (the fake global client has no str stat; that check is not what this test is about)
+                Assert.That(p.Errors.Where(x => !x.Text.Contains("no shipped constant file has the stat")), Is.Empty, Fake.Dump(p));
+                Assert.That(p.Conflicts, Is.Empty, Fake.Dump(p));
+                Assert.That(Line(Fake.Text(p, G, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"7\"").And.Contain("str_value_base=\"2\""));
+                Assert.That(Line(Fake.Text(p, S, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"4\"").And.Contain("str_value_base=\"2\""),
+                    "the editor's cell is not mirrored, the hand line's other cell is");
+
+                // it loads back as two changes of the row
+                Mod again = Mod.Parse(m.ToXml(), "mod.xml");
+                var ed2 = new ItemOptionEditor(f.Data, again);
+                OptionSide gms2 = ed2.Sides(OptionKind.Constant)[2];
+                Assert.That(ed2.Cell(gms2, 800000100, 2, "mar_value_base").Value, Is.EqualTo("7"));
+                ed2.Set(gms2, 800000100, 2, "mar_value_base", "8");
+                Assert.That(again.Ops.OfType<EditOp>().Select(x => x.Rows.Count), Is.EqualTo(new[] { 1, 1 }));
+                Assert.That(again.ToXml(), Does.Contain("value=\"8\"").And.Not.Contain("value=\"7\""));
+
+                // the shipped value again: the editor's change goes away, the hand line is all there is
+                ed.Set(gms, 800000100, 2, "mar_value_base", "4");
+                Assert.That(m.Ops.OfType<EditOp>().Select(x => x.Mirror), Is.EqualTo(new[] { true }));
+
+                // Revert code drops the row's changes, the hand line's too
+                ed.Set(gms, 800000100, 2, "mar_value_base", "9");
+                Assert.That(m.Ops.OfType<EditOp>().Count(x => x.Archive == G), Is.EqualTo(2));
+                ed.Revert(OptionKind.Constant, 800000100);
+                Assert.That(m.Ops.OfType<EditOp>().Count(), Is.EqualTo(0));
+                Assert.That(ed.Cell(gms, 800000100, 2, "mar_value_base").Value, Is.EqualTo("4"));
+            }
+        }
+
         static string CodeText(long c) { return c.ToString(System.Globalization.CultureInfo.InvariantCulture); }
 
         [Test]

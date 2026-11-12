@@ -115,7 +115,7 @@ namespace MS2.ModKit
         }
 
         // TinyXml's bool: "1" or "true" (any case)
-        static bool Flag(string v) { v = (v ?? "").Trim(); return v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase); }
+        public static bool Flag(string v) { v = (v ?? "").Trim(); return v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase); }
 
         /// <summary>The attributes of a kms random row the editor sets, and of its &lt;v&gt; lines.</summary>
         public static readonly string[] KmsRandomAttrs = { "pickCount", "isRarePickOne", "statGroup", "levelGroupID" };
@@ -129,7 +129,9 @@ namespace MS2.ModKit
             switch (attr)
             {
                 case "isRarePickOne":
-                    return v == "0" || v == "1" ? null : attr + ": \"" + value + "\" is not 0 or 1";
+                    // TinyXml's bool, as Flag reads it
+                    return v == "0" || v == "1" || string.Equals(v, "true", StringComparison.OrdinalIgnoreCase) || string.Equals(v, "false", StringComparison.OrdinalIgnoreCase)
+                        ? null : attr + ": \"" + value + "\" is not 0, 1, true or false";
                 case "levelGroupID":
                     return IsInt(v) ? null : attr + ": \"" + value + "\" is no whole number";
                 case "pickCount": case "statGroup": case "statID": case "weight": case "probVer":
@@ -961,8 +963,8 @@ namespace MS2.ModKit
                     foreach (TableRow r in rows)
                     {
                         foreach (XmlAttr a in r.Base.Attrs) if (!ItemOptionRules.IsKey(a.Name)) Add(l, rest, a.Name);
-                        RowOp op = r.Add ?? r.Change;
-                        if (op != null) foreach (AttrOp a in op.Attrs) if (string.IsNullOrEmpty(a.At) && a.Kind == AttrOpKind.Set && !ItemOptionRules.IsKey(a.Name)) Add(l, rest, a.Name);
+                        foreach (RowOp op in new[] { r.Add ?? r.Change, r.Own })
+                            if (op != null) foreach (AttrOp a in op.Attrs) if (string.IsNullOrEmpty(a.At) && a.Kind == AttrOpKind.Set && !ItemOptionRules.IsKey(a.Name)) Add(l, rest, a.Name);
                     }
                 }
             }
@@ -1403,7 +1405,7 @@ namespace MS2.ModKit
                         if (r.IsDeleted) { d.Restore(r); n++; }
                         if (r.IsChanged)
                         {
-                            foreach (string c in new List<string>(d.Columns)) if (d.IsEdited(r, c)) d.Set(r, c, r.Original.Attr(c));
+                            d.RevertCells(r);
                             n++;
                         }
                     }
