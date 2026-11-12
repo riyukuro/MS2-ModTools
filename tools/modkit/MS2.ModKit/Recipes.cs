@@ -21,6 +21,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 using MS2.ModKit.M2d;
 using MS2.ModKit.Xml;
 
@@ -574,6 +575,28 @@ namespace MS2.ModKit
             }
         }
 
+        /// <summary>The recipe ids a mod's &lt;add&gt; rows of the table give (the id it sets, else the id of its row text).</summary>
+        public static List<long> AddedIds(Mod mod)
+        {
+            var l = new List<long>();
+            var inRow = new Regex(@"\sid\s*=\s*[""'](\d+)[""']");
+            foreach (ModOp op in mod.Ops)
+            {
+                var ed = op as EditOp;
+                if (ed == null || !string.Equals(ed.Entry.Replace('\\', '/'), RecipeRules.Entry, StringComparison.OrdinalIgnoreCase)) continue;
+                foreach (RowOp r in ed.Rows)
+                {
+                    if (r.Kind != RowOpKind.Add) continue;
+                    string id = null;
+                    foreach (AttrOp a in r.Attrs) if (a.Kind == AttrOpKind.Set && a.Name == "id" && a.At == null) id = a.Value;
+                    if (id == null && r.Xml != null) { Match mt = inRow.Match(r.Xml); if (mt.Success) id = mt.Groups[1].Value; }
+                    long n;
+                    if (id != null && long.TryParse(id, NumberStyles.None, CultureInfo.InvariantCulture, out n)) l.Add(n);
+                }
+            }
+            return l;
+        }
+
         /// <summary>Takes back the removal of a shipped recipe.</summary>
         public void Restore(Recipe r)
         {
@@ -588,6 +611,8 @@ namespace MS2.ModKit
             List<long> free = IdSpaces.NextFreeGroupIds(Data, all, RecipeRules.Space, count + Recipes.Count, progress);
             var taken = new HashSet<long>();
             foreach (Recipe r in Recipes) taken.Add(Id(r));
+            // recipes other mods add without an <ids> range of their own
+            foreach (Mod m in all) if (m != Mod) foreach (long id in AddedIds(m)) taken.Add(id);
             free.RemoveAll(taken.Contains);
             if (free.Count > count) free.RemoveRange(count, free.Count - count);
             return free;

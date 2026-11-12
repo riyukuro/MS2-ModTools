@@ -57,7 +57,7 @@ Without `MS2_SERVER_DIR` the navmesh step is skipped with a note.
 | [tools/tok](tools/tok/README.md) | PathEngine ground meshes: `tokgeom` (map to geometry), `tokbuild` (geometry to `.tok`), Toolbench plugin |
 | [tools/m2d](tools/m2d/README.md) | read and repack `.m2d` archives |
 | [tools/modkit](tools/modkit/README.md) | mods as folders of row changes to the game's XML tables, applied to copies of the client and server archives: diff, conflict report, reserved ids, revert. Also map mods and the `map-*` commands that convert maps for the map editor, `trigger-lint` (trigger scripts, with `--strict` and the map's object ids with `--xblock` / `--exported`), `text-import` and `field-rows`. C# library (.NET 3.5 and 8) and a command line tool (.NET SDK 8+) |
-| [tools/modkit/plugin](tools/modkit/README.md#the-table-editor-in-toolbench) | MS2 Tables, a Toolbench plugin: a table of the archives as a grid, edits kept as a mod, plan / apply / revert into a workspace of copies. Its other views edit items, npcs, skills, quests, shops and drops, trigger scripts, map entities, texts and field rows into the same mod: see [Toolbench views](#toolbench-views) |
+| [tools/modkit/plugin](tools/modkit/README.md#the-table-editor-in-toolbench) | MS2 Tables, a Toolbench plugin: a table of the archives as a grid, edits kept as a mod, plan / apply / revert into a workspace of copies. Its other views edit items, npcs, skills, quests, shops and drops, recipes, trigger scripts, map entities, texts and field rows into the same mod: see [Toolbench views](#toolbench-views) |
 | [tools/mapedit](tools/mapedit/README.md) | shipped map to Toolbench project and back; scripted map edits |
 | [tools/toolbench](tools/toolbench/README.md) | run Gamebryo Toolbench / World Builder under Wine |
 | [glue/pathengine](glue/pathengine/README.md) | frozen client code that tokbuild compiles |
@@ -77,6 +77,7 @@ view writes into the same mod. The pictures are of a made-up data set, not of ga
 | [Skills](tools/modkit/README.md#skills-and-effects) | one skill or effect with its levels and texts; clone to a new id | both | [shot](docs/shots/skills.png) |
 | [Quests](tools/modkit/README.md#quests) | one quest: its file, texts and scripts; clone to a new id | both | [shot](docs/shots/quests.png) |
 | [Shops and Drops](tools/modkit/README.md#shops-and-drops) | a shop's stock and a drop box's rows; new ones under reserved ids | shops: server; drops: both | [shot](docs/shots/shops-drops.png) |
+| [Recipes](tools/modkit/README.md#recipes) | a mastery recipe: its fields, materials and results with icons; new ones under reserved ids | both | [shot](docs/shots/recipes.png) |
 | [Triggers](tools/modkit/README.md#triggers) | a map's trigger scripts as a tree, linted as shown | server (the clients carry copies) | [shot](docs/shots/triggers.png) |
 | [Text import](tools/modkit/README.md#text-import) | texts of the Korean client that are still Korean, filled from another client's string files | client | [shot](docs/shots/text-import.png) |
 | [Maps](tools/modkit/README.md#the-maps-view) | the entities a map file ships: set or unset their properties, remove them | both | [shot](docs/shots/maps.png) |

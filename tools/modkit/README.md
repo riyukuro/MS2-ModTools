@@ -791,6 +791,49 @@ Revert puts the data files back. It does not touch the game's database. When a c
 the server can keep per-character shop state there, such as how much of a limited stock row is bought. That stays
 after Revert, and also after the shop is removed. Clear it with your server's own tools if you need a clean state.
 
+## Recipes
+
+The **MS2 Recipes** view (menu **MS2 Mods > Recipes**) edits the mastery recipes of the life skills
+(`table/masteryreceipe.xml`): what mining, gathering, breeding and farming give, and what blacksmithing, engraving,
+alchemy, cooking and pet taming take and make. The client and the server each read the table from their own
+`Xml.m2d`, so a recipe is one thing: every edit is written to the Korean client and the server (and the global
+client, see [One mod, both sides](#one-mod-both-sides)).
+
+![The MS2 Recipes view on a made-up data set](../../docs/shots/recipes.png)
+
+1. The list has every recipe, with the first result's icon and name, its type and the mastery it needs. Pick a
+   type above it or **find** a recipe id or result item id to cut it down. A recipe the mod adds says `(new)`,
+   one it changes `(changed)`, one it removes `(removed)`.
+2. Pick a recipe. The form shows its fields with the shipped value and what a value means: the type's name, and
+   which grade a mastery value reaches with the top value of that type. `*` marks a field the mod changes, `≠` a
+   field whose shipped value differs between the sides; an edit sets it on every side.
+3. The grid below has its five results and five materials, with icons and names. Type an item id or pick one
+   with `...`; count and rank are numbers, and a material can carry a `:tag`. A result cannot: the client reads a
+   result as `id,rank,count` only.
+4. **Add** makes an empty recipe of the type picked above, **Clone** a copy of the shown one. Both take the id in
+   **new id**, or the next free id in 99000000-99009999 (ids the mod's `<ids>` ranges and other mods' new recipes
+   hold are skipped); the id is reserved in the mod. **Remove / restore** removes a shipped recipe on every side or
+   brings it back; a new recipe is gone again and its id is free. **Save mod**, **Plan**, **Apply** and **Revert**
+   are the Tables view's.
+
+The box under the grid lists what is wrong with the recipe, and **Plan** checks every recipe the mods add or change
+as it ends up in each target:
+
+| check | why |
+|---|---|
+| `masteryType "x" is not a recipe type` | the client knows types 3 to 11 |
+| `requireMastery N is above the top ... value` | no player reaches it (pet taming is left out: the client fixes its level) |
+| `... is not a number of 0 or more` | meso, mastery, experience and time are numbers |
+| `... is not "id,rank,count"` | the client splits an item on commas into exactly three parts |
+| `count N of item ... is not above 0` | the player would get or give nothing |
+| `item ... is a material and a result of the recipe` | most likely a slip |
+| `item ... is not an item of the ...` | that target has no such item |
+| `the recipe has no result` | it makes nothing (a shipped recipe the mod leaves alone is not flagged) |
+| `only on ...; not on ...` | the recipe is on one side only |
+| `no picture: ...` | the mastery window shows `MasteryReceipe/<id>.png` from `Image.m2d`; add one with an `<entry>` |
+
+A recipe a hand-written mod removed on one side only is not changed by the view; edit that mod by hand.
+
 ## Quests
 
 The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,

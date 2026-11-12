@@ -40,6 +40,7 @@ namespace MS2.ModKit.Tests
                 E("string/kr/npcname.xml", Keys("2900001", "Fake Mole", "2900002", "Gate Keeper Draft")),
                 E("string/kr/mapname.xml", Keys("9100001", "Fake Meadow", "9100002", "Dock Placeholder", "9100003", "Fake Far Shore")),
                 E("string/en/mapname.xml", MapNames), E("trigger/fake_meadow/gate.xml", Gate),
+                E(RecipeRules.Entry, DemoRecipes(false)), E(RecipeRules.MasteryEntry, DemoMastery),
                 E("table/fielddata.xml", Head + "<ms2>\n" +
                     Field("9100001", "fake_meadow") + Field("9100002", "fake_harbor") +
                     "\t<fieldData id=\"9100004\" />\n</ms2>\n"),
@@ -54,6 +55,7 @@ namespace MS2.ModKit.Tests
                 E("map/09100004.xml", Map("fake_cove", "\t\t<property continentCode=\"1\" mapType=\"1\" revivalreturnid=\"09100001\" />\n\t\t<bgm id=\"3\" />\n")),
                 E("map/09100005.xml", Map("fake_ridge", "\t\t<property continentCode=\"1\" mapType=\"2\" />\n\t\t<indoor type=\"1\" />\n")),
                 E("map/09100006.xml", Map("fake_attic", "")),
+                E(RecipeRules.Entry, DemoRecipes(true)), E(RecipeRules.MasteryEntry, DemoMastery),
             });
 
             // the server has two of the three new maps: the third is listed unticked
@@ -61,6 +63,7 @@ namespace MS2.ModKit.Tests
             {
                 E("map/09100004.xml", Map("fake_cove", "")), E("map/09100005.xml", Map("fake_ridge", "")),
                 E("string/en/mapname.xml", MapNames), E("trigger/fake_meadow/gate.xml", Gate),
+                E(RecipeRules.Entry, DemoRecipes(true)), E(RecipeRules.MasteryEntry, DemoMastery),
             });
 
             // the map files of our client: the objects the trigger lint checks the ids of the scripts against (the
@@ -100,12 +103,49 @@ namespace MS2.ModKit.Tests
                 "item/icon/1200001.png", "item/icon/1200002.png", "item/icon/1200003.png", "item/icon/1200005.png", "item/icon/3300009.png",
                 "item/icon/5001.png", "item/icon/5002.png", "item/icon/5003.png", "item/icon/9002.png", "item/icon/9100.png",
                 "Portrait/Npc/fake_mole.png", "Portrait/Npc/fake_guard.png",
+                "MasteryReceipe/10000101.png", "MasteryReceipe/10000102.png", "MasteryReceipe/10000103.png", "MasteryReceipe/30000101.png",
             })
                 images.Add(new KeyValuePair<string, byte[]>(name, Icon(name)));
             Directory.CreateDirectory(Path.Combine(k, "Resource"));
             M2dWriter.Create(Path.Combine(k, "Resource", "Image.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, images);
             WriteModels(k);
         }
+
+        // made-up recipes of the Recipes view: crafts and gathering over the demo items; the server asks more mesos
+        // for the drum and has one gathering recipe the client lacks
+        static string DemoRecipes(bool server)
+        {
+            return Head + "<ms2>\n" +
+                Recipe("10000101", 10, "0", "", new[] { "5001,1,2", "5002,1,1" }, new[] { "1200001,1,1" }, "") +
+                Recipe("10000102", 7, "100", server ? "500" : "300", new[] { "5003,1,3", "5001,1,1" }, new[] { "1200002,1,1" }, "") +
+                Recipe("10000103", 9, "0", "", new[] { "5002,1,2" }, new[] { "3300009,1,1", "5003,1,1" }, "") +
+                Recipe("10000104", 8, "200", "1000", new[] { "1200001,1,1", "5003,1,2" }, new[] { "1200003,1,1" }, "") +
+                Recipe("30000101", 3, "0", "", new string[0], new[] { "5003,1,2" }, "9100001") +
+                (server ? Recipe("30000102", 4, "0", "", new string[0], new[] { "5002,1,1" }, "9100002") : "") +
+                Recipe("40000101", 11, "0", "", new[] { "9002,1,1" }, new[] { "9100,1,1" }, "") +
+                "</ms2>\n";
+        }
+
+        static string Recipe(string id, int type, string mastery, string meso, string[] materials, string[] results, string habitat)
+        {
+            var sb = new StringBuilder("\t<receipe id=\"" + id + "\" masteryType=\"" + type + "\" exceptRewardExp=\"0\" requireMastery=\"" + mastery +
+                "\" requireMeso=\"" + meso + "\" requireQuest=\"\" rewardExp=\"\" rewardMastery=\"" + (type == 11 ? "0" : "5") + "\" gatheringTime=\"" + (RecipeRules.IsGathering(type) ? "3000" : "") +
+                "\" highPropLimitCount=\"\" normalPropLimitCount=\"\"");
+            for (int i = 0; i < RecipeRules.Slots; i++) sb.Append(" requireItem" + (i + 1) + "=\"" + (i < materials.Length ? materials[i] : "") + "\"");
+            sb.Append(" habitatMapId=\"" + habitat + "\"");
+            for (int i = 0; i < RecipeRules.Slots; i++) sb.Append(" rewardItem" + (i + 1) + "=\"" + (i < results.Length ? results[i] : "") + "\"");
+            return sb.Append(" feature=\"\" />\n").ToString();
+        }
+
+        static string MasteryType(int type, params int[] values)
+        {
+            var sb = new StringBuilder("\t<mastery type=\"" + type + "\">\n");
+            for (int i = 0; i < values.Length; i++) sb.Append("\t\t<v grade=\"" + (i + 1) + "\" value=\"" + values[i] + "\" />\n");
+            return sb.Append("\t</mastery>\n").ToString();
+        }
+
+        static readonly string DemoMastery = Head + "<ms2>\n" + MasteryType(3, 0, 100, 400) + MasteryType(4, 0, 100, 400) + MasteryType(7, 0, 150, 600) +
+            MasteryType(8, 0, 150, 600) + MasteryType(9, 0, 150, 600) + MasteryType(10, 0, 150, 600) + MasteryType(11, 0, 50) + "</ms2>\n";
 
         static readonly string MapNames = Keys("9100001", "Fake Meadow", "9100002", "Fake Harbor", "9100003", "Fake Far Shore", "9100004", "Fake Cove", "9100005", "Fake Ridge", "9100006", "Fake Attic");
 

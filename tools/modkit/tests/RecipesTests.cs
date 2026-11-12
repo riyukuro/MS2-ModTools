@@ -198,6 +198,36 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void NextIdsSkipIdsOtherModsAdd()
+        {
+            using (var f = new FakeRecipes())
+            {
+                string row = "<receipe id=\"" + RecipeRules.From + "\" masteryType=\"10\" rewardItem1=\"5002,1,1\" />";
+                Mod other = FakeRecipes.ModOf("<edit archive=\"" + K + "\" entry=\"" + RecipeRules.Entry + "\"><add><xml>" + row + "</xml></add></edit>", "recipes.other");
+                Assert.That(other.Ids, Is.Empty, "no <ids> range");
+                var ed = new RecipeEditor(f.Data, Empty());
+                Assert.That(ed.NextIds(new[] { other }, 1, null), Is.EqualTo(new long[] { RecipeRules.From + 1 }));
+            }
+        }
+
+        [Test]
+        public void ARecipeRemovedOnOneSideIsNotChanged()
+        {
+            using (var f = new FakeRecipes())
+            {
+                // a hand-written mod removes 10000001 F on the server only
+                Mod m = FakeRecipes.ModOf("<edit archive=\"" + S + "\" entry=\"" + RecipeRules.Entry + "\"><delete at=\"receipe[id=10000001][feature=F]\" /></edit>");
+                string before = m.ToXml();
+                var ed = new RecipeEditor(f.Data, m);
+                Recipe r = Find(ed, "10000001", "F");
+                Assert.That(r.Rows[1].IsDeleted); Assert.That(r.Rows[0].IsDeleted, Is.False);
+                Assert.Throws<ModKitException>(() => ed.Set(r, "requireMeso", "50"));
+                Assert.That(ed.Get(r, "requireMeso"), Is.EqualTo(""), "the client side is not written");
+                Assert.That(m.ToXml(), Is.EqualTo(before));
+            }
+        }
+
+        [Test]
         public void NewIdMovesTheReservation()
         {
             using (var f = new FakeRecipes())
