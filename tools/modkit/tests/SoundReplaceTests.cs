@@ -50,9 +50,9 @@ namespace MS2.ModKit.Tests
 
         public static byte[] Join(params byte[][] parts) { return parts.SelectMany(p => p).ToArray(); }
 
-        public static byte[] Frames(int n, bool mono = false, byte fill = 0x55)
+        public static byte[] Frames(int n, bool mono = false, byte fill = 0x55, int layer = 3)
         {
-            return Join(Enumerable.Range(0, n).Select(i => Frame(mono, i % 3 == 1, (byte)(fill + i))).ToArray());
+            return Join(Enumerable.Range(0, n).Select(i => Frame(mono, i % 3 == 1, (byte)(fill + i), layer)).ToArray());
         }
 
         public static byte[] Id3v2(int size)
@@ -293,15 +293,17 @@ namespace MS2.ModKit.Tests
         {
             SoundBank b = SoundBank.Read(new MemoryStream(Bank(Three())), "MS2Sound_Fake.fsb");
             Mod m = Mod.Parse("<mod id=\"s\" name=\"t\" version=\"1\"></mod>", "t");
-            byte[] mp3 = FakeMpeg.Frames(3);
-            Assert.That(() => m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], new byte[] { 1, 2, 3 }, "x.mp3"), Throws.TypeOf<ModKitException>());
-            Assert.That(m.Samples, Is.Empty, "a file that does not read changes nothing");
-            SampleOp op = m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], mp3, "new.mp3");
-            Assert.That(new object[] { op.Index, op.Name, op.File }, Is.EqualTo(new object[] { 1, "Tune_B", "files/sound/Fake/1.mp3" }));
-            Assert.That(m.Files[op.File], Is.SameAs(mp3));
-            m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], mp3, "new.MP2");
-            Assert.That(m.Samples.Single().File, Is.EqualTo("files/sound/Fake/1.mp2"));
-            Assert.That(m.Files.Keys, Is.EqualTo(new[] { "files/sound/Fake/1.mp2" }), "the earlier file goes");
+            byte[] mp2 = FakeMpeg.Frames(3, layer: 2), mp2b = FakeMpeg.Frames(4, layer: 2);
+            Assert.That(() => m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], new byte[] { 1, 2, 3 }, "x.mp2"), Throws.TypeOf<ModKitException>());
+            Assert.That(() => m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], FakeMpeg.Frames(3), "x.mp3"), Throws.TypeOf<ModKitException>().With.Message.Contains("layer III").And.Message.Contains("-c:a mp2"));
+            Assert.That(m.Samples, Is.Empty, "a file that does not read or does not play changes nothing");
+            SampleOp op = m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], mp2, "new.mp2");
+            Assert.That(new object[] { op.Index, op.Name, op.File }, Is.EqualTo(new object[] { 1, "Tune_B", "files/sound/Fake/1.mp2" }));
+            Assert.That(m.Files[op.File], Is.SameAs(mp2));
+            m.SetSample("MS2Sound_Fake.fsb", b.Samples[1], mp2b, "named.MP3");
+            Assert.That(m.Samples.Single().File, Is.EqualTo("files/sound/Fake/1.mp2"), "layer II named .mp3 is kept as .mp2");
+            Assert.That(m.Files.Keys, Is.EqualTo(new[] { "files/sound/Fake/1.mp2" }));
+            Assert.That(m.Files[op.File], Is.SameAs(mp2b), "the earlier file goes");
             Assert.That(Mod.Parse(m.ToXml(), "again").Samples.Single().Name, Is.EqualTo("Tune_B"));
             Assert.That(m.TakeSample("MS2Sound_Fake.fsb", 1), Is.True);
             Assert.That(m.Samples, Is.Empty);
@@ -341,7 +343,7 @@ namespace MS2.ModKit.Tests
         }
 
         static string S(int index, string name, string file) { return "<sample bank=\"MS2Sound_Fake.fsb\" index=\"" + index + "\" name=\"" + name + "\" file=\"" + file + "\" />"; }
-        static KeyValuePair<string, byte[]> Mp3(string file, int frames, bool mono = false) { return new KeyValuePair<string, byte[]>(file, FakeMpeg.Frames(frames, mono)); }
+        static KeyValuePair<string, byte[]> Mp2(string file, int frames, bool mono = false) { return new KeyValuePair<string, byte[]>(file, FakeMpeg.Frames(frames, mono, layer: 2)); }
 
         [Test]
         public void Plan_NamesTheSample_AndWarnsAboutTheLength()
@@ -349,7 +351,7 @@ namespace MS2.ModKit.Tests
             using (var w = new World())
             {
                 // 77 frames of 1152 at 44100 Hz: 2.01 s for the 2 s Tune_A; 5 frames for the 1 s Tune_B
-                Mod m = w.Mod("a", S(0, "Tune_A", "files/a.mp3") + S(1, "Tune_B", "files/b.mp3"), Mp3("files/a.mp3", 77), Mp3("files/b.mp3", 5, mono: true));
+                Mod m = w.Mod("a", S(0, "Tune_A", "files/a.mp2") + S(1, "Tune_B", "files/b.mp2"), Mp2("files/a.mp2", 77), Mp2("files/b.mp2", 5, mono: true));
                 Plan p = w.F.Plan(m);
                 Assert.That(p.Errors, Is.Empty, EditorSession.Report(p));
                 PlanBank b = p.Banks.Single();
@@ -358,6 +360,9 @@ namespace MS2.ModKit.Tests
                 Assert.That(b.Samples.Select(s => s.Index + " " + s.Name + " " + s.ModId), Is.EqualTo(new[] { "0 Tune_A a", "1 Tune_B a" }));
                 Assert.That(p.Changes.Select(c => c.Archive + " " + c.Entry), Is.EquivalentTo(new[] { "client:Sound/MS2Sound_Fake.fsb sample 0 Tune_A", "client:Sound/MS2Sound_Fake.fsb sample 1 Tune_B" }));
                 Assert.That(p.Warnings.Select(x => x.Entry), Is.EqualTo(new[] { "sample 1 Tune_B" }), "0.01 s off is no warning");
+                Assert.That(p.Changes.First().ToString(), Does.Contain(" = new sound (files/"));
+                Assert.That(string.Join("\n", Targets.PlanLines(p, w.F.Data)), Does.Contain("kms-client: 2 change(s) in 2 sample(s) of 1 bank(s)"), "the summary counts the banks");
+                Assert.That(Targets.Where(3, 1, 2, 1), Is.EqualTo("3 entries of 1 archive(s) and 2 sample(s) of 1 bank(s)"));
                 Assert.That(p.Warnings.Single().Text, Does.Contain("keeps the shipped length"));
                 Assert.That(p.Notes.Select(x => x.Entry), Does.Contain("sample 1 Tune_B"), "48000 Hz stereo to 44100 Hz mono");
             }
@@ -368,7 +373,7 @@ namespace MS2.ModKit.Tests
         {
             using (var w = new World())
             {
-                var mp3 = Mp3("files/a.mp3", 3);
+                var mp3 = Mp2("files/a.mp2", 3);
                 Func<string, string> err = lines =>
                 {
                     Plan p = w.F.Plan(w.Mod("e" + Guid.NewGuid().ToString("N").Substring(0, 6), lines, mp3));
@@ -376,12 +381,16 @@ namespace MS2.ModKit.Tests
                     Assert.That(p.Banks.Sum(b => b.Samples.Count), Is.LessThanOrEqualTo(1), "a wrong line is left out");
                     return string.Join(" | ", p.Errors.Select(x => x.Text));
                 };
-                Assert.That(err(S(1, "Tune_A", "files/a.mp3")), Does.Contain("is Tune_B, not Tune_A"));
-                Assert.That(err(S(3, "Click", "files/a.mp3")), Does.Contain("has 3 samples"));
-                Assert.That(err(S(0, "Tune_A", "files/none.mp3")), Does.Contain("is not there"));
+                Assert.That(err(S(1, "Tune_A", "files/a.mp2")), Does.Contain("is Tune_B, not Tune_A"));
+                Assert.That(err(S(3, "Click", "files/a.mp2")), Does.Contain("has 3 samples"));
+                Assert.That(err(S(0, "Tune_A", "files/none.mp2")), Does.Contain("is not there"));
                 Assert.That(err(S(0, "Tune_A", "mod.xml")), Does.Contain("not an .mp2 or .mp3"));
-                Assert.That(err("<sample bank=\"MS2Sound_None.fsb\" index=\"0\" name=\"x\" file=\"files/a.mp3\" />"), Does.Contain("no bank MS2Sound_None.fsb"));
-                Assert.That(err(S(0, "Tune_A", "files/a.mp3") + S(0, "Tune_A", "files/a.mp3")), Does.Contain("replaces this sample twice"));
+                string l3 = "e" + Guid.NewGuid().ToString("N").Substring(0, 6);
+                Plan p3 = w.F.Plan(w.Mod(l3, S(0, "Tune_A", "files/c.mp3"), new KeyValuePair<string, byte[]>("files/c.mp3", FakeMpeg.Frames(77))));
+                Assert.That(p3.Errors.Single().Text, Does.Contain("layer III (.mp3) does not play"), "layer III is refused");
+                Assert.That(p3.Banks, Is.Empty);
+                Assert.That(err("<sample bank=\"MS2Sound_None.fsb\" index=\"0\" name=\"x\" file=\"files/a.mp2\" />"), Does.Contain("no bank MS2Sound_None.fsb"));
+                Assert.That(err(S(0, "Tune_A", "files/a.mp2") + S(0, "Tune_A", "files/a.mp2")), Does.Contain("replaces this sample twice"));
             }
         }
 
@@ -390,8 +399,8 @@ namespace MS2.ModKit.Tests
         {
             using (var w = new World())
             {
-                Mod a = w.Mod("a", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 77));
-                Mod b = w.Mod("b", S(0, "Tune_A", "files/b.mp3"), Mp3("files/b.mp3", 76, mono: true));
+                Mod a = w.Mod("a", S(0, "Tune_A", "files/a.mp2"), Mp2("files/a.mp2", 77));
+                Mod b = w.Mod("b", S(0, "Tune_A", "files/b.mp2"), Mp2("files/b.mp2", 76, mono: true));
                 Plan p = w.F.Plan(a, b);
                 PlanMessage c = p.Conflicts.Single();
                 Assert.That(c.WinnerId, Is.EqualTo("b"));
@@ -406,8 +415,8 @@ namespace MS2.ModKit.Tests
         {
             using (var w = new World())
             {
-                Mod m = w.Mod("a", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 77));
-                string f = Path.Combine(m.Dir, "files", "a.mp3");
+                Mod m = w.Mod("a", S(0, "Tune_A", "files/a.mp2"), Mp2("files/a.mp2", 77));
+                string f = Path.Combine(m.Dir, "files", "a.mp2");
                 Plan p;
                 using (new FileStream(f, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
                 {
@@ -415,7 +424,7 @@ namespace MS2.ModKit.Tests
                     catch (IOException) { }
                     p = w.F.Plan(m);
                 }
-                Assert.That(p.Errors.Single().Text, Does.Contain("a.mp3"), EditorSession.Report(p));
+                Assert.That(p.Errors.Single().Text, Does.Contain("a.mp2"), EditorSession.Report(p));
                 Assert.That(p.Banks.Sum(b => b.Samples.Count), Is.EqualTo(0));
                 Assert.That(w.F.Plan(m).Errors, Is.Empty, "the same file once it is free");
             }
@@ -426,7 +435,7 @@ namespace MS2.ModKit.Tests
         {
             using (var w = new World())
             {
-                Mod m = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod m = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
                 string bank = Path.Combine(w.Sound, "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
 
                 // a .modkit-orig without any record of this tool: not taken for the shipped bank
@@ -459,7 +468,7 @@ namespace MS2.ModKit.Tests
         {
             using (var w = new World())
             {
-                Mod m = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod m = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
                 var ws = new Workspace(Path.Combine(w.F.Dir, "ws"));
                 ApplyResult r = ws.Apply(w.F.Data, new[] { m }, null);
                 Assert.That(r.Applied, Is.True, EditorSession.Report(r));
@@ -501,7 +510,7 @@ namespace MS2.ModKit.Tests
             {
                 string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
                 var lt = new LooseTarget(g);
-                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
                 ApplyResult r = lt.Apply(w.F.Data, new[] { a }, null);
                 Assert.That(r.Applied, Is.True, EditorSession.Report(r));
                 Assert.That(r.Written, Is.EqualTo(new[] { bank }));
@@ -514,7 +523,7 @@ namespace MS2.ModKit.Tests
                     Is.EqualTo(new[] { "MS2Sound_Fake.fsb", "MS2Sound_Fake.fsb.modkit-orig" }), "no temporary file is left");
 
                 // a second apply builds from the shipped bank again, not from the one in place
-                Mod b = w.Mod("b", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 77));
+                Mod b = w.Mod("b", S(0, "Tune_A", "files/a.mp2"), Mp2("files/a.mp2", 77));
                 r = lt.Apply(w.F.Data, new[] { b }, null);
                 Assert.That(r.Applied, Is.True, EditorSession.Report(r));
                 SoundBank now = SoundBank.Read(bank);
@@ -544,7 +553,7 @@ namespace MS2.ModKit.Tests
             {
                 string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
                 var lt = new LooseTarget(g);
-                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
 
                 // a backup of someone else's
                 File.WriteAllBytes(orig, new byte[] { 1 });
@@ -588,9 +597,9 @@ namespace MS2.ModKit.Tests
             {
                 string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
                 var lt = new LooseTarget(g);
-                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
-                Mod b = w.Mod("b", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 77));
-                Mod c = w.Mod("c", S(0, "Tune_A", "files/a.mp3"), Mp3("files/a.mp3", 60));
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
+                Mod b = w.Mod("b", S(0, "Tune_A", "files/a.mp2"), Mp2("files/a.mp2", 77));
+                Mod c = w.Mod("c", S(0, "Tune_A", "files/a.mp2"), Mp2("files/a.mp2", 60));
                 Assert.That(lt.Apply(w.F.Data, new[] { a }, null).Applied, Is.True);
                 byte[] aBank = File.ReadAllBytes(bank);
 
@@ -626,7 +635,7 @@ namespace MS2.ModKit.Tests
             {
                 string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
                 var lt = new LooseTarget(g);
-                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
                 string shipped = SoundReplace.Sha1File(bank);
 
                 // the game holds the bank open on the first apply: the shipped bank never goes aside
@@ -663,7 +672,7 @@ namespace MS2.ModKit.Tests
             {
                 string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
                 var lt = new LooseTarget(g);
-                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
                 Assert.That(lt.Apply(w.F.Data, new[] { a }, null).Applied, Is.True);
                 byte[] mine = File.ReadAllBytes(bank);
                 File.Delete(orig);
@@ -691,7 +700,7 @@ namespace MS2.ModKit.Tests
                 Directory.CreateDirectory(Path.Combine(g, "Data"));
                 try { Directory.CreateSymbolicLink(Path.Combine(g, "Data", "Sound"), shared); }
                 catch (Exception x) when (x is IOException || x is UnauthorizedAccessException) { Assert.Ignore("no symbolic links here: " + x.Message); }
-                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp2"), Mp2("files/b.mp2", 5));
                 ApplyResult r = new LooseTarget(g).Apply(w.F.Data, new[] { a }, null);
                 Assert.That(r.Applied, Is.False);
                 Assert.That(r.Plan.Errors.Single().Text, Does.Contain("is a link"));

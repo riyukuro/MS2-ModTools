@@ -51,6 +51,15 @@ namespace MS2.ModKit
             return s;
         }
 
+        /// <summary>"3 entries of 1 archive(s)", "2 sample(s) of 1 bank(s)", or both joined with "and".</summary>
+        public static string Where(int entries, int archives, int samples, int banks)
+        {
+            string a = entries + (entries == 1 ? " entry" : " entries") + " of " + archives + " archive(s)";
+            string b = samples + " sample(s) of " + banks + " bank(s)";
+            if (banks == 0) return a;
+            return archives == 0 ? b : a + " and " + b;
+        }
+
         static int Count(List<PlanMessage> list, string root)
         {
             int n = 0;
@@ -80,9 +89,16 @@ namespace MS2.ModKit
                     archives++;
                     entries += a.Put.Count + a.Delete.Count;
                 }
+                int banks = 0, samples = 0;
+                foreach (PlanBank b in p.Banks)
+                {
+                    if (RootOfRef(b.Ref) != root) continue;
+                    banks++;
+                    samples += b.Samples.Count;
+                }
                 int e = Count(p.Errors, root), k = Count(p.Conflicts, root), w = Count(p.Warnings, root);
                 var sb = new StringBuilder(NameOf(root)).Append(": ");
-                if (entries == 0 && changes == 0) sb.Append("nothing to change");
+                if (entries == 0 && changes == 0 && samples == 0) sb.Append("nothing to change");
                 else
                 {
                     sb.Append(changes).Append(" change(s)");
@@ -93,7 +109,7 @@ namespace MS2.ModKit
                         if (mirrored > 0) how.Add(mirrored + " mirrored");
                         sb.Append(" (").Append(string.Join(", ", how.ToArray())).Append(')');
                     }
-                    sb.Append(" in ").Append(entries).Append(entries == 1 ? " entry" : " entries").Append(" of ").Append(archives).Append(" archive(s)");
+                    sb.Append(" in ").Append(Where(entries, archives, samples, banks));
                 }
                 if (e + k + w > 0) sb.Append("; ").Append(e).Append(" error(s), ").Append(k).Append(" conflict(s), ").Append(w).Append(" warning(s)");
                 lines.Add(sb.ToString());

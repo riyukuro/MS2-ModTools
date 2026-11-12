@@ -9,7 +9,7 @@ using MS2.ModKit.Xml;
 
 namespace MS2.ModKit
 {
-    public enum ChangeKind { SetAttr, RemoveAttr, SetText, AddRow, DeleteRow, AddEntry, ReplaceEntry, DeleteEntry }
+    public enum ChangeKind { SetAttr, RemoveAttr, SetText, AddRow, DeleteRow, AddEntry, ReplaceEntry, DeleteEntry, ReplaceSample }
 
     /// <summary>One line of the dry-run diff.</summary>
     public sealed class PlanChange
@@ -49,6 +49,7 @@ namespace MS2.ModKit
                 case ChangeKind.DeleteRow: return where + " - " + OneLine(OldValue);
                 case ChangeKind.AddEntry: return where + " + entry (" + NewValue + ")";
                 case ChangeKind.ReplaceEntry: return where + " = entry (" + NewValue + ")";
+                case ChangeKind.ReplaceSample: return where + " = new sound (" + NewValue + ")";
                 default: return where + " - entry";
             }
         }

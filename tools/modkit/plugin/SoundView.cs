@@ -92,7 +92,7 @@ namespace MS2.Tables
             mapBar.Controls.Add(Btn("Undo map", "Takes the mod's music lines of the map shown out: every side plays the shipped cues again", delegate { UndoMap(); }));
             mapBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
 
-            bankBar.Controls.Add(Btn("Replace sample...", "Gives the selected sample new sound from an .mp3 or .mp2 file (kept in the mod); the client finds it by its index, so its name and place stay", delegate { ReplaceSample(); }));
+            bankBar.Controls.Add(Btn("Replace sample...", "Gives the selected sample new sound from an .mp2 file (MPEG layer II, as the shipped samples) (kept in the mod); the client finds it by its index, so its name and place stay", delegate { ReplaceSample(); }));
             bankBar.Controls.Add(Btn("Take out", "Takes the mod's new sound of the selected sample out: the shipped sound plays again", delegate { TakeSample(); }));
             bankBar.Controls.Add(Job("Plan", "Shows what the enabled mods and the pending edits would change; writes nothing", delegate { return host.DoPlan(); }));
             bankBar.Controls.Add(Job("Apply", "Saves the mod being edited and writes what the enabled mods change, to every target at once", delegate { return host.DoApply(); }));
@@ -463,7 +463,7 @@ namespace MS2.Tables
             string idle = Maps
                 ? "a map's normal and boss cells set the cue it plays (F4: pick one by id or name; empty: no music); the kms client's row and the server's map file are set, the mirror writes the global client's"
                 : Music ? "read only: no playback; the maps' music is set in Maps; what else a mod would need is in the README (Sound and music)"
-                : "no playback; Replace sample... gives the selected sample new sound from an .mp3 or .mp2 file (the client finds a sample by its index); the event project's segment length stays";
+                : "no playback; Replace sample... gives the selected sample new sound from an .mp2 file (MPEG layer II, as the shipped samples) (the client finds a sample by its index); the event project's segment length stays";
             OutputWrap.Set(outputBox, said.Count == 0 ? idle : string.Join("\r\n", said.ToArray()));
             Show(Selected());
         }
@@ -759,7 +759,7 @@ namespace MS2.Tables
             Mod m = host.SharedSession().Mod;
             if (m == null) throw new ModKitException("open or start a mod in the MS2 Tables view first");
             string path;
-            using (var d = new OpenFileDialog { Title = "New sound for sample " + x.Index + " " + x.Name, Filter = "MPEG audio (*.mp3;*.mp2)|*.mp3;*.mp2|All files|*.*", CheckFileExists = true })
+            using (var d = new OpenFileDialog { Title = "New sound for sample " + x.Index + " " + x.Name, Filter = "MPEG layer II audio (*.mp2)|*.mp2|MPEG audio (*.mp2;*.mp3)|*.mp2;*.mp3|All files|*.*", CheckFileExists = true })
             {
                 if (d.ShowDialog(this) != DialogResult.OK) return;
                 path = d.FileName;

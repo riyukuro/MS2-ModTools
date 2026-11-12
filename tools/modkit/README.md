@@ -1846,7 +1846,7 @@ kms client data folder of the MS2 Tables view's settings.
 - **Banks** lists the bank files with their sample counts and sizes. Select a bank to see its samples: name, length
   in seconds, channels, rate, bytes and whether it loops. A bank whose header hash is not in the project is flagged,
   because the client is not expected to load it. **Replace sample...** gives the selected sample new sound from an
-  `.mp3` or `.mp2` file, which goes into the mod as `files/sound/<bank>/<index>.mp3`. **Take out** drops it again.
+  `.mp2` file (MPEG layer II), which goes into the mod as `files/sound/<bank>/<index>.mp2`. **Take out** drops it again.
   A replaced sample's row is green, and the last column names the mod's file. **Plan**, **Apply**, **Revert** and
   **Save mod** work as in **Maps**.
 
@@ -1858,7 +1858,7 @@ What a mod can do with sound today:
   mod:
 
   ```xml
-  <sample bank="MS2Sound_BGM.fsb" index="12" name="Field_Town_A" file="files/sound/BGM/12.mp3" />
+  <sample bank="MS2Sound_BGM.fsb" index="12" name="Field_Town_A" file="files/sound/BGM/12.mp2" />
   ```
 
   The client finds a sample by its index, not by its name. The event project names a bank and an index for each
@@ -1868,8 +1868,13 @@ What a mod can do with sound today:
   The name is checked against the shipped bank, so a mod made for another client version stops with an error
   instead of replacing the wrong sample. Two mods on one sample are a conflict; the later mod in the order wins.
 
-  The file must be MPEG-1 or MPEG-2 audio, layer II or III, because the banks hold MPEG. ID3 and APE tags and a
-  Xing/Info frame are left out. A file of mixed frame kinds, layer I or free format is refused.
+  The file must be MPEG-1 or MPEG-2 audio, layer II, because the banks hold MPEG and every shipped sample is
+  layer II. Layer III (`.mp3`) is refused. In game on a private test client, a self-made layer III sample played
+  only a low hum, with or without the bit reservoir. The same sound as layer II played: a 5 s tone in place of the
+  login screen's start sample, then a looping two-tone sound in place of its loop sample. To convert:
+  `ffmpeg -i in.wav -c:a mp2 -b:a 192k out.mp2`. ID3, APE and Lyrics3 tags, a Xing/Info frame and zero padding at
+  the end are left out. A file of mixed frame kinds, layer I or free format is refused. The length warning leaves
+  out the encoder's delay and padding when a LAME tag gives them.
 
   The length stays the project's. The client goes on to the next music segment when the segment's time is up, not
   when the sample ends: in game, a 69 s sample in a 5 s segment played for 5 s. So a new sound that is longer is

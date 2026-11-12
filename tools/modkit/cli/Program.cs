@@ -447,8 +447,9 @@ exit code: 0 done, 1 the mods have errors or conflicts (nothing written), 2 bad 
             foreach (string l in p.LeftOut()) o.Append(l).Append('\n');
             int entries = 0;
             foreach (PlanArchive a in p.Archives) entries += a.Put.Count + a.Delete.Count;
-            o.Append(p.Mods.Count).Append(" mod(s): ").Append(p.Changes.Count).Append(" change(s) in ").Append(entries).Append(" entr").Append(entries == 1 ? "y" : "ies").Append(" of ")
-             .Append(p.Archives.Count).Append(" archive(s); ").Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ").Append(p.Warnings.Count).Append(" warning(s)\n");
+            int samples = 0;
+            foreach (PlanBank b in p.Banks) samples += b.Samples.Count;
+            o.Append(p.Mods.Count).Append(" mod(s): ").Append(p.Changes.Count).Append(" change(s) in ").Append(Targets.Where(entries, p.Archives.Count, samples, p.Banks.Count)).Append("; ").Append(p.Errors.Count).Append(" error(s), ").Append(p.Conflicts.Count).Append(" conflict(s), ").Append(p.Warnings.Count).Append(" warning(s)\n");
             o.Append(Targets.Line(x.Data)).Append('\n');
             foreach (string l in Targets.PlanLines(p, x.Data)) o.Append("  ").Append(l).Append('\n');
             Console.Write(o);

@@ -1,6 +1,6 @@
 // Sample replace: a mod gives a sample of a shipped FMOD bank new sound.
 //
-//   <sample bank="MS2Sound_BGM.fsb" index="12" name="Field_Town_A" file="files/sound/BGM/12.mp3" />
+//   <sample bank="MS2Sound_BGM.fsb" index="12" name="Field_Town_A" file="files/sound/BGM/12.mp2" />
 //
 // The client finds a sample by its place in the bank, not by its name: the event project (MS2Sound.fev) names the
 // bank and the index for each music segment and sound definition. This was checked in game on a private test client
@@ -9,8 +9,10 @@
 // the sample header of the sample it names. index decides; name is checked against the shipped bank, so a mod made
 // for another client version stops with an error instead of replacing another sample.
 //
-// The new sound is an MPEG audio file (MPEG-1 or 2, layer II or III: .mp2 or .mp3), as the MS2 banks hold MPEG
-// (codec mode 11). Its frames go into the bank as they are, without the ID3 tags and a Xing/Info frame.
+// The new sound is an MPEG-1 or 2 layer II file (.mp2), as the MS2 banks hold MPEG (codec mode 11) and every shipped
+// sample is layer II. Its frames go into the bank as they are, without the tags and a Xing/Info frame. Layer III
+// (.mp3) is read but refused: in game, a self-made layer III sample played only a low hum, with or without the bit
+// reservoir, where the same sound as layer II played (private test client, null sink).
 //
 // The music segments of the event project have their own length: the client goes on to the next segment when the
 // segment's time is up, not when the sample ends (seen in game: a 69 s sample in a 5 s segment played 5 s). A new
@@ -66,8 +68,9 @@ namespace MS2.ModKit
             if (!SoundReplace.IsBankName(bank)) throw new ModKitException("\"" + bank + "\" is no bank file name");
             string why = SoundReplace.CannotReplace(shipped);
             if (why != null) throw new ModKitException(bank + " sample " + shipped.Index + " " + shipped.Name + ": " + why);
-            MpegAudio.Parse(mpeg, label);
-            string ext = string.Equals(Path.GetExtension(label), ".mp2", StringComparison.OrdinalIgnoreCase) ? ".mp2" : ".mp3";
+            string no = MpegAudio.Parse(mpeg, label).NotForTheClient();
+            if (no != null) throw new ModKitException(label + ": " + no);
+            const string ext = ".mp2";
             SampleOp op = SampleOf(bank, shipped.Index);
             if (op == null) { op = new SampleOp { Bank = bank, Index = shipped.Index }; Samples.Add(op); }
             else if (op.File != null) Files.Remove(op.File);
@@ -125,6 +128,14 @@ namespace MS2.ModKit
         public int EncoderGap;
         /// <summary>The frames only: no tags, no Xing/Info frame.</summary>
         public byte[] Data;
+        /// <summary>Why the client cannot play these frames from a bank (null: it can). See the file's head.</summary>
+        public string NotForTheClient()
+        {
+            if (Layer == 2) return null;
+            return "MPEG layer " + (Layer == 3 ? "III (.mp3)" : Layer.ToString(CultureInfo.InvariantCulture)) + " does not play from a bank in the client (every shipped sample is layer II;"
+                + " a layer III sample played only a low hum in game); convert it to layer II, for example: ffmpeg -i in.wav -c:a mp2 -b:a 192k out.mp2";
+        }
+
         public double Seconds { get { return Rate > 0 ? (double)Math.Max(0, Frames - EncoderGap) / Rate : 0; } }
 
         public string Describe()
@@ -569,6 +580,8 @@ namespace MS2.ModKit
                     try { a = MpegAudio.Parse(SampleBytes(m, op), op.File); }
                     catch (ModKitException x) { plan.Msg(plan.Errors, m, null, null, where + ": " + x.Message); continue; }
                     catch (Exception x) when (x is IOException || x is UnauthorizedAccessException) { plan.Msg(plan.Errors, m, null, null, where + ": " + op.File + ": " + x.Message); continue; }
+                    string no = a.NotForTheClient();
+                    if (no != null) { plan.Msg(plan.Errors, m, null, null, where + ": " + op.File + ": " + no); continue; }
                     if (SoundReplace.RateIndex(a.Rate) < 0) { plan.Msg(plan.Errors, m, null, null, where + ": " + op.File + " is " + a.Rate + " Hz, a rate a bank cannot hold (use 44100 or 48000 Hz)"); continue; }
                     KeyValuePair<Mod, SampleOp> w;
                     if (winners.TryGetValue(key, out w))
@@ -581,7 +594,7 @@ namespace MS2.ModKit
                     foreach (PlanBank x in plan.Banks) if (string.Equals(x.Bank, b.Name, StringComparison.OrdinalIgnoreCase)) pb = x;
                     if (pb == null) plan.Banks.Add(pb = new PlanBank { Bank = b.Name, Folder = folder, RelFolder = rel, Source = b.Path, Hash = b.Hash, Count = b.Samples.Count });
                     pb.Samples.Add(new PlanSample { Index = op.Index, Name = old.Name, ModId = m.Id, File = op.File, Audio = a, OldSeconds = old.Seconds });
-                    plan.Changes.Add(new PlanChange { Kind = ChangeKind.ReplaceEntry, ModId = m.Id, Mod = m, Archive = pb.Ref, Entry = "sample " + op.Index + " " + old.Name, NewValue = op.File + ", " + a.Describe() });
+                    plan.Changes.Add(new PlanChange { Kind = ChangeKind.ReplaceSample, ModId = m.Id, Mod = m, Archive = pb.Ref, Entry = "sample " + op.Index + " " + old.Name, NewValue = op.File + ", " + a.Describe() });
                     if (Math.Abs(a.Seconds - old.Seconds) > 0.1)
                         plan.Msg(plan.Warnings, m, pb.Ref, "sample " + op.Index + " " + old.Name,
                             "the new sound is " + a.Seconds.ToString("0.00", CultureInfo.InvariantCulture) + " s, the shipped one " + old.Seconds.ToString("0.00", CultureInfo.InvariantCulture)
