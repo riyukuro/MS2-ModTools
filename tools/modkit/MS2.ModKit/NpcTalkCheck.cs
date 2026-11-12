@@ -151,12 +151,14 @@ namespace MS2.ModKit
 
         /// <summary>The problems of the NPC's talk on every side, the ones the shipped talk has too marked Shipped;
         /// last a warning per pair of sides whose steps differ in text.</summary>
-        public List<TalkProblem> Problems(NpcTalk t)
+        public List<TalkProblem> Problems(NpcTalk t) { return Problems(t, TextIds); }
+
+        List<TalkProblem> Problems(NpcTalk t, Func<string, Dictionary<string, HashSet<long>>> textIds)
         {
             var l = new List<TalkProblem>();
             foreach (TalkSide s in t.Sides)
             {
-                Dictionary<string, HashSet<long>> texts = TextIds(s.Archive);
+                Dictionary<string, HashSet<long>> texts = textIds(s.Archive);
                 var had = new HashSet<string>();
                 XmlElem shipped = s.InMod ? ShippedRoot(s.Archive, t.NpcId) : s.Root;
                 if (shipped != null)

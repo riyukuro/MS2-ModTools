@@ -1,0 +1,179 @@
+// What the Dialogue view shows of a talk beside the steps: the flow from the steps the client starts on along the
+// jumps, the NPCs the mod has a talk for, and the problems of many NPCs with the text ids read once per target.
+//
+// The flow starts at the select, monologue and job steps and at the random picks (the steps the client starts on,
+// as TalkCheck counts them); below a step come the steps its jumps name, in the order of the jumps inside it. A jump
+// names a step id: the script with that id, else the first step with it. A step the flow has shown already is shown
+// again without its jumps; a jump to an id no step has is dangling; the scripts no jump names and that are no random
+// pick come last, unreachable.
+using System;
+using System.Collections.Generic;
+using System.Text.RegularExpressions;
+using MS2.ModKit.Xml;
+
+namespace MS2.ModKit
+{
+    /// <summary>One line of a talk's flow.</summary>
+    public sealed class TalkFlowLine
+    {
+        public int Depth;
+        /// <summary>The step's key (TalkStep.Key); null for a dangling jump.</summary>
+        public string Key;
+        /// <summary>The jump that leads here ("goto", "gotoFail", "gotoConditionTalkID"; "" at the top), and the id it names.</summary>
+        public string Via = "", Target = "";
+        /// <summary>The page and choice the jump is on ("content 1 / distractor 2"; "" for a jump on the step).</summary>
+        public string From = "";
+        public bool Dangling, Unreachable, Again;
+
+        public override string ToString()
+        {
+            string what = Dangling ? "step " + Target + " (no such step)" : Key + (Again ? " (again)" : "") + (Unreachable ? " (reached from no step)" : "");
+            return new string(' ', Depth * 2) + (Via.Length > 0 ? Via + (From.Length > 0 ? " at " + From : "") + " -> " : "") + what;
+        }
+    }
+
+    public static class TalkFlow
+    {
+        /// <summary>The flow of the steps under root (an &lt;npc&gt; or a talk file's root).</summary>
+        public static List<TalkFlowLine> Of(XmlElem root)
+        {
+            var l = new List<TalkFlowLine>();
+            if (root == null) return l;
+            var steps = new List<XmlElem>();
+            foreach (XmlElem s in root.Children) if (TalkEditor.IsStep(s)) steps.Add(s);
+            var shown = new HashSet<XmlElem>();
+            var named = new HashSet<string>();
+            foreach (XmlElem s in steps) CollectTargets(s, named);
+            foreach (XmlElem s in steps)
+            {
+                bool entry = s.Name != "script" || s.Attr("randomPick") == "1";
+                if (entry) Visit(root, steps, s, 0, "", "", "", shown, l);
+            }
+            // the scripts a jump names but no entry reaches (a loop of scripts) come next, then the unreachable ones
+            foreach (XmlElem s in steps)
+                if (!shown.Contains(s) && named.Contains(s.Attr("id") ?? "")) Visit(root, steps, s, 0, "", "", "", shown, l);
+            foreach (XmlElem s in steps)
+                if (!shown.Contains(s))
+                {
+                    int at = l.Count;
+                    Visit(root, steps, s, 0, "", "", "", shown, l);
+                    l[at].Unreachable = true;
+                }
+            return l;
+        }
+
+        static void CollectTargets(XmlElem e, HashSet<string> into)
+        {
+            foreach (string j in TalkCheck.Jumps) foreach (string t in TalkCheck.Targets(e.Attr(j))) into.Add(t);
+            foreach (XmlElem c in e.Children) CollectTargets(c, into);
+        }
+
+        /// <summary>The step a jump to the id goes to: the script with the id, else the first step with it; null when none.</summary>
+        public static XmlElem Target(IList<XmlElem> steps, string id)
+        {
+            XmlElem any = null;
+            foreach (XmlElem s in steps)
+            {
+                if ((s.Attr("id") ?? "") != id) continue;
+                if (s.Name == "script") return s;
+                if (any == null) any = s;
+            }
+            return any;
+        }
+
+        static void Visit(XmlElem root, List<XmlElem> steps, XmlElem s, int depth, string via, string target, string from, HashSet<XmlElem> shown, List<TalkFlowLine> l)
+        {
+            var line = new TalkFlowLine { Depth = depth, Key = new TalkStep(s).Key, Via = via, Target = target, From = from };
+            l.Add(line);
+            if (!shown.Add(s)) { line.Again = true; return; }
+            Jumps(root, steps, s, s, depth + 1, shown, l);
+        }
+
+        static void Jumps(XmlElem root, List<XmlElem> steps, XmlElem step, XmlElem e, int depth, HashSet<XmlElem> shown, List<TalkFlowLine> l)
+        {
+            string from = null;
+            foreach (string j in TalkCheck.Jumps)
+                foreach (string t in TalkCheck.Targets(e.Attr(j)))
+                {
+                    if (from == null) from = e == step ? "" : Place(root, e);
+                    XmlElem to = Target(steps, t);
+                    if (to == null) l.Add(new TalkFlowLine { Depth = depth, Via = j, Target = t, From = from, Dangling = true });
+                    else Visit(root, steps, to, depth, j, t, from, shown, l);
+                }
+            foreach (XmlElem c in e.Children) Jumps(root, steps, step, c, depth, shown, l);
+        }
+
+        // the place of an element under its step, as TalkPath words it, without the step
+        static string Place(XmlElem root, XmlElem e)
+        {
+            TalkPath p = TalkPath.Of(root, e);
+            if (p == null) return "";
+            string s = p.ToString();
+            int cut = s.IndexOf(" / ", StringComparison.Ordinal);
+            return cut < 0 ? "" : s.Substring(cut + 3);
+        }
+    }
+
+    public sealed partial class TalkEditor
+    {
+        static readonly Regex TalkFileName = new Regex(@"^script/npc/(\d+)\.xml$", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>The NPCs whose talk the mod changes, adds or deletes on some target.</summary>
+        public HashSet<long> ModNpcIds()
+        {
+            var set = new HashSet<long>();
+            foreach (ModOp o in Mod.Ops)
+            {
+                long id;
+                var e = o as EntryOp;
+                if (e != null)
+                {
+                    Match m = TalkFileName.Match(e.Name.Replace('\\', '/'));
+                    if (m.Success && TryId(m.Groups[1].Value, out id)) set.Add(id);
+                }
+                var ed = o as EditOp;
+                if (ed != null) foreach (RowOp r in ed.Rows) if ((id = NpcOfRow(r)) >= 0) set.Add(id);
+            }
+            return set;
+        }
+
+        /// <summary>
+        /// Problems with the text ids of each target read once into texts (archive -> TextIds), for a list of many
+        /// NPCs; drop texts after an edit of the texts.
+        /// </summary>
+        public List<TalkProblem> Problems(NpcTalk t, IDictionary<string, Dictionary<string, HashSet<long>>> texts)
+        {
+            return Problems(t, delegate(string archive)
+            {
+                Dictionary<string, HashSet<long>> d;
+                if (!texts.TryGetValue(archive, out d)) texts[archive] = d = TextIds(archive);
+                return d;
+            });
+        }
+
+        /// <summary>The first line a step says in a language: its first content's text; "" when it has none.</summary>
+        public string FirstLine(long npc, TalkStep s, string language)
+        {
+            foreach (XmlElem c in s.Elem.Children)
+            {
+                if (c.Name != "content") continue;
+                return Say(npc, c.Attr("text"), language) ?? (c.Attr("text") ?? "");
+            }
+            return "";
+        }
+
+        /// <summary>True when every side that has the step has it the same (the attributes and children, whatever the spacing).</summary>
+        public static bool SameOnEverySide(NpcTalk t, string key)
+        {
+            XmlElem first = null;
+            foreach (TalkSide s in t.Sides)
+            {
+                TalkStep st = s.Step(key);
+                if (st == null) continue;
+                if (first == null) first = st.Elem;
+                else if (!SameStep(first, st.Elem)) return false;
+            }
+            return true;
+        }
+    }
+}
