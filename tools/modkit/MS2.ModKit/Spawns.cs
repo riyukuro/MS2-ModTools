@@ -142,6 +142,23 @@ namespace MS2.ModKit
             return l;
         }
 
+        /// <summary>The NPCs of one NPC file (by its name) or bundle (by its rows).</summary>
+        internal static List<long> NpcsIn(string name, byte[] file)
+        {
+            var l = new List<long>();
+            if (name.StartsWith("npcdata/", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (Match m in Bundle.Matches(Encoding.UTF8.GetString(file)))
+                    if (m.Groups[1].Success) l.Add(long.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                Match f = FileId.Match(name.Replace('\\', '/'));
+                if (f.Success) l.Add(long.Parse(f.Groups[1].Value, CultureInfo.InvariantCulture));
+            }
+            return l;
+        }
+
         internal static SpawnTags Scan(DataSet data, Action<ProgressInfo> progress, bool names)
         {
             var st = new SpawnTags();

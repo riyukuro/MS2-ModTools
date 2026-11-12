@@ -34,7 +34,10 @@ namespace MS2.ModKit.Tests
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
-        public FakeDrops()
+        public FakeDrops() : this(Sets) { }
+
+        /// <summary>With this item group table.</summary>
+        public FakeDrops(string sets)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-drops-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
@@ -51,7 +54,7 @@ namespace MS2.ModKit.Tests
             }
             M2dWriter.Create(Path.Combine(s, "Server.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
-                E(GlobalDropRules.BoxEntry, Boxes), E(GlobalDropRules.SetEntry, Sets),
+                E(GlobalDropRules.BoxEntry, Boxes), E(GlobalDropRules.SetEntry, sets),
             });
             Data = new DataSet(k, g, s);
         }
@@ -276,6 +279,104 @@ namespace MS2.ModKit.Tests
                 Plan p = Planner.Build(f.Data, new[] { mod }, new PlanOptions());
                 Assert.That(Lines(p.Errors), Is.Empty, Fake.Dump(p));
                 Assert.That(Lines(p.Warnings), Is.Empty, Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void PlanNamesTheShippedLinesOfAGroupTheModTakesOut()
+        {
+            using (var f = new FakeDrops())
+            {
+                Mod mod = Empty();
+                var ed = new GlobalDropEditor(f.Data, mod);
+                ed.Remove(ed.Group(9400002));
+                Plan p = PlanOf(f, mod);
+                List<string> e = Lines(p.Errors);
+                Assert.That(e, Has.Exactly(1).Contains("global drop box 9300001, line 2 (group 9400002)").And.Contains("no item group 9400002"), Fake.Dump(p));
+                Assert.That(e, Has.Exactly(1).Contains("global drop box 9300002, line 1 (group 9400002)").And.Contains("no item group 9400002"), Fake.Dump(p));
+                Assert.That(e.Count, Is.EqualTo(2), Fake.Dump(p));
+
+                // with the lines taken out too, nothing is left to name
+                ed.Remove(ed.Lines(ed.Box(9300001))[1]);
+                ed.Remove(ed.Box(9300002));
+                Plan q = PlanOf(f, mod);
+                Assert.That(Lines(q.Errors), Is.Empty, Fake.Dump(q));
+            }
+        }
+
+        [Test]
+        public void ABoxThatIsNotOpenIsReadAsTheModLeavesIt()
+        {
+            using (var f = new FakeDrops())
+            {
+                Mod mod = Empty();
+                var ed = new GlobalDropEditor(f.Data, mod);
+                DropHolder g = ed.AddGroup(9400009, "new");
+                ed.AddItem(g, 50100001);
+                DropHolder one = ed.Box(9300001);
+                ed.AddLink(one, 9400009);
+                ed.Remove(ed.Lines(one)[0]);
+                Assert.That(ed.Lines(ed.Box(9300002)).Count, Is.EqualTo(1));    // another box is the open one now
+                Assert.That(ed.Check(g), Has.None.Contains("no box has a line"));
+                Assert.That(ed.BoxesUsing(9400009).Count, Is.EqualTo(1));
+                Assert.That(ed.BoxesUsing(9400001), Is.Empty);
+                Assert.That(ed.LineCount(one), Is.EqualTo(2));
+                Assert.That(ed.Lines(one).FindAll(l => !l.IsDeleted).Count, Is.EqualTo(2));   // opens it: the same count
+                Assert.That(ed.LineCount(one), Is.EqualTo(2));
+
+                // the same after a reload, where no box was open yet
+                var again = new GlobalDropEditor(f.Data, Reload(mod));
+                Assert.That(again.BoxesUsing(9400009).Count, Is.EqualTo(1));
+                Assert.That(again.BoxesUsing(9400001), Is.Empty);
+                Assert.That(again.LineCount(again.Box(9300001)), Is.EqualTo(2));
+            }
+        }
+
+        [Test]
+        public void PlanWarnsWhenTheLastWeightedLineOfAGroupGoes()
+        {
+            using (var f = new FakeDrops())
+            {
+                // the shipped group has the weights 30 and 70: the first is set to 0, the second line is taken out
+                Mod mod = FakeRooms.ModOf(
+                    "<edit archive=\"server:Server.m2d\" entry=\"table/Server/globalDropItemSet_Final.xml\">\n" +
+                    "  <change at=\"dropBox[dropGroupID=9400002]/v[itemID=50100003]\"><set name=\"weight\" value=\"0\" /></change>\n" +
+                    "  <delete at=\"dropBox[dropGroupID=9400002]/v[itemID=50100001]\" />\n" +
+                    "</edit>", "drops.test");
+                Plan p = Planner.Build(f.Data, new[] { mod }, new PlanOptions());
+                Assert.That(Lines(p.Warnings), Has.Exactly(1).Contains("item group 9400002: every weight of the group is 0"), Fake.Dump(p));
+
+                // only the delete, with the line left at weight 0 as shipped
+                using (var z = new FakeDrops(FakeDrops.Sets.Replace("weight=\"30\"", "weight=\"0\"")))
+                {
+                    Mod del = FakeRooms.ModOf(
+                        "<edit archive=\"server:Server.m2d\" entry=\"table/Server/globalDropItemSet_Final.xml\">\n" +
+                        "  <delete at=\"dropBox[dropGroupID=9400002]/v[itemID=50100001]\" />\n</edit>", "drops.test");
+                    Plan q = Planner.Build(z.Data, new[] { del }, new PlanOptions());
+                    Assert.That(Lines(q.Warnings), Has.Exactly(1).Contains("item group 9400002: every weight of the group is 0"), Fake.Dump(q));
+                }
+            }
+        }
+
+        [Test]
+        public void AnEmptyCommentLeavesNoAttribute()
+        {
+            using (var f = new FakeDrops())
+            {
+                Mod mod = Empty();
+                var ed = new GlobalDropEditor(f.Data, mod);
+                DropHolder g = ed.AddGroup(9400009, "new");
+                ed.AddItem(g, 50100001);
+                ed.SetComment(g, "  ");
+                Assert.That(Body(mod), Does.Not.Contain("comment"));
+                ed.SetComment(g, " named ");
+                Assert.That(Body(mod), Does.Contain("comment=\"named\""));
+                ed.SetComment(ed.Group(9400001), "");
+                Plan p = PlanOf(f, mod);
+                Assert.That(Lines(p.Errors), Is.Empty, Fake.Dump(p));
+                string sets = Fake.Text(p, "server:Server.m2d", GlobalDropRules.SetEntry);
+                Assert.That(sets, Does.Contain("<dropBox dropGroupID=\"9400001\">"));
+                Assert.That(sets, Does.Not.Contain("comment=\"\""));
             }
         }
     }

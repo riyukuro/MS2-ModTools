@@ -580,5 +580,49 @@ namespace MS2.ModKit.Tests
                 Assert.That(Lines(q.Errors), Is.Empty, Fake.Dump(q));
             }
         }
+
+        [Test]
+        public void PlanChecksATagTheSamePlanTakesOffItsOnlyNpc()
+        {
+            using (var f = new FakeSpawns())
+            {
+                const string row = "<edit archive=\"server:Xml.m2d\" entry=\"table/mapspawntag.xml\">\n" +
+                    "  <add><xml><region mapCode=\"07100009\" spawnPointID=\"2\" difficulty=\"1\" difficultyMin=\"1\" tag=\"husk\" coolTime=\"0\" population=\"1\" /></xml></add>\n</edit>\n";
+                // the one NPC with the tag keeps it
+                Plan ok = Planner.Build(f.Data, new[] { FakeRooms.ModOf(row, "spawns.test") }, new PlanOptions());
+                Assert.That(Lines(ok.Errors), Is.Empty, Fake.Dump(ok));
+                // the plan gives it another tag
+                Mod mod = FakeRooms.ModOf(row + "<edit archive=\"server:Xml.m2d\" entry=\"npc/66/10/66100003.xml\">\n" +
+                    "  <change at=\"environment/basic\"><set name=\"mainTags\" value=\"chaff\" /></change>\n</edit>", "spawns.test");
+                Plan p = Planner.Build(f.Data, new[] { mod }, new PlanOptions());
+                Assert.That(Lines(p.Errors), Has.Exactly(1).Contains("map 7100009 point 2: no NPC of server:Xml.m2d has the tag \"husk\""), Fake.Dump(p));
+            }
+        }
+
+        [Test]
+        public void PlanReadsThePointsFromTheFileTheMapRowNames()
+        {
+            using (var f = new FakeMaps())
+            {
+                Func<string, string, string, string> row = (map, point, diff) => "  <add><xml><region mapCode=\"" + map + "\" spawnPointID=\"" + point
+                    + "\" difficulty=\"" + diff + "\" difficultyMin=\"" + diff + "\" tag=\"\" coolTime=\"0\" population=\"0\" /></xml></add>\n";
+                const string open = "<edit archive=\"server:Xml.m2d\" entry=\"table/mapspawntag.xml\">\n";
+                Func<string, string, string> named = (map, file) => "<edit archive=\"server:Xml.m2d\" entry=\"map/" + map + ".xml\">\n" +
+                    "  <change at=\"environment/xblock\"><set name=\"name\" value=\"" + file + "\" /></change>\n</edit>\n";
+
+                // the second map's row names the first map's file, which has point 7
+                Plan p = f.Plan(f.Mod("pts", named("90000002", "90000001_AB") + open + row("90000002", "7", "1") + row("90000002", "8", "1") + "</edit>"));
+                List<string> e = Lines(p.Errors);
+                Assert.That(e, Has.Exactly(1).Contains("map 90000002 point 8: the map has no spawn point 8 ("), Fake.Dump(p));
+                Assert.That(e, Has.None.Contains("point 7"), Fake.Dump(p));
+
+                // a row added at another difficulty beside a shipped row is checked too: the first map's row now names a file without the point
+                Plan q = f.Plan(f.Mod("pts2", named("90000001", "90000002_AB") + open + row("90000001", "7", "2") + "</edit>"));
+                Assert.That(Lines(q.Errors), Has.Exactly(1).Contains("map 90000001 point 7: the map has no spawn point 7 ("), Fake.Dump(q));
+                // and is fine while the map keeps its file
+                Plan r = f.Plan(f.Mod("pts3", open + row("90000001", "7", "2") + "</edit>"));
+                Assert.That(Lines(r.Errors), Is.Empty, Fake.Dump(r));
+            }
+        }
     }
 }

@@ -75,13 +75,13 @@ namespace MS2.Tables
                 if (!watched.Contains(pane))
                 {
                     watched.Add(pane);
-                    EventHandler fit = delegate { FitPane(pane); };
+                    EventHandler fit = delegate { FitPane(pane); }, later = delegate { FitLater(pane); };
                     DockPanel panel = pane.DockPanel;
                     pane.SizeChanged += fit;
                     if (panel != null)
                     {
                         panel.SizeChanged += fit;
-                        panel.ActiveDocumentChanged += fit;
+                        panel.ActiveDocumentChanged += later;
                     }
                     // the panel outlives the pane: its handlers go with the pane
                     pane.Disposed += delegate
@@ -90,13 +90,36 @@ namespace MS2.Tables
                         if (panel != null)
                         {
                             panel.SizeChanged -= fit;
-                            panel.ActiveDocumentChanged -= fit;
+                            panel.ActiveDocumentChanged -= later;
                         }
                     };
                 }
                 foreach (DockPane p in new List<DockPane>(watched)) FitPane(p);
             }
             catch (Exception ex) { Logger.Warning("MS2 Mods: could not fit the tab labels: " + ex.Message); }
+        }
+
+        static readonly HashSet<DockPane> pending = new HashSet<DockPane>();
+
+        /// <summary>
+        /// Fits the pane once the click that changed the view in front is over. A click on a tab makes its view the
+        /// active one inside the tab row's mouse-down, before the row starts watching for a drag: new tab widths at
+        /// that moment put another tab (or no tab) under the pressed mouse, and the row then drags the clicked view
+        /// out of the row. So the fit waits for the message loop and for all mouse buttons to be up.
+        /// </summary>
+        static void FitLater(DockPane pane)
+        {
+            if (pane.IsDisposed || !pane.IsHandleCreated || !pending.Add(pane)) return;
+            var t = new System.Windows.Forms.Timer { Interval = 50 };
+            t.Tick += delegate
+            {
+                if (Control.MouseButtons != MouseButtons.None && !pane.IsDisposed) return;
+                t.Stop();
+                t.Dispose();
+                pending.Remove(pane);
+                if (!pane.IsDisposed) FitPane(pane);
+            };
+            t.Start();
         }
 
         static void FitPane(DockPane pane)

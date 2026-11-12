@@ -1,9 +1,11 @@
-// The plan's checks of spawn rows (table/mapspawntag.xml, see Spawns.cs): every row the mods add or change is read
-// as it ends up in each target and checked with SpawnRules. On top of the editor's checks the plan knows the final
-// tables: a row a table then has twice (same map, point, difficulty, feature and locale), a map the target does
-// not have, a new row whose map has no spawn point with that number (the map files as the plan leaves them), and
-// a tag a row did not ship with that no NPC carries (the NPC data as the plan leaves it). A shipped row is found
-// by map, point, feature and locale, so one the mod moves to another difficulty range is a changed row, not a new one.
+// The plan's checks of spawn rows (table/mapspawntag.xml, see Spawns.cs): every row the mods add or change is read as
+// it ends up in each target and checked with SpawnRules. On top of the editor's checks the plan knows the final tables:
+// a row a table then has twice (same map, point, difficulty, feature and locale), a map the target does not have, an
+// added row whose map has no spawn point with that number (the map files as the plan leaves them: the ones the map's
+// row names, or the ones named after its id when the archive has none of those), and a tag a row did not ship with that
+// no NPC carries (the NPC data as the plan leaves it: an NPC file the plan changes counts as changed). A shipped row is
+// found by map, point, feature and locale, so one the mod moves to another difficulty range is a changed row, not a new
+// one.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -45,6 +47,7 @@ namespace MS2.ModKit
             var flats = new Dictionary<string, FlatIndex>();
             SpawnTags tags = null;
             HashSet<string> modTags = null;
+            HashSet<long> modNpcs = null;
             foreach (Profile p in profiles)
             {
                 string archive = p.ArchiveIn("x:Xml.m2d");
@@ -105,7 +108,7 @@ namespace MS2.ModKit
                     if (added && map > 0 && maps != null && !maps.ContainsKey(map))
                         Say(plan, said, plan.Warnings, mod, archive, entry.Name, what + ": this target has no map " + map);
                     long point;
-                    if (isNew && map > 0 && long.TryParse(e.Attr(SpawnRules.Point) ?? "", NumberStyles.None, CultureInfo.InvariantCulture, out point))
+                    if (added && map > 0 && long.TryParse(e.Attr(SpawnRules.Point) ?? "", NumberStyles.None, CultureInfo.InvariantCulture, out point))
                     {
                         string where;
                         bool unsure;
@@ -122,9 +125,12 @@ namespace MS2.ModKit
                     foreach (string t in SpawnRules.Tags(e.Attr(SpawnRules.Tag)))
                     {
                         if (had.Contains(t)) continue;
-                        if (tags == null) { tags = ShippedTags(run); modTags = ModTags(run, tags); }
+                        if (tags == null) { tags = ShippedTags(run); modNpcs = new HashSet<long>(); modTags = ModTags(run, tags, modNpcs); }
                         if (tags.Archive == null) break;
-                        if (tags.Of(t).Count == 0 && !modTags.Contains(t))
+                        // the shipped NPCs of the tag whose file the plan leaves alone, and the tags of the files it changes
+                        bool carried = modTags.Contains(t);
+                        foreach (long npc in tags.Of(t)) if (!modNpcs.Contains(npc)) { carried = true; break; }
+                        if (!carried)
                             Say(plan, said, plan.Errors, mod, archive, entry.Name, what + ": no NPC of " + tags.Archive + " has the tag \"" + t + "\", so nothing spawns");
                     }
                 }
@@ -139,11 +145,18 @@ namespace MS2.ModKit
             return t;
         }
 
-        // the tags in the NPC files the plan adds or changes
-        static HashSet<string> ModTags(Run run, SpawnTags shipped)
+        // the tags in the NPC files the plan adds or changes; npcs gets the NPCs of the files it changes or deletes
+        static HashSet<string> ModTags(Run run, SpawnTags shipped, HashSet<long> npcs)
         {
             var set = new HashSet<string>();
             if (shipped.Archive == null) return set;
+            foreach (EntryState st in run.States.Values)
+            {
+                if (st.Archive != shipped.Archive || (st.DeletedBy == null && st.Final == null && st.Base == st.Original)) continue;
+                string n = st.Name.ToLowerInvariant();
+                if (!n.StartsWith("npc/", StringComparison.Ordinal) && !n.StartsWith("npcdata/", StringComparison.Ordinal)) continue;
+                if (st.Original != null) foreach (long id in SpawnTags.NpcsIn(st.Name, st.Original)) npcs.Add(id);
+            }
             foreach (EntryState st in run.States.Values)
             {
                 if (st.Archive != shipped.Archive || st.DeletedBy != null || (st.Final == null && st.Base == st.Original)) continue;
@@ -179,13 +192,25 @@ namespace MS2.ModKit
                 flats[ar] = flat;
             }
             string prefix = "xblock/" + map.ToString("D8", CultureInfo.InvariantCulture);
+            // the files the map's row names, when the archive has one of them; else the ones named after the map id
+            HashSet<string> named = MapFilesOf(run, p, map);
+            bool byName = false;
+            foreach (M2dEntry e in arch.Entries) if (named.Contains(e.Name.ToLowerInvariant())) { byName = true; break; }
             HashSet<long> points = null;
             foreach (M2dEntry e in arch.Entries)
             {
                 string n = e.Name.ToLowerInvariant();
-                if (!n.StartsWith(prefix, StringComparison.Ordinal) || !n.EndsWith(".xblock", StringComparison.Ordinal)) continue;
-                char next = n[prefix.Length];
-                if (next >= '0' && next <= '9') continue;
+                if (!n.EndsWith(".xblock", StringComparison.Ordinal)) continue;
+                if (byName)
+                {
+                    if (!named.Contains(n)) continue;
+                }
+                else
+                {
+                    if (!n.StartsWith(prefix, StringComparison.Ordinal)) continue;
+                    char next = n[prefix.Length];
+                    if (next >= '0' && next <= '9') continue;
+                }
                 XmlDoc doc = FinalDoc(run, ar, e.Name);
                 XmlElem set = doc == null || doc.Root == null ? null : EntitySet(doc);
                 if (set == null) { unsure = true; continue; }
@@ -200,6 +225,40 @@ namespace MS2.ModKit
                 }
             }
             return points;
+        }
+
+        // the map files (entry names, lower case) the map's row names on the target, as the plan leaves the row:
+        // the map's own file map/<id>.xml, or its row of the map table
+        static HashSet<string> MapFilesOf(Run run, Profile p, long map)
+        {
+            var set = new HashSet<string>();
+            string ar = p.Root + ":Xml.m2d";
+            if (!run.Data.Exists(ar)) return set;
+            M2dArchive arch;
+            try { arch = run.Data.Open(ar); } catch (ModKitException) { return set; }
+            foreach (M2dEntry e in arch.Entries)
+            {
+                string n = e.Name.ToLowerInvariant();
+                if (!n.EndsWith(".xml", StringComparison.Ordinal)) continue;
+                bool own = n.StartsWith("map/", StringComparison.Ordinal) && FileNumber(n) == map, table = n == "table/fielddata.xml";
+                if (!own && !table) continue;
+                XmlDoc doc = FinalDoc(run, ar, e.Name);
+                if (doc == null || doc.Root == null) continue;
+                if (own) { MapFileNames(doc.Root, set); continue; }
+                foreach (XmlElem row in doc.Root.Children)
+                {
+                    long id;
+                    if (row.Name == "fieldData" && long.TryParse(row.Attr("id") ?? "", NumberStyles.None, CultureInfo.InvariantCulture, out id) && id == map)
+                        MapFileNames(row, set);
+                }
+            }
+            return set;
+        }
+
+        static void MapFileNames(XmlElem e, HashSet<string> to)
+        {
+            if (e.Name == "xblock" && !string.IsNullOrEmpty(e.Attr("name"))) to.Add("xblock/" + e.Attr("name").Trim().ToLowerInvariant() + ".xblock");
+            foreach (XmlElem c in e.Children) MapFileNames(c, to);
         }
 
         static void Say(Plan plan, HashSet<string> said, List<PlanMessage> to, Mod mod, string archive, string entry, string text)

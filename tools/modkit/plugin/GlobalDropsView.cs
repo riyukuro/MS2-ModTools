@@ -637,10 +637,12 @@ namespace MS2.Tables
             return holder;
         }
 
-        void Select(DropLine made)
+        // the line's place in its box or group: a refresh may read the tables again, and the lines are then new objects
+        int PlaceOf(DropLine made) { return Editor().Lines(made.Holder).IndexOf(made); }
+
+        void Select(int at)
         {
-            int at = rows.IndexOf(made);
-            if (at >= 0) grid.CurrentCell = grid[Math.Min(Lead, grid.ColumnCount - 1), at];
+            if (at >= 0 && at < rows.Count) grid.CurrentCell = grid[Math.Min(Lead, grid.ColumnCount - 1), at];
         }
 
         void AddLine()
@@ -663,8 +665,9 @@ namespace MS2.Tables
                 said = "line for item group " + group + " added to drop box " + ed.IdText(h) + ": one item at a chance of 1 in 10 (dropCount 0,1 with dropCountProbability 9000,1000), for every monster level.";
             }
             lineBox.Text = "";
+            int at = PlaceOf(made);
             Refresh(said);
-            Select(made);
+            Select(at);
         }
 
         void CloneLine()
@@ -672,9 +675,9 @@ namespace MS2.Tables
             DropLine r = Current();
             if (r == null) throw new ModKitException("select the line to copy first");
             EndEdits();
-            DropLine made = Editor().Clone(r);
+            int at = PlaceOf(Editor().Clone(r));
             Refresh("line added as a copy of the selected one");
-            Select(made);
+            Select(at);
         }
 
         void Undo()

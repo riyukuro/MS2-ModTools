@@ -237,6 +237,7 @@ namespace MS2.ModKit
                 var d = new TableDraft(Data, Mod, TableOf(h).Archive, TableOf(h).Entry, h.Row.Selector);
                 var l = new List<DropLine>();
                 foreach (TableRow r in d.Rows) if (r.Base != null && r.Base.Name == GlobalDropRules.Line) l.Add(new DropLine(h) { Row = r });
+                closed.Remove(h);
                 if (h.IsGroup) { openGroup = h; openGroupDraft = d; openGroupLines = l; }
                 else { openBox = h; openBoxDraft = d; openBoxLines = l; }
             }
@@ -278,20 +279,55 @@ namespace MS2.ModKit
             return l;
         }
 
-        // the attribute values of a holder's lines without opening it: as shipped, or as the mod adds it
-        static IEnumerable<string> Values(DropHolder h, string field)
+        // The lines of a shipped holder the mod changes, read while it is not the open one: the link, item and weight
+        // of each line the mod leaves in it. Read once after the holder was open (its lines only change while it is).
+        readonly Dictionary<DropHolder, List<string[]>> closed = new Dictionary<DropHolder, List<string[]>>();
+        static readonly string[] ClosedFields = { GlobalDropRules.Link, GlobalDropRules.Item, GlobalDropRules.Weight };
+
+        List<string[]> Closed(DropHolder h)
         {
+            List<string[]> l;
+            if (closed.TryGetValue(h, out l)) return l;
+            l = new List<string[]>();
+            var d = new TableDraft(Data, Mod, TableOf(h).Archive, TableOf(h).Entry, h.Row.Selector);
+            foreach (TableRow r in d.Rows)
+            {
+                if (r.Base == null || r.Base.Name != GlobalDropRules.Line || r.IsDeleted) continue;
+                var v = new string[ClosedFields.Length];
+                for (int i = 0; i < v.Length; i++) v[i] = d.Get(r, ClosedFields[i]);
+                l.Add(v);
+            }
+            closed[h] = l;
+            return l;
+        }
+
+        // the attribute values of a holder's lines as the mod leaves them, without opening it (field: one of ClosedFields)
+        IEnumerable<string> Values(DropHolder h, string field)
+        {
+            if (h.IsDeleted) yield break;
             if (h.Own != null)
             {
                 foreach (DropLine l in h.Own)
                     foreach (KeyValuePair<string, string> kv in l.Attrs) if (kv.Key == field) yield return kv.Value;
                 yield break;
             }
+            if (h == openBox || h == openGroup)
+            {
+                foreach (DropLine l in h.IsGroup ? openGroupLines : openBoxLines)
+                    if (!l.IsDeleted && Has(l, field)) yield return Get(l, field);
+                yield break;
+            }
+            if (IsChanged(h))
+            {
+                int at = Array.IndexOf(ClosedFields, field);
+                foreach (string[] v in Closed(h)) if (v[at] != null) yield return v[at];
+                yield break;
+            }
             foreach (XmlElem c in h.Row.Base.Children)
                 if (c.Name == GlobalDropRules.Line && c.Attr(field) != null) yield return c.Attr(field);
         }
 
-        /// <summary>The boxes with a line for the group (shipped lines as shipped; the open box as the mod leaves it).</summary>
+        /// <summary>The boxes with a line for the group, as the mod leaves them.</summary>
         public List<DropHolder> BoxesUsing(long group)
         {
             var l = new List<DropHolder>();
@@ -299,15 +335,11 @@ namespace MS2.ModKit
             {
                 if (b.IsDeleted) continue;
                 bool hit = false;
-                if (b == openBox)
-                {
-                    foreach (DropLine line in openBoxLines) if (!line.IsDeleted && GroupsOf(line).Contains(group)) hit = true;
-                }
-                else
-                    foreach (string v in Values(b, GlobalDropRules.Link))
+                foreach (string v in Values(b, GlobalDropRules.Link))
+                    foreach (string t in v.Split(','))
                     {
-                        List<long> ids = GlobalDropRules.List(v);
-                        if (ids != null && ids.Contains(group)) hit = true;
+                        long n;
+                        if (GlobalDropRules.Whole(t, out n) && n == group) hit = true;
                     }
                 if (hit) l.Add(b);
             }
@@ -351,11 +383,17 @@ namespace MS2.ModKit
             return l;
         }
 
+        /// <summary>How many lines (items of a group) the holder has as the mod leaves it: removed lines do not count.</summary>
         public int LineCount(DropHolder h)
         {
             if (h.Own != null) return h.Own.Count;
-            if (h == openBox) return openBoxLines.Count;
-            if (h == openGroup) return openGroupLines.Count;
+            if (h == openBox || h == openGroup)
+            {
+                int left = 0;
+                foreach (DropLine l in h.IsGroup ? openGroupLines : openBoxLines) if (!l.IsDeleted) left++;
+                return left;
+            }
+            if (!h.IsDeleted && IsChanged(h)) return Closed(h).Count;
             int n = 0;
             foreach (XmlElem c in h.Row.Base.Children) if (c.Name == GlobalDropRules.Line) n++;
             return n;
@@ -463,7 +501,8 @@ namespace MS2.ModKit
         public void SetComment(DropHolder h, string value)
         {
             if (h.IsDeleted) throw new ModKitException("it is removed; restore it first");
-            TableOf(h).Set(h.Row, GlobalDropRules.Comment, (value ?? "").Trim());
+            value = (value ?? "").Trim();
+            TableOf(h).Set(h.Row, GlobalDropRules.Comment, value.Length == 0 ? null : value);   // none = no attribute
             if (h.Own != null) Rewrite(h);
         }
 
