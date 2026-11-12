@@ -43,7 +43,7 @@ namespace MS2.ModKit
 
         public bool IsModded(string archive, string entry) { return OpOf(archive, entry) != null; }
 
-        byte[] Shipped(string archive, string entry, out string name)
+        internal byte[] Shipped(string archive, string entry, out string name)
         {
             name = entry;
             if (!Data.Exists(archive)) return null;
@@ -55,7 +55,7 @@ namespace MS2.ModKit
         }
 
         /// <summary>The bytes of the mod's op: its pending file, its file in the folder, or the copied entry; null for a delete.</summary>
-        byte[] ModBytes(EntryOp op)
+        internal byte[] ModBytes(EntryOp op)
         {
             if (op.Delete) return null;
             if (op.File != null)
@@ -107,13 +107,19 @@ namespace MS2.ModKit
         /// </summary>
         public TriggerScript Store(string archive, string entry, byte[] bytes)
         {
+            return TriggerScript.Parse(archive, Put(archive, entry, bytes), bytes);
+        }
+
+        /// <summary>Store without reading the bytes as a script; returns the entry's name (as shipped, else as given).</summary>
+        internal string Put(string archive, string entry, byte[] bytes)
+        {
             string name;
             byte[] shipped = Shipped(archive, entry, out name);
             EntryOp op = OpOf(archive, entry);
             if (shipped != null && M2dWriter.BytesEqual(shipped, bytes))
             {
                 Revert(archive, entry);
-                return TriggerScript.Parse(archive, name, bytes);
+                return name;
             }
             if (op == null)
             {
@@ -128,7 +134,7 @@ namespace MS2.ModKit
                 op.File = FileOf(archive, op.Name);
             }
             Mod.Files[op.File.Replace('\\', '/')] = bytes;
-            return TriggerScript.Parse(archive, op.Name, bytes);
+            return op.Name;
         }
 
         /// <summary>Takes the script out of the mod (an added script is gone then).</summary>
