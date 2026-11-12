@@ -620,6 +620,43 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void Loose_AFirstApplyCutShortThreeTimes_NeverNamesTheShippedBankAsItsOwn()
+        {
+            using (var w = new World())
+            {
+                string g = Game(w), bank = Path.Combine(g, "Data", "Sound", "MS2Sound_Fake.fsb"), orig = bank + SoundReplace.OrigSuffix;
+                var lt = new LooseTarget(g);
+                Mod a = w.Mod("a", S(1, "Tune_B", "files/b.mp3"), Mp3("files/b.mp3", 5));
+                string shipped = SoundReplace.Sha1File(bank);
+
+                // the game holds the bank open on the first apply: the shipped bank never goes aside
+                for (int i = 0; i < 3; i++)
+                {
+                    Assert.That(() => lt.Apply(w.F.Data, new[] { a }, FailAt("move bank")), Throws.TypeOf<IOException>());
+                    Assert.That(File.Exists(orig), Is.False);
+                    Assert.That(File.ReadAllBytes(bank), Is.EqualTo(w.BankBytes));
+                    Assert.That(lt.ReadState().Banks.Single().Prev, Is.Not.EqualTo(shipped), "run " + (i + 1) + ": the shipped bank is not the tool's");
+                }
+
+                // the game closed: the apply goes through and the shipped bank goes aside
+                ApplyResult r = lt.Apply(w.F.Data, new[] { a }, null);
+                Assert.That(r.Applied, Is.True, EditorSession.Report(r));
+                Assert.That(File.ReadAllBytes(orig), Is.EqualTo(w.BankBytes));
+                ApplyResult rv = lt.Revert();
+                Assert.That(rv.Left, Is.Empty);
+                Assert.That(File.ReadAllBytes(bank), Is.EqualTo(w.BankBytes));
+
+                // cut short three times and then reverted: the shipped bank stays and the record goes
+                for (int i = 0; i < 3; i++)
+                    Assert.That(() => lt.Apply(w.F.Data, new[] { a }, FailAt("move bank")), Throws.TypeOf<IOException>());
+                rv = lt.Revert();
+                Assert.That(rv.Left, Is.Empty);
+                Assert.That(File.ReadAllBytes(bank), Is.EqualTo(w.BankBytes));
+                Assert.That(lt.ReadState(), Is.Null.Or.Property("Banks").Empty);
+            }
+        }
+
+        [Test]
         public void Loose_ADeletedShippedCopy_IsNotReplacedByTheToolsOwnBank()
         {
             using (var w = new World())

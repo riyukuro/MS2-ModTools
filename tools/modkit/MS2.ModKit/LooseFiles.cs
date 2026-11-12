@@ -350,8 +350,11 @@ namespace MS2.ModKit
             {
                 LooseFile was = old == null ? null : old.FindBank(f.Path);
                 string prev = was == null ? null : was.Sha1;
-                // an earlier re-apply that was cut short: the bank in place is one of the two that record names
-                if (was != null && !string.IsNullOrEmpty(was.Prev) && File.Exists(FullPath(f.Path))) prev = SoundReplace.Sha1File(FullPath(f.Path));
+                // an earlier re-apply that was cut short: the bank in place is one of the two that record names. Only
+                // with the shipped copy aside is the bank in place ours; without it, it is the shipped bank (a first
+                // apply whose move did not go through) and must not be named as one this tool wrote
+                if (was != null && !string.IsNullOrEmpty(was.Prev) && File.Exists(FullPath(f.Path)) && File.Exists(FullPath(f.Path) + SoundReplace.OrigSuffix))
+                    prev = SoundReplace.Sha1File(FullPath(f.Path));
                 first.Banks.Add(new LooseFile { Archive = f.Archive, Path = f.Path, Sha1 = f.Sha1, Prev = prev });
             }
             first.Banks.AddRange(staleBanks);
