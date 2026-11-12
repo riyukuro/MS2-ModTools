@@ -310,23 +310,30 @@ namespace MS2.ModKit
                 {
                     XmlDoc d = FinalDoc(run, st.Archive, st.Name);
                     if (d == null || d.Root == null) continue;
-                    var shipped = new Dictionary<string, string>(StringComparer.Ordinal);   // item id -> its first constantID
+                    // item id -> its constantIDs, option by option
+                    var shipped = new Dictionary<string, List<string>>(StringComparer.Ordinal);
                     XmlDoc o0 = ShippedDoc(run, st.Archive, st.Name);
                     if (o0 != null && o0.Root != null)
                         foreach (XmlElem it in o0.Root.Children)
-                            foreach (XmlElem o in OptionElems(it))
-                            {
-                                string iid = (it.Attr("id") ?? "").Trim();
-                                if (!shipped.ContainsKey(iid)) shipped[iid] = (o.Attr("constantID") ?? "").Trim();
-                            }
+                        {
+                            string iid = (it.Attr("id") ?? "").Trim();
+                            if (shipped.ContainsKey(iid)) continue;
+                            var l = new List<string>();
+                            foreach (XmlElem o in OptionElems(it)) l.Add((o.Attr("constantID") ?? "").Trim());
+                            shipped[iid] = l;
+                        }
                     foreach (XmlElem it in d.Root.Children)
                     {
-                        string iid = (it.Attr("id") ?? "").Trim(), was;
-                        if (!shipped.TryGetValue(iid, out was) || !kmsFinal.ContainsKey(was)) continue;
+                        string iid = (it.Attr("id") ?? "").Trim();
+                        List<string> olds;
+                        if (!shipped.TryGetValue(iid, out olds)) continue;
+                        int i = 0;
                         foreach (XmlElem o in OptionElems(it))
                         {
+                            string was = i < olds.Count ? olds[i] : "";
+                            i++;
                             string c = (o.Attr("constantID") ?? "").Trim();
-                            if (c.Length == 0 || c == "0" || c == was || kmsFinal.ContainsKey(c)) continue;
+                            if (!kmsFinal.ContainsKey(was) || c.Length == 0 || c == "0" || c == was || kmsFinal.ContainsKey(c)) continue;
                             plan.Msg(plan.Errors, EntryMod(run, st.Archive, st.Name.Replace('\\', '/')), st.Archive, st.Name,
                                 "item " + iid + " names constant option " + c + " (constantID, was " + was + ") but the kms table " + ItemOptionRules.KmsEntry + " has no row of it");
                         }

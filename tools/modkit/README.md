@@ -1666,6 +1666,8 @@ attributes. A change in the mod that has a place on both sides is mirrored. A ta
 changed on the server only, without a warning.
 
 A mod that writes the target entry itself is not mirrored there: what the mod says for that side stands.
+`mirror="false"` on an `<edit>` keeps its lines on the side it names; the field maps still follow `sync`. The item
+options editor writes it when the global client has lines of its own and is shown as a side apart.
 
 ### The field map
 

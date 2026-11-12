@@ -4,6 +4,7 @@
 // row and attribute), when the data set has the other one:
 //
 //   - not when the mod has a line of its own for the same entry there (the mod then says what that side gets);
+//   - not for an <edit mirror="false"> (its lines are for the side it names only);
 //   - not for an archive the other side does not ship (Server.m2d has no client copy): a note;
 //   - not for an entry or table the other side does not ship: a warning, the change has no place there;
 //   - not for an attribute that the other side's shipped table never has while this side's table has it (a
@@ -82,6 +83,7 @@ namespace MS2.ModKit
                     if (from == null) continue;
                     var en = op as EntryOp; var ed = op as EditOp;
                     if (en == null && ed == null) continue;
+                    if (ed != null && !ed.Mirror) continue;   // mirror="false": for this side only
                     foreach (Profile to in have)
                     {
                         if (!from.Mirrors(to)) continue;

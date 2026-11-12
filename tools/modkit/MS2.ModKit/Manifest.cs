@@ -88,6 +88,11 @@ namespace MS2.ModKit
     {
         public string Entry;
         public readonly List<RowOp> Rows = new List<RowOp>();
+        /// <summary>
+        /// false (mirror="false" in mod.xml): the lines are for this archive only and are not mirrored to the other
+        /// per-id profile (gms-client and server). The field maps still follow sync.
+        /// </summary>
+        public bool Mirror = true;
     }
 
     public sealed partial class Mod
@@ -323,8 +328,8 @@ namespace MS2.ModKit
 
             EditOp ReadEdit(XmlElem e)
             {
-                Only(e, "archive", "entry", "sync");
-                var op = new EditOp { Archive = ArchiveRef(e), Entry = Need(e, "entry").Replace('\\', '/'), Line = e.Line };
+                Only(e, "archive", "entry", "sync", "mirror");
+                var op = new EditOp { Archive = ArchiveRef(e), Entry = Need(e, "entry").Replace('\\', '/'), Line = e.Line, Mirror = Flag(e, "mirror", true) };
                 bool sync = Flag(e, "sync", true);
                 foreach (XmlElem c in e.Children)
                 {
@@ -459,7 +464,9 @@ namespace MS2.ModKit
                     continue;
                 }
                 var ed = (EditOp)op;
-                sb.Append("  <edit"); A(sb, "archive", ed.Archive); A(sb, "entry", ed.Entry); sb.Append(">\n");
+                sb.Append("  <edit"); A(sb, "archive", ed.Archive); A(sb, "entry", ed.Entry);
+                if (!ed.Mirror) A(sb, "mirror", "false");
+                sb.Append(">\n");
                 foreach (RowOp r in ed.Rows)
                 {
                     if (r.Kind == RowOpKind.Delete) { sb.Append("    <delete"); A(sb, "at", r.At); sb.Append(" />\n"); continue; }

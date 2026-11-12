@@ -546,6 +546,17 @@ namespace MS2.ModKit
         /// <summary>The per-id file a new id gets ("npc/12/34/12345678.xml"), or null without a per-id side.</summary>
         public string NewFileEntry(long id) { return files == null ? null : files.EntryOf(id); }
 
+        /// <summary>The cache key of the per-id file of an id (null for none): a caller that opens many ids drops it after each.</summary>
+        internal string FileDocKey(long id)
+        {
+            if (FileXml == null) return null;
+            EntryOp en = FileAdd(id);
+            string name;
+            if (en != null) name = en.Copy;
+            else if (!FileIndex().TryGetValue(id, out name)) return null;
+            return name == null ? null : "entitydoc\n" + FileXml + "\n" + name.ToLowerInvariant();
+        }
+
         DocInfo Doc(string archive, string entry)
         {
             string key = "entitydoc\n" + archive + "\n" + entry.ToLowerInvariant();

@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using MS2.ModKit;
 using MS2.ModKit.M2d;
 using NUnit.Framework;
@@ -44,14 +45,25 @@ namespace MS2.ModKit.Tests
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
 
-        // a static file the server does not read (static_55), listed before the read one, with a row of 800000500 too
+        // a static file the server does not read (static_55), listed before the read one, with rows of 800000500 too:
+        // grade 2, and grade 3, which the read file has as well
         public const string Static55 = Head + "<ms2>\n" +
             "\t<option code=\"800000500\" grade=\"2\" optionNumPick=\"1,1\" str_value_base=\"1,2\" />\n" +
+            "\t<option code=\"800000500\" grade=\"3\" optionNumPick=\"1,1\" str_value_base=\"9,9\" />\n" +
             "</ms2>\n";
 
         public FakeOptions() : this(false) { }
 
-        public FakeOptions(bool twoFiles)
+        // the global client's constant file: 800000100 grade 1 has mar 5 there (4 on the server)
+        public const string GmsConstant = Head + "<ms2>\n" +
+            "\t<option code=\"800000100\" grade=\"1\" mar_value_base=\"5\" />\n" +
+            "\t<option code=\"800000100\" grade=\"2\" mar_value_base=\"4\" />\n" +
+            "</ms2>\n";
+
+        public FakeOptions(bool twoFiles) : this(twoFiles, false) { }
+
+        /// <summary>With <paramref name="gms"/>, a global client too, with constant and static files of its own.</summary>
+        public FakeOptions(bool twoFiles, bool gms)
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-options-" + Guid.NewGuid().ToString("N"));
             string k = Path.Combine(Dir, "kms"), s = Path.Combine(Dir, "server");
@@ -60,6 +72,8 @@ namespace MS2.ModKit.Tests
                 "\t<item id=\"99100001\">\n\t\t<option constantID=\"800000100\" optionLevel=\"1\" />\n\t</item>\n" +
                 "\t<item id=\"99100002\">\n\t\t<option constantID=\"800000100\" optionLevel=\"1\" />\n\t</item>\n" +
                 "\t<item id=\"99100003\">\n\t\t<option constantID=\"800000200\" optionLevel=\"1\" />\n\t</item>\n" +
+                // two options, the first naming no code: the pointer check goes option by option
+                "\t<item id=\"99100004\">\n\t\t<option constantID=\"0\" optionLevel=\"1\" />\n\t\t<option constantID=\"800000200\" optionLevel=\"2\" />\n\t</item>\n" +
                 "</ms2>\n";
             M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
@@ -74,7 +88,18 @@ namespace MS2.ModKit.Tests
                 E("item/9/91/99100002.xml", ItemFile(99100002, "800000100", "0")),
                 E("item/9/91/99100003.xml", ItemFile(99100003, "800000200", "0")),
             });
-            Data = new DataSet(k, null, s);
+            string g = null;
+            if (gms)
+            {
+                g = Path.Combine(Dir, "gms");
+                Directory.CreateDirectory(g);
+                M2dWriter.Create(Path.Combine(g, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
+                {
+                    E(ItemOptionRules.ConstantPrefix + "equip.xml", GmsConstant),
+                    E(ItemOptionRules.StaticPrefix + "12.xml", Static),
+                });
+            }
+            Data = new DataSet(k, g, s);
         }
 
         public static Mod ModOf(string body, string id = "options.test")
@@ -93,7 +118,7 @@ namespace MS2.ModKit.Tests
     [TestFixture]
     public class ItemOptionsTests
     {
-        const string K = "client:Xml.m2d", S = "server:Xml.m2d";
+        const string K = "client:Xml.m2d", S = "server:Xml.m2d", G = "gms-client:Xml.m2d";
         const string CFile = ItemOptionRules.ConstantPrefix + "equip.xml", SFile = ItemOptionRules.StaticPrefix + "12.xml";
 
         static OptionSide Side(ItemOptionEditor ed, OptionKind kind, bool kms)
@@ -406,6 +431,120 @@ namespace MS2.ModKit.Tests
             }
         }
 
+        // the item files DataSet holds parsed (the cache is internal: read by reflection)
+        static int ItemFilesCached(DataSet data)
+        {
+            var cache = (System.Collections.Generic.Dictionary<string, object>)typeof(DataSet).GetField("Cache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(data);
+            return cache.Keys.Count(k => k.StartsWith("entitydoc\n", StringComparison.Ordinal) && k.Contains("\nitem/"));
+        }
+
+        [Test]
+        public void ForkAndRevertOpenOneItemAtATimeAndLetGoOfItsFile()
+        {
+            using (var f = new FakeOptions())
+            {
+                Mod m = FakeOptions.ModOf("");
+                var ed = new ItemOptionEditor(f.Data, m);
+                long code = ed.NextCodes(1)[0];
+                Assert.That(ItemFilesCached(f.Data), Is.EqualTo(0));
+                Assert.That(ed.Fork(OptionKind.Constant, 800000100, code, new long[] { 99100001, 99100002 }), Is.EqualTo(2));
+                Assert.That(ItemFilesCached(f.Data), Is.EqualTo(0));
+                ed = new ItemOptionEditor(f.Data, m);
+                Assert.That(ed.ItemsOf(OptionKind.Constant, code), Is.EqualTo(new long[] { 99100001, 99100002 }));
+                Assert.That(ed.Revert(OptionKind.Constant, code), Is.GreaterThan(0));
+                Assert.That(ItemFilesCached(f.Data), Is.EqualTo(0));
+                ed = new ItemOptionEditor(f.Data, m);
+                Assert.That(ed.ItemsOf(OptionKind.Constant, code), Is.Empty);
+                // a file read before stays read
+                new ItemEditor(f.Data, m).Open(99100001);
+                int before = ItemFilesCached(f.Data);
+                Assert.That(before, Is.GreaterThan(0));
+                ed.Fork(OptionKind.Constant, 800000100, code, new long[] { 99100001 });
+                Assert.That(ItemFilesCached(f.Data), Is.EqualTo(before));
+            }
+        }
+
+        [Test]
+        public void DropDraftsKeepsTheKmsTable()
+        {
+            using (var f = new FakeOptions())
+            {
+                Mod m = FakeOptions.ModOf("");
+                var ed = new ItemOptionEditor(f.Data, m);
+                // an edit of the kms table, then a read of the code's flat file: two parsed files
+                OptionSide k = Side(ed, OptionKind.Constant, true);
+                ed.Set(k, 800000100, 3, "mar_value_base", "9");
+                Assert.That(ed.Cell(Side(ed, OptionKind.Constant, false), 800000100, 1, "mar_value_base").Value, Is.EqualTo("4"));
+                Assert.That(ed.DraftCount, Is.EqualTo(2));
+                // leaving the code drops the flat file only
+                ed.DropDrafts();
+                Assert.That(ed.DraftCount, Is.EqualTo(1));
+                Assert.That(ed.Cell(k, 800000100, 3, "mar_value_base").Value, Is.EqualTo("9"));
+                Assert.That(ed.Cell(Side(ed, OptionKind.Constant, false), 800000100, 1, "mar_value_base").Value, Is.EqualTo("4"));
+            }
+        }
+
+        [Test]
+        public void AGlobalClientWithLinesIsASecondFlatSide()
+        {
+            using (var f = new FakeOptions(false, true))
+            {
+                // no lines in the global client: the server stands for it
+                var ed = new ItemOptionEditor(f.Data, FakeOptions.ModOf(""));
+                Assert.That(ed.FlatArchives, Is.EqualTo(new[] { S }));
+
+                Mod m = FakeOptions.ModOf(Edit(G, CFile, "<change at=\"option[code=800000100][grade=2]\"><set name=\"mar_value_base\" value=\"6\" /></change>"));
+                ed = new ItemOptionEditor(f.Data, m);
+                Assert.That(ed.FlatArchives, Is.EqualTo(new[] { S, G }));
+                List<OptionSide> sides = ed.Sides(OptionKind.Constant);
+                Assert.That(sides.Select(x => x.Archive), Is.EqualTo(new[] { K, S, G }));
+                OptionSide srv = sides[1], gms = sides[2];
+                // each side's own values, and the mod's line on the global client
+                Assert.That(ed.Cell(srv, 800000100, 1, "mar_value_base").Value, Is.EqualTo("4"));
+                Assert.That(ed.Cell(gms, 800000100, 1, "mar_value_base").Value, Is.EqualTo("5"));
+                Assert.That(ed.Cell(gms, 800000100, 2, "mar_value_base").Value, Is.EqualTo("6"));
+                Assert.That(ed.Differs(OptionKind.Constant, 800000100, 1, "mar_value_base"), Is.True);
+                // grades the global client lacks: no row there
+                Assert.That(ed.Has(gms, 800000200), Is.False);
+
+                // a hand line on the global client is mirrored to the server, as any line
+                Assert.That(Line(Fake.Text(PlanOf(f, m), S, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"6\""));
+
+                // an edit on the global client stays there: the editor marks the mod's edit there mirror="false"
+                ed.Set(gms, 800000100, 1, "mar_value_base", "7");
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Line(Fake.Text(p, G, CFile), "800000100", "1"), Does.Contain("mar_value_base=\"7\""));
+                Assert.That(Line(Fake.Text(p, G, CFile), "800000100", "2"), Does.Contain("mar_value_base=\"6\""));
+                Assert.That(Fake.Text(p, S, CFile), Is.Null, "the server stays as shipped");
+                Assert.That(m.ToXml(), Does.Contain("mirror=\"false\""));
+                Assert.That(Mod.Parse(m.ToXml(), "mod.xml").Ops.OfType<EditOp>().All(x => !x.Mirror), Is.True, "mirror=\"false\" loads back");
+
+                // a fork copies the rows on every flat side that has the code
+                long code = ed.NextCodes(1)[0];
+                ed.Fork(OptionKind.Constant, 800000100, code, null);
+                p = PlanOf(f, m);
+                Assert.That(Line(Fake.Text(p, G, CFile), CodeText(code), "1"), Does.Contain("mar_value_base=\"7\""));
+                Assert.That(Line(Fake.Text(p, S, CFile), CodeText(code), "1"), Does.Contain("mar_value_base=\"4\""));
+            }
+        }
+
+        static string CodeText(long c) { return c.ToString(System.Globalization.CultureInfo.InvariantCulture); }
+
+        [Test]
+        public void RevertOfAReservedCodeWithNothingKeepsTheReservation()
+        {
+            using (var f = new FakeOptions())
+            {
+                Mod m = FakeOptions.ModOf("");
+                var ed = new ItemOptionEditor(f.Data, m);
+                long code = ed.NextCodes(1)[0];
+                IdSpaces.Reserve(m, ItemOptionRules.Space, code);
+                Assert.That(ed.Revert(OptionKind.Constant, code), Is.EqualTo(0));
+                Assert.That(Reserved(m, code), Is.True);
+            }
+        }
+
         [Test]
         public void ForkRepointsKmsOnlyWhereKmsHasTheCode()
         {
@@ -452,13 +591,17 @@ namespace MS2.ModKit.Tests
                 Assert.That(ed.Codes(OptionKind.Static).Find(i => i.Code == 800000500).Files.Count, Is.EqualTo(2), "a code in two files");
                 ed.Set(s, 800000500, 1, "str_value_base", "1,1");
                 ed.Set(s, 800000500, 5, "str_value_base", "5,7");
+                // grade 3 is in both files: the cell shows, and the edit lands in, the file the server reads
+                Assert.That(ed.Cell(s, 800000500, 3, "str_value_base").Value, Is.EqualTo("3,5"));
+                ed.Set(s, 800000500, 3, "str_value_base", "3,6");
                 Plan p = PlanOf(f, m);
                 string t = Fake.Text(p, S, SFile);
                 Assert.That(Fake.Text(p, S, ItemOptionRules.StaticPrefix + "55.xml"), Is.Null, "the unread file stays as shipped");
                 var order = new List<string>();
                 foreach (string l in t.Replace("\r\n", "\n").Split('\n')) if (l.Contains("code=\"800000500\"")) order.Add(l.Substring(l.IndexOf("grade=", StringComparison.Ordinal), 9));
                 Assert.That(order, Is.EqualTo(new[] { "grade=\"1\"", "grade=\"3\"", "grade=\"4\"", "grade=\"5\"" }));
-                SameBut(t, FakeOptions.Static, "code=\"800000500\" grade=\"1\"", "code=\"800000500\" grade=\"5\"");
+                Assert.That(Line(t, "800000500", "3"), Does.Contain("str_value_base=\"3,6\""));
+                SameBut(t, FakeOptions.Static, "code=\"800000500\" grade=\"1\"", "code=\"800000500\" grade=\"5\"", "code=\"800000500\" grade=\"3\"");
                 Assert.That(t.Length, Is.GreaterThan(FakeOptions.Static.Length));
             }
         }
@@ -521,6 +664,14 @@ namespace MS2.ModKit.Tests
                 Plan p = Planner.Build(f.Data, new[] { FakeOptions.ModOf(body) }, new PlanOptions());
                 Assert.That(Has(p.Errors, "item 99100002 names constant option 800000777 (constantID, was 800000100) but the kms table"), Is.True, Fake.Dump(p));
                 body = Edit(K, "itemdata/991.xml", "<change at=\"item[id=99100002]/option\"><set name=\"constantID\" value=\"800000200\" /></change>");
+                p = Planner.Build(f.Data, new[] { FakeOptions.ModOf(body) }, new PlanOptions());
+                Assert.That(Has(p.Errors, "constantID"), Is.False, Fake.Dump(p));
+                // the second option of 99100004 is compared with its own shipped code, not with the first option's 0
+                body = Edit(K, "itemdata/991.xml", "<change at=\"item[id=99100004]/option[constantID=800000200]\"><set name=\"constantID\" value=\"800000777\" /></change>");
+                p = Planner.Build(f.Data, new[] { FakeOptions.ModOf(body) }, new PlanOptions());
+                Assert.That(Has(p.Errors, "item 99100004 names constant option 800000777 (constantID, was 800000200) but the kms table"), Is.True, Fake.Dump(p));
+                // the first option moving off 0 to an unknown code: it named no row before, so no error
+                body = Edit(K, "itemdata/991.xml", "<change at=\"item[id=99100004]/option[constantID=0]\"><set name=\"constantID\" value=\"800000777\" /></change>");
                 p = Planner.Build(f.Data, new[] { FakeOptions.ModOf(body) }, new PlanOptions());
                 Assert.That(Has(p.Errors, "constantID"), Is.False, Fake.Dump(p));
             }

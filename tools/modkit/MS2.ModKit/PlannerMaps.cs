@@ -38,6 +38,8 @@ namespace MS2.ModKit
             internal long Portal = -1, Spawn = -1, Trigger = -1, ToMap = -1, ToPortal = -1;
             // the number is only the model's default (the entity does not write one): not a number it holds
             internal bool PortalDefault, SpawnDefault, TriggerDefault;
+            // the model is not in the model listing: its default numbers are not known
+            internal bool NoModel;
             internal Mod AddedBy, Touched;
             internal bool Removed;
             internal XEntity New;
@@ -222,6 +224,7 @@ namespace MS2.ModKit
         {
             var me = new MapEnt { Elem = e, Id = e.Attr("id"), Model = e.Attr("modelName") };
             Numbers(me, flat, Scalar(e, "PortalID"), Scalar(e, "SpawnPointID"), Scalar(e, "TriggerObjectID"), Scalar(e, "TargetFieldSN"), Scalar(e, "TargetPortalID"));
+            me.NoModel = flat != null && flat.Count > 0 && me.Model != null && flat.Get(me.Model) == null;
             return me;
         }
 
@@ -286,6 +289,13 @@ namespace MS2.ModKit
                 ms.Shipped.Add(me);
                 if (me.Id != null) ms.ById[me.Id] = me;
             }
+            // a shipped entity whose model is not in the listing: its default portal, spawn point and trigger
+            // numbers are not known, so said once per model and not taken as "no number"
+            var noModel = new List<string>();
+            foreach (MapEnt me in ms.Shipped)
+                if (me.NoModel && (me.PortalDefault || me.SpawnDefault || me.TriggerDefault) && !noModel.Contains(me.Model)) noModel.Add(me.Model);
+            foreach (string m in noModel)
+                plan.Msg(plan.Warnings, mod, ar, st.Name, "the model \"" + m + "\" of a shipped entity is not in the model listing of this target: its default PortalID, SpawnPointID and TriggerObjectID are not known, so the number checks skip them");
             mr.States[st] = ms;
             mr.Order.Add(ms);
             MapFileCheck(run, mr, mod, mop, ms);
@@ -902,7 +912,7 @@ namespace MS2.ModKit
                 if (next >= '0' && next <= '9') continue;
                 MapState planned = null;
                 foreach (MapState ms in mr.Order) if (ms.ArchiveRef == from.ArchiveRef && ms.St.Name.ToLowerInvariant() == n) planned = ms;
-                if (planned != null) { foreach (MapEnt me in AllEnts(planned)) if (!me.Removed && me.Portal >= 0) res.Add(me); continue; }
+                if (planned != null) { foreach (MapEnt me in AllEnts(planned)) if (!me.Removed && (me.Portal >= 0 || Unknown(me))) res.Add(me); continue; }
                 string key = from.ArchiveRef + "\n" + n;
                 List<MapEnt> list;
                 if (!mr.Others.TryGetValue(key, out list))
@@ -913,7 +923,7 @@ namespace MS2.ModKit
                         XmlElem set = EntitySet(XmlDoc.Parse(arch.Read(e), from.ArchiveRef + " " + e.Name));
                         if (set != null)
                             foreach (XmlElem x in set.Children)
-                                if (x.Name == "entity") { MapEnt me = ReadEnt(x, from.Flat); if (me.Portal >= 0) list.Add(me); }
+                                if (x.Name == "entity") { MapEnt me = ReadEnt(x, from.Flat); if (me.Portal >= 0 || Unknown(me)) list.Add(me); }
                     }
                     catch (ModKitException) { }
                     mr.Others[key] = list;
@@ -922,6 +932,9 @@ namespace MS2.ModKit
             }
             return res;
         }
+
+        // an entity whose model is not in the listing and that writes no PortalID: it may be a portal
+        static bool Unknown(MapEnt me) { return me.NoModel && me.PortalDefault; }
 
         static void PortalChecks(Run run, MapRun mr, MapState ms)
         {
@@ -940,13 +953,16 @@ namespace MS2.ModKit
                 }
                 List<MapEnt> there = PortalsOf(run, mr, ms, me.ToMap);
                 bool target = false, back = false;
+                string unknown = null;
                 foreach (MapEnt o in there)
                 {
+                    if (Unknown(o)) { if (unknown == null) unknown = o.Model; continue; }
                     if (o.Portal == me.ToPortal) target = true;
                     if (o.ToMap == ms.MapId) back = true;
                 }
-                if (!target) plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, what + ", and that map has no such portal after this plan" + at);
-                if (!back && ms.MapId >= 0) plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, what + ", and no portal of that map leads back to map " + D(ms.MapId) + at);
+                string but = unknown == null ? "" : " (not sure: the model \"" + unknown + "\" of an entity there is not in the model listing, so its portal number is not known)";
+                if (!target) plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, what + ", and that map has no such portal after this plan" + but + at);
+                if (!back && ms.MapId >= 0) plan.Msg(plan.Warnings, mod, ms.ArchiveRef, ms.St.Name, what + ", and no portal of that map leads back to map " + D(ms.MapId) + but + at);
             }
         }
     }

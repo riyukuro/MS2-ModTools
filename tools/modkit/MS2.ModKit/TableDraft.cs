@@ -247,12 +247,23 @@ namespace MS2.ModKit
             return list;
         }
 
+        /// <summary>
+        /// When true, the &lt;edit&gt; this draft makes carries mirror="false": Plan does not mirror it between the
+        /// global client and the server (an editor that shows and edits each of them itself).
+        /// </summary>
+        public bool NoMirror;
+
         EditOp Edit(bool create)
         {
             List<EditOp> list = Edits();
-            if (list.Count > 0) return list[0];
+            if (list.Count > 0)
+            {
+                // a line the editor writes into an <edit> of the mod: that edit is now for this side only too
+                if (create && NoMirror) foreach (EditOp e in list) e.Mirror = false;
+                return list[0];
+            }
             if (!create) return null;
-            var ed = new EditOp { Archive = Archive, Entry = Entry };
+            var ed = new EditOp { Archive = Archive, Entry = Entry, Mirror = !NoMirror };
             Mod.Ops.Add(ed);
             return ed;
         }

@@ -75,7 +75,9 @@ namespace MS2.ModKit.Tests
 
         public static string Text(Plan p, string archive, string entry)
         {
-            foreach (KeyValuePair<string, byte[]> kv in p.Find(archive).Put)
+            var a = p.Find(archive);
+            if (a == null) return null;   // nothing written to that archive
+            foreach (KeyValuePair<string, byte[]> kv in a.Put)
                 if (kv.Key == entry) return Encoding.UTF8.GetString(kv.Value);
             return null;
         }

@@ -109,7 +109,10 @@ namespace MS2.ModKit.Tests
             list.Add(E(EntryB, XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/" + MapLoose + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
             list.Add(E("xblock/" + MapTwo + ".xblock", XBlock.Bytes(B(), XDialect.Tab)));
-            list.Add(E("xblock/90000005_cd.xblock", XBlock.Bytes(B(), XDialect.Tab)));
+            // 90000005_cd also has an entity whose model is not in the model listing (its default numbers are not known)
+            var cd = B();
+            cd.Add(Ent(Mesh2, "Ghost_Z", "Ghost_1", "Position", "900, 0, 150"));
+            list.Add(E("xblock/90000005_cd.xblock", XBlock.Bytes(cd, XDialect.Tab)));
             // MapUpper also has two trigger meshes: one on the model's default number, one with 170000; and an NPC spawn point
             // as its only spawn point (as on most town maps)
             list.Add(E("xblock/" + MapUpper + ".xblock", XBlock.Bytes(new List<XEntity> { Ent(Crate2.ToUpperInvariant(), "Crate_A", "Crate_U_1", "Position", "0, 0, 150"),
@@ -889,6 +892,30 @@ namespace MS2.ModKit.Tests
         }
 
         // ---- checks ----
+
+        [Test]
+        public void AShippedEntityWhoseModelIsNotListedIsSaidOnceAndMakesPortalChecksUnsure()
+        {
+            using (var f = new FakeMaps())
+            {
+                Plan p = f.Plan(f.Mod("a", MapOf("90000005_cd", "", AddCrate)));
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string[] w = Lines(p.Warnings).Where(x => x.Contains("the model \"Ghost_Z\" of a shipped entity is not in the model listing")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(w.All(x => x.Contains("default PortalID, SpawnPointID and TriggerObjectID are not known")), Is.True, Fake.Dump(p));
+
+                // a portal to a portal map 90000005 does not have: unsure, as Ghost_1 may be a portal
+                p = f.Plan(f.Mod("b", Map(Portal("n4", 50002, 90000005, 9))));
+                w = Lines(p.Warnings).Where(x => x.Contains("that map has no such portal")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(w.All(x => x.Contains("not sure: the model \"Ghost_Z\"")), Is.True, Fake.Dump(p));
+                // a map without such entities stays sure
+                p = f.Plan(f.Mod("c", Map(Portal("n4", 50002, 90000002, 9))));
+                w = Lines(p.Warnings).Where(x => x.Contains("that map has no such portal")).ToArray();
+                Assert.That(w.Length, Is.EqualTo(3), Fake.Dump(p));
+                Assert.That(w.Any(x => x.Contains("not sure")), Is.False, Fake.Dump(p));
+            }
+        }
 
         [Test]
         public void Checks()

@@ -546,9 +546,17 @@ namespace MS2.ModKit
         {
             string k = archive + "\n" + entry;
             TableDraft d;
-            if (!drafts.TryGetValue(k, out d)) drafts[k] = d = new TableDraft(Data, Mod, archive, entry, null);
+            if (!drafts.TryGetValue(k, out d))
+            {
+                drafts[k] = d = new TableDraft(Data, Mod, archive, entry, null);
+                // the global client a side of its own: the editor keeps each side as it is shown, Plan mirrors nothing
+                d.NoMirror = SidesApart;
+            }
             return d;
         }
+
+        /// <summary>True when the server and the global client are both sides: their edits carry mirror="false".</summary>
+        public bool SidesApart { get { return FlatArchives.Count > 1; } }
 
         TableDraft KmsDraft { get { return KmsArchive == null ? null : Draft(KmsArchive, ItemOptionRules.KmsEntry); } }
 
@@ -681,7 +689,12 @@ namespace MS2.ModKit
         {
             draft = null;
             string g = grade.ToString(CultureInfo.InvariantCulture);
-            foreach (string e in EntriesOf(side, code))
+            // a row in a file the server reads first: a grade in two files is edited where it counts
+            List<string> entries = EntriesOf(side, code);
+            var ordered = new List<string>();
+            foreach (string e in entries) if (ItemOptionRules.ServerReads(side.Kind, e)) ordered.Add(e);
+            foreach (string e in entries) if (!ItemOptionRules.ServerReads(side.Kind, e)) ordered.Add(e);
+            foreach (string e in ordered)
             {
                 TableDraft d = Draft(side.Archive, e);
                 List<TableRow> rows;
@@ -899,13 +912,13 @@ namespace MS2.ModKit
             var l = new List<KeyValuePair<long, long>>();
             var items = new ItemEditor(Data, Mod);
             var ids = new List<long>(items.AddedIds());
-            foreach (long id in items.TouchedIds()) if (!ids.Contains(id)) ids.Add(id);
+            var seen = new HashSet<long>(ids);
+            foreach (long id in items.TouchedIds()) if (seen.Add(id)) ids.Add(id);
+            // one item open at a time, its file let go after (a fork can touch thousands)
             foreach (long id in ids)
             {
-                ItemDraft d;
-                try { d = items.Open(id); }
-                catch (ModKitException) { continue; }
-                foreach (long c in Pointers(d, kind)) l.Add(new KeyValuePair<long, long>(id, c));
+                try { OneItem(items, id, delegate (ItemDraft d) { foreach (long c in Pointers(d, kind)) l.Add(new KeyValuePair<long, long>(id, c)); }); }
+                catch (ModKitException) { }
             }
             return l;
         }
@@ -1107,33 +1120,22 @@ namespace MS2.ModKit
         public int Revert(OptionKind kind, long code)
         {
             if (ShippedAnywhere(kind, code)) return RevertRows(kind, code);
-            // the items first: every pointer has an old value to go back to, or nothing is written
-            var back = new List<KeyValuePair<ItemDraft, KeyValuePair<EntitySection, string>>>();
+            // the items first: every pointer has an old value to go back to, or nothing is written. One item is open
+            // at a time (a fork can move thousands): a first pass checks, a second sets
             var items = new ItemEditor(Data, Mod);
-            var seen = new List<long>();
+            var ids = new List<long>();
+            var seen = new HashSet<long>();
             foreach (KeyValuePair<long, long> kv in ModPointers(kind))
-            {
-                if (kv.Value != code || seen.Contains(kv.Key)) continue;
-                seen.Add(kv.Key);
-                ItemDraft d = items.Open(kv.Key);
-                foreach (EntitySection s in d.Sections)
-                {
-                    if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
-                    foreach (string f in PointerFields(kind))
-                    {
-                        if ((d.Get(s, f) ?? "").Trim() != CodeText(code)) continue;
-                        if ((d.GetOriginal(s, f) ?? "").Trim() == CodeText(code))
-                            throw new ModKitException("item " + kv.Key.ToString(CultureInfo.InvariantCulture) + " names option " + CodeText(code) + " in its own data (" + f + "): point it at another code first; nothing was reverted");
-                        back.Add(new KeyValuePair<ItemDraft, KeyValuePair<EntitySection, string>>(d, new KeyValuePair<EntitySection, string>(s, f)));
-                    }
-                }
-            }
+                if (kv.Value == code && seen.Add(kv.Key)) ids.Add(kv.Key);
+            foreach (long id in ids)
+                OneItem(items, id, delegate (ItemDraft d) { RevertPointers(d, kind, code, false); });
             var undo = new ModUndo(Mod);
             try
             {
                 int n = RevertRows(kind, code);
-                foreach (var b in back) { b.Key.Set(b.Value.Key, b.Value.Value, b.Key.GetOriginal(b.Value.Key, b.Value.Value), false); n++; }
-                if (Mod.Ids.Exists(r => r.Space == ItemOptionRules.Space && code >= r.From && code <= r.To)) { IdSpaces.Unreserve(Mod, ItemOptionRules.Space, code); n++; }
+                foreach (long id in ids) OneItem(items, id, delegate (ItemDraft d) { n += RevertPointers(d, kind, code, true); });
+                // the reservation goes only with something of the code: a code the revert finds nothing of keeps it
+                if (n > 0 && Mod.Ids.Exists(r => r.Space == ItemOptionRules.Space && code >= r.From && code <= r.To)) { IdSpaces.Unreserve(Mod, ItemOptionRules.Space, code); n++; }
                 return n;
             }
             catch
@@ -1142,6 +1144,34 @@ namespace MS2.ModKit
                 Forget();
                 throw;
             }
+        }
+
+        // the item's pointers at a code of the mod's own: checked (each has an old value), or set back to it
+        int RevertPointers(ItemDraft d, OptionKind kind, long code, bool set)
+        {
+            int n = 0;
+            foreach (EntitySection s in d.Sections.ToArray())
+            {
+                if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
+                foreach (string f in PointerFields(kind))
+                {
+                    if ((d.Get(s, f) ?? "").Trim() != CodeText(code)) continue;
+                    if ((d.GetOriginal(s, f) ?? "").Trim() == CodeText(code))
+                        throw new ModKitException("item " + d.Id.ToString(CultureInfo.InvariantCulture) + " names option " + CodeText(code) + " in its own data (" + f + "): point it at another code first; nothing was reverted");
+                    if (set) { d.Set(s, f, d.GetOriginal(s, f), false); n++; }
+                }
+            }
+            return n;
+        }
+
+        // opens one item, hands it over, and lets go of its file again unless it was read before: the edits are in
+        // the mod, so the parsed file is not needed after
+        void OneItem(ItemEditor items, long id, Action<ItemDraft> act)
+        {
+            string key = items.FileDocKey(id);
+            bool had = key != null && Data.Cache.ContainsKey(key);
+            try { act(items.Open(id)); }
+            finally { if (key != null && !had) Data.Cache.Remove(key); }
         }
 
         int RevertRows(OptionKind kind, long code)
@@ -1237,17 +1267,15 @@ namespace MS2.ModKit
                 if (s.Kms) kmsHas = true; else flatHas = true;
             }
             if (sides.Count == 0) throw new ModKitException("no side has option " + CodeText(code) + " (" + ItemOptionRules.KindName(kind) + ")");
-            // the items first: every one opens, or nothing is written
-            var itemDrafts = new List<ItemDraft>();
+            // the items first: every one opens, or nothing is written. One item is open at a time, so that thousands
+            // of items do not stay parsed (a 32-bit host): a first pass checks, a second sets the pointers
+            var items = itemIds == null ? null : new ItemEditor(Data, Mod);
             if (itemIds != null)
-            {
-                var items = new ItemEditor(Data, Mod);
                 foreach (long id in itemIds)
                 {
-                    try { itemDrafts.Add(items.Open(id)); }
+                    try { OneItem(items, id, delegate (ItemDraft d) { }); }
                     catch (ModKitException ex) { throw new ModKitException("item " + id.ToString(CultureInfo.InvariantCulture) + ": " + ex.Message + "; nothing was forked"); }
                 }
-            }
             var undo = new ModUndo(Mod);
             try
             {
@@ -1277,21 +1305,23 @@ namespace MS2.ModKit
                 }
                 IdSpaces.Reserve(Mod, ItemOptionRules.Space, newCode);
                 int changed = 0;
-                foreach (ItemDraft d in itemDrafts)
-                {
-                    bool hit = false;
-                    foreach (EntitySection s in d.Sections.ToArray())
-                    {
-                        if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
-                        foreach (string f in PointerFields(kind))
+                if (itemIds != null)
+                    foreach (long id in itemIds)
+                        OneItem(items, id, delegate (ItemDraft d)
                         {
-                            // a pointer is moved only on a layout that gets the new code
-                            if (!(f == "constantID" ? kmsHas : flatHas)) continue;
-                            if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode), false); hit = true; }
-                        }
-                    }
-                    if (hit) changed++;
-                }
+                            bool hit = false;
+                            foreach (EntitySection s in d.Sections.ToArray())
+                            {
+                                if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
+                                foreach (string f in PointerFields(kind))
+                                {
+                                    // a pointer is moved only on a layout that gets the new code
+                                    if (!(f == "constantID" ? kmsHas : flatHas)) continue;
+                                    if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode), false); hit = true; }
+                                }
+                            }
+                            if (hit) changed++;
+                        });
                 return changed;
             }
             catch
@@ -1309,8 +1339,22 @@ namespace MS2.ModKit
             byCode.Clear();
         }
 
-        /// <summary>Drops the parsed flat files (a view calls it when it leaves a code); they are read again when needed.</summary>
-        public void DropDrafts() { Forget(); }
+        /// <summary>
+        /// Drops the parsed flat files (a view calls it when it leaves a code); they are read again when needed. The kms
+        /// table is one file every code reads, so it stays.
+        /// </summary>
+        public void DropDrafts()
+        {
+            foreach (string k in new List<string>(drafts.Keys))
+            {
+                if (KmsArchive != null && string.Equals(k, KmsArchive + "\n" + ItemOptionRules.KmsEntry, StringComparison.OrdinalIgnoreCase)) continue;
+                byCode.Remove(drafts[k]);
+                drafts.Remove(k);
+            }
+        }
+
+        /// <summary>The number of parsed option files the editor holds (the kms table counts as one).</summary>
+        public int DraftCount { get { return drafts.Count; } }
 
         /// <summary>True when an op of the mod adds a row of the option code to an option table (kms or flat).</summary>
         internal static bool AddsCode(Mod m, long code)
