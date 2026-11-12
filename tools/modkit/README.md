@@ -1086,8 +1086,9 @@ locale.
 
 A map mod changes a map the game already ships: it adds, moves or removes props, monster spawn places, NPC spawn
 places and portals. The **MS2 Maps** view (menu MS2 Mods > Maps) edits the entities a map ships: it sets or unsets
-their properties and removes them, and it adds spawn places and portals (see [The Maps view](#the-maps-view)). Other
-new entities (`<add>`) are still written by hand in `mod.xml`. Plan and Apply take both the same way. All names and
+their properties and removes them, and it adds spawn places, portals, NPC spawn places, interact objects and
+trigger boxes (see [The Maps view](#the-maps-view)). Other new entities (`<add>`) are still written by hand in
+`mod.xml` (see [Entities still added by hand](#entities-still-added-by-hand)). Plan and Apply take both the same way. All names and
 numbers below are made up.
 
 ### What a shipped map is
@@ -1192,8 +1193,13 @@ operations, and each copy gets the same operations applied to its own file.
   you want.
 - `<portal>` adds a portal. `id` is its number on this map, `to-map` and `to-portal` say where it leads. A portal
   works one way; for a way back, add a second portal on the other map that points here, as in the example.
-- An NPC spawn place is a plain `<add>` of the map's NPC spawn model with its `NpcList` property:
-  `<property name="NpcList"><set index="99000001" value="1" /></property>`.
+- An NPC spawn place is a plain `<add>` of an NPC spawn model (one with the mixin `SpawnPointNPC`) with its
+  `SpawnPointID`, its `NpcList` property (index: the NPC id, value: how many) and `NpcCount`:
+  `<property name="NpcList"><set index="99000001" value="1" /></property>`. The view's **Add other...** writes it.
+- An interact object is a plain `<add>` of a model with the mixin `MS2InteractObject` and its `interactID`, the
+  row of the interact object table it uses. A trigger box is one of a model with the mixin `MS2TriggerBox`, its
+  `TriggerObjectID` (the number the map's trigger scripts name it by) and, when it is not the model's size,
+  `ShapeDimensions`. **Add other...** writes both.
 
 ### The Maps view
 
@@ -1227,6 +1233,14 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
   entity, but on the mod's own values: there is no shipped value and no `old`. The numbers can be set to another
   one, not unset. **Remove entity** takes the new entity out of the mod again; Restore entity has nothing to undo
   on it. Hand-written `<add>` entities of the mod are listed and edited the same way.
+- **Add other...** adds an NPC spawn point, an interact object or a trigger box, the most common `<add>` kinds of
+  the played maps after spawn places and portals. The dialog asks for a name, a model (the map file's models of
+  that kind, most used first; on a file without one, the listing's models named like one), a position and the
+  kind's values: the NPC id and how many for an NPC spawn point (`NpcList` and `NpcCount`), the `interactID` for
+  an interact object, the size (`ShapeDimensions`, empty: the model's) for a trigger box. An NPC spawn point takes
+  the next free `SpawnPointID` and a trigger box the next free `TriggerObjectID` of the mod range (see
+  [Reserved numbers](#reserved-numbers)). The model must have the kind's mixin. The entity is written as a plain
+  `<add>`, listed as `new` and edited, removed and planned like the added spawn points and portals.
 - A spawn place spawns nothing without a server row. The property `(server row)` holds them: index 0 is the first
   row, the value is the row's attributes as `key=value` pairs (`tag=wolf population=3 coolTime=20`); the map and
   the number are filled in. Set at the index after the last row adds one, Unset drops one. After a spawn point is
@@ -1234,6 +1248,14 @@ The view works on the data and the mod of the MS2 Tables view, as the other enti
 - **Plan**, **Apply** and **Save mod** are the Tables view's. Plan makes each edit on every target that ships the
   same entity and warns where one does not (see [Expected old values](#expected-old-values)); a target without
   `Resource/Exported.m2d` is named in a note and left alone.
+
+### Entities still added by hand
+
+The view adds the kinds above. Every other kind is written by hand as an `<add>` in `mod.xml` (copy the model and
+the properties of a shipped entity of that kind, with a new name): props and meshes, event NPC spawn places, item
+spawn places, effects, trigger models, cameras, breakables, region skills, agents, actors, ladders, sounds, ropes,
+cubes and the rest. Plan, Apply and the Maps view take them the same way, and the view lists them as `new`. A
+`TriggerObjectID` or `SpawnPointID` on such an entity is checked against the map like the ones the view writes.
 
 ### Expected old values
 
@@ -1251,6 +1273,9 @@ Numbers inside a map must not collide with the game's own or with another mod's.
 |---|---|---|
 | portal `id` | 50000-59999 per map | no shipped map uses a portal number that high |
 | spawn `point` | 140000-149999 per map | shipped maps already use spawn numbers in 50000-59999, and the server's spawn table goes up into the 90000s |
+| `TriggerObjectID` | 170000-179999 per map | no shipped map uses a trigger object number in that range |
+
+The spawn range is shared: an added NPC spawn point's `SpawnPointID` is taken from it too.
 
 Both are read by the client as whole numbers of 32 bits, so the ranges fit. A number outside the range is allowed
 and gives a warning. A number that is already used on the map is an error.
