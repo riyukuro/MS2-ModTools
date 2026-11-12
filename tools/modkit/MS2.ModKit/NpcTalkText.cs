@@ -53,12 +53,21 @@ namespace MS2.ModKit
         {
             internal string Name, Lang;
             internal XmlDoc Doc;
-            internal bool Npc;
             internal readonly Dictionary<long, List<XmlElem>> Rows = new Dictionary<long, List<XmlElem>>();
         }
 
-        // the talk text files of an archive (scriptnpc and scriptquest; Npc tells them apart), rows by text id
-        List<TextDoc> TextDocs(string archive)
+        static IEnumerable<KeyValuePair<long, XmlElem>> KeyRows(XmlDoc doc)
+        {
+            if (doc.Root == null) yield break;
+            foreach (XmlElem c in doc.Root.Children)
+            {
+                long id;
+                if (c.Name == "key" && TryId(c.Attr("id"), out id)) yield return new KeyValuePair<long, XmlElem>(id, c);
+            }
+        }
+
+        // the NPC talk text files of an archive (scriptnpc*), rows by text id, kept with the data set
+        List<TextDoc> NpcTextDocs(string archive)
         {
             string key = "npctalk.text\n" + archive;
             object o;
@@ -68,20 +77,17 @@ namespace MS2.ModKit
             foreach (M2dEntry e in arch.Entries)
             {
                 string n = e.Name.Replace('\\', '/');
-                if (!AnyTalkFile.IsMatch(n)) continue;
+                if (!TextFile.IsMatch(n)) continue;
                 XmlDoc doc;
                 try { doc = XmlDoc.Parse(arch.Read(e), archive + " " + e.Name); }
                 catch (ModKitException) { continue; }
                 if (doc.Root == null) continue;
-                Match m = TextFile.Match(n);
-                var td = new TextDoc { Name = e.Name, Lang = n.Split('/')[1], Doc = doc, Npc = m.Success };
-                foreach (XmlElem c in doc.Root.Children)
+                var td = new TextDoc { Name = e.Name, Lang = n.Split('/')[1], Doc = doc };
+                foreach (KeyValuePair<long, XmlElem> r in KeyRows(doc))
                 {
-                    long id;
-                    if (c.Name != "key" || !TryId(c.Attr("id"), out id)) continue;
                     List<XmlElem> l;
-                    if (!td.Rows.TryGetValue(id, out l)) td.Rows[id] = l = new List<XmlElem>();
-                    l.Add(c);
+                    if (!td.Rows.TryGetValue(r.Key, out l)) td.Rows[r.Key] = l = new List<XmlElem>();
+                    l.Add(r.Value);
                 }
                 list.Add(td);
             }
@@ -90,9 +96,23 @@ namespace MS2.ModKit
             return list;
         }
 
-        IEnumerable<TextDoc> NpcTextDocs(string archive)
+        // the text ids of the quest talk files of an archive (scriptquest*): only the ids are kept, the files are big
+        HashSet<long> QuestTextIds(string archive)
         {
-            foreach (TextDoc d in TextDocs(archive)) if (d.Npc) yield return d;
+            string key = "npctalk.questids\n" + archive;
+            object o;
+            if (Data.Cache.TryGetValue(key, out o)) return (HashSet<long>)o;
+            var set = new HashSet<long>();
+            M2dArchive arch = Data.Open(archive);
+            foreach (M2dEntry e in arch.Entries)
+            {
+                string n = e.Name.Replace('\\', '/');
+                if (!AnyTalkFile.IsMatch(n) || TextFile.IsMatch(n)) continue;
+                try { foreach (KeyValuePair<long, XmlElem> r in KeyRows(XmlDoc.Parse(arch.Read(e), archive + " " + e.Name))) set.Add(r.Key); }
+                catch (ModKitException) { }
+            }
+            Data.Cache[key] = set;
+            return set;
         }
 
         /// <summary>The languages the targets have NPC talk text files in.</summary>
@@ -203,8 +223,11 @@ namespace MS2.ModKit
         {
             var used = new HashSet<long>();
             foreach (KeyValuePair<string, bool> a in Archives())
-                foreach (TextDoc d in TextDocs(a.Key))
+            {
+                foreach (TextDoc d in NpcTextDocs(a.Key))
                     foreach (long id in d.Rows.Keys) if (id >= from && id <= to) used.Add(id);
+                foreach (long id in QuestTextIds(a.Key)) if (id >= from && id <= to) used.Add(id);
+            }
             var mods = new List<Mod> { Mod };
             if (Others != null) mods.AddRange(Others());
             foreach (Mod m in mods)
