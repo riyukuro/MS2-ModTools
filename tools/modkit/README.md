@@ -1040,6 +1040,43 @@ For example, to make the monsters of drop box 9300001 drop item 50100001: open t
 its lines (or **New** group 9400009 and **Add line** 9400009 to the box), type 50100001, **Add line**, set `weight`
 and `grade`, **Save mod**, **Plan**, **Apply**. The server must ingest again before it uses the tables.
 
+## Achievements
+
+The **MS2 Achievements** view (menu **MS2 Mods > Achievements**) edits the trophies: one file per achievement,
+`achieve/<id>.xml` in `Xml.m2d` of each side. An edit is made on every side that has the achievement, each in its own
+notation: the Korean client writes the short form (LF line ends, no empty attributes, a grade without a reward has no
+`<reward>`), the server and the global client the full form (CRLF, every attribute, an empty `<reward type="">` on
+a grade without one). When the data set has a server, the global client gets the server's file, as Apply does for the
+other server tables. The name and the descriptions are rows of `string/<lang>/achievename.xml` and
+`achievedescription.xml` of each client.
+
+1. **Find** by a part of the id or of the name; an empty box lists all. What the mod adds comes first; the second
+   line of a hit says its list (`categoryTag`), its grades and whether it is new, changed or removed.
+2. **Texts and fields**: `name`, `desc`, `complete`, `manualDesc` and `manualComplete` (in every language the client
+   has), then the attributes of `<achieves>`. A field the sides hold differently is marked ≠ and shown empty; a
+   value typed there sets all sides. **Set list** writes the chosen category of `table/achievecategory.xml` as
+   `categoryTag`.
+3. **Grades**: one line per grade, its value, its condition (type, code, count, target) and its reward (type, code,
+   value, rank). The condition type and the reward type are set with the boxes above the grid; the condition code
+   picks an id of the kind the type counts (… or F4, the picker of the Quests view), and the code of an `item`
+   reward picks an item. **Add grade** copies the last condition with the next grade value and no reward;
+   **Remove grade** removes the selected one.
+4. **Clone** copies the achievement shown, with its texts in every language, under the id in the box or, with no id,
+   the next free one of the chosen category: 21900000-21909999 combat, 22900000-22909999 adventure,
+   23900000-23909999 living (the second digit of the id is the category the client counts it in). **Remove /
+   restore** deletes it on every side or brings a shipped one back; **Undo changes** makes a shipped one as shipped.
+5. **Save mod**, then **Plan**. The plan checks every achievement the mods add or change, per target. Errors: no
+   grade, a grade with no condition, a condition type the side does not read (the client drops the achievement, the
+   server's data ingest fails), a value that is not a number, a grade value twice on the server, and a reward item
+   the server does not have. Warnings: a reward item the client lacks, a reward title not in
+   `table/titletag.xml`, grade values that do not rise or do not start at 1, a reward with no code, a `categoryTag`
+   that is no category or not the id's, and an achievement that only the client or only the server has (the client
+   shows one the server never grants, or the server grants one no list shows).
+
+For example, a living achievement for catching fish: find a fishing achievement, **Clone** into living, set its
+`name` and `desc`, set the count of grade 1, set the reward type `item` and pick the item, **Save mod**, **Plan**,
+**Apply**. The server must ingest again before it grants it.
+
 ## Quests
 
 The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,
