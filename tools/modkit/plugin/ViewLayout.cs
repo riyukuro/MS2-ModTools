@@ -33,6 +33,7 @@ namespace MS2.Tables
                     if (dc == null) continue;
                     DockPanel p = dc.DockPanel;
                     if (p == null) return false;
+                    NoTabDrag(dc);
                     if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) { WholeWindow.Collapse(p); TabLabels.Fit(dc); return true; }
                     dc.DockAreas |= DockAreas.Document;
                     // a view made for another view's job (MS2 Tables under MS2 Triggers) is not the one the user is in
@@ -58,6 +59,42 @@ namespace MS2.Tables
             }
             catch (Exception ex) { Logger.Warning("MS2 Mods: could not move the view to the centre area: " + ex.Message); return true; }
             return false;
+        }
+
+        /// <summary>
+        /// Under Wine a plain click on a view's tab can start a drag of the view (the dock library asks DragDetect,
+        /// which there takes the first mouse-move message as a move away), and the view then lands where the mouse is:
+        /// docked at the top edge when the tab is under the panel's top drop mark in the middle of the tab row, or
+        /// floating. There the MS2 views are not draggable by their tab or caption; on Windows they stay draggable.
+        /// </summary>
+        static void NoTabDrag(DockContent dc)
+        {
+            if (UnderWine && dc.DockHandler.AllowEndUserDocking) dc.DockHandler.AllowEndUserDocking = false;
+        }
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Ansi)]
+        static extern IntPtr GetModuleHandleA(string name);
+
+        [System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Ansi)]
+        static extern IntPtr GetProcAddress(IntPtr module, string name);
+
+        static int wine = -1;
+
+        static bool UnderWine
+        {
+            get
+            {
+                if (wine < 0)
+                {
+                    try
+                    {
+                        IntPtr h = GetModuleHandleA("ntdll.dll");
+                        wine = h != IntPtr.Zero && GetProcAddress(h, "wine_get_version") != IntPtr.Zero ? 1 : 0;
+                    }
+                    catch (Exception) { wine = 0; }
+                }
+                return wine == 1;
+            }
         }
 
         /// <summary>
