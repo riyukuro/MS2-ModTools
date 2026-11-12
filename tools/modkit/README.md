@@ -978,6 +978,58 @@ Select a shipped quest and press **Clone to new id**. An empty id box takes the 
   writing each edit to all of them. A quest edit made by hand on one side only is a warning in Plan (see
   [What the warnings mean](#what-the-warnings-mean-2)).
 
+## Dialogue
+
+The **MS2 Dialogue** view (menu **MS2 Mods > Dialogue**) edits what an NPC says: the steps of its talk script and
+the talk texts, on every target at once. It writes into the same mod as the other views, with the same Save,
+Plan, Apply, Revert and the same question when Toolbench is closed.
+
+### What one NPC talk is made of
+
+| Piece | Where it is | Who reads it |
+|-|-|-|
+| talk, Korean client | `script/npc/npcscript*.xml`: all NPCs in combined files, one `<npc id>` each | the Korean client |
+| talk, global client and server | `script/npc/<id>.xml`, the id written with 8 digits, the steps right under the root | the global client; the server reads the global client's talk files |
+| texts | `string/<language>/scriptnpc*.xml`, `<key id name>` rows; a page names one as `$script:N$` | the client, per language; a missing row shows the raw reference |
+
+A talk has steps (`select`, `script`, `monologue`, `job`); a step has pages (`content`) with choices
+(`distractor`, jumping by `goto` / `gotoFail`) and events. The button set the client shows for a page is computed
+(the client's GetTalkButtonSet) and shown read-only beside `buttonSet`.
+
+### Using it
+
+1. Type an id, or part of a name, into **find** and press Enter or **Find**. With **changed by the mod** ticked only
+   the NPCs the mod has a talk for are listed; the header counts them after every edit. **text in** picks the
+   language of the texts.
+2. Pick an NPC. Beside the list come its steps and their flow (from the steps the client starts on, along the
+   jumps; dangling jumps and unreachable scripts are marked), at the right the lines of the chosen step, and below
+   the problems of the talk.
+3. Type into a line: the text in the chosen language, or an attribute (voice, illustration, buttonSet, ...).
+   **Pick step** (F4 in a goto cell) picks a jump target or makes a new script step. **Add step** (the kind and id at its left), **Add page**,
+   **Add choice**, **Remove line**, **Move up** / **Move down** and **Remove step** edit the structure.
+4. **Revert NPC** takes the NPC's talk out of the mod on every target. A talk edited back to the shipped text
+   leaves the mod by itself, and the mod's own texts that no line names any more leave with it.
+
+### The rules per side
+
+- An edit is made on every target that has the place. On the Korean client the NPC's `<npc id>` is replaced in the
+  combined file (a delete and an add row), so the rest of the file stays as shipped; on the global client and the
+  server the NPC's file is a whole-file entry of the mod.
+- Where a target's step differs from the one shown (the first target that has it), an edit inside that step is not
+  made there; the output names the targets that were left out. The step list marks a step that differs with `≠`.
+- A new text gets an id from the mod's reserved `<ids space="npctalk">` range and a row in every language of each
+  target, in the file that holds the NPC's other lines (else `scriptnpc.xml`, else `scriptnpcnam.xml`). An edit of
+  a shipped text is a row edit of that key; the shared files are never rewritten.
+- New step ids keep the id class of the step they are made from (10-99, 100-199, 300 and up), because the client
+  picks other buttons for each class.
+- Plan runs the same checks as the view: jumps to no step, two steps with one key, unreachable scripts, a buttonSet
+  the client does not show and texts with no row in a language. Problems the shipped talk has too are left out.
+
+### Quest talk
+
+Talks a quest opens (`script/quest/*`) belong to the MS2 Quests view. **Quest talk** lists the quests the NPC
+starts or completes with their talk lines, read only here; double-click one to open it in the Quests view.
+
 ## Triggers
 
 A view, **MS2 Triggers** (menu **MS2 Mods > Triggers**), shows the trigger scripts of a map and edits them into the
