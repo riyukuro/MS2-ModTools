@@ -378,7 +378,7 @@ namespace MS2.Tables
             string name = editor.MapName(m);
             int n = editor.CountOf(m);
             bool marked = editor.IsChanged(m);
-            string line1 = m.ToString(CultureInfo.InvariantCulture) + "  " + (name.Length > 0 ? name : "(no name)");
+            string line1 = m == SpawnRules.NoMap ? "rows without a map id" : m.ToString(CultureInfo.InvariantCulture) + "  " + (name.Length > 0 ? name : "(no name)");
             string line2 = n + (n == 1 ? " row" : " rows") + (marked ? "  (changed)" : "");
             int half = e.Bounds.Height / 2;
             var t1 = new Rectangle(e.Bounds.X + 4, e.Bounds.Y + 1, e.Bounds.Width - 8, half);
@@ -410,7 +410,7 @@ namespace MS2.Tables
                 SpawnEditor ed = Editor();
                 string name = ed.MapName(m);
                 rows = ed.Of(m);
-                mapLabel.Text = "Map " + m + (name.Length > 0 ? " (" + name + ")" : "") + ": " + rows.Count + (rows.Count == 1 ? " spawn row" : " spawn rows")
+                mapLabel.Text = (m == SpawnRules.NoMap ? "Rows whose mapCode is not a map id" : "Map " + m + (name.Length > 0 ? " (" + name + ")" : "")) + ": " + rows.Count + (rows.Count == 1 ? " spawn row" : " spawn rows")
                     + (ed.IsChanged(m) ? ", changed by the mod" : "");
                 grid.RowCount = rows.Count;
                 // shipped rows are left alone (many shipped tags are chests and events, not NPCs): the rows the mod adds or changes are checked

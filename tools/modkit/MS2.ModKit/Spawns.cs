@@ -5,7 +5,8 @@
 // `petSpawnProbability` the catchable pets. The server decides the spawns from its copy; the Korean client and the
 // global client ship a copy too (the same attributes; the server's rows may also carry `locale`).
 //
-// The editor shows the rows of one map, paired between the copies by map, point, difficulty, feature and locale, and
+// The editor shows the rows of one map, paired between the copies by map, point, feature and locale (the n-th row
+// of such a key with the n-th of the other copy), and
 // writes a change to every copy that has the row (the plan mirrors the server's lines to the global client). The rows
 // of a spawn point the mod adds with <spawn> in a map file are that op's own <row> children and are not shown here.
 using System;
@@ -39,11 +40,20 @@ namespace MS2.ModKit
             return long.TryParse((code ?? "").Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n) ? n : -1;
         }
 
-        /// <summary>What tells two rows of a table apart.</summary>
+        /// <summary>The map the rows with an unreadable mapCode are listed under.</summary>
+        public const long NoMap = 0;
+
+        /// <summary>What a row is found by: the fields that are not changed (a mapCode that is no number counts as written).</summary>
+        public static string Id(Func<string, string> get)
+        {
+            long map = MapOf(get(Map));
+            return (map >= 0 ? map.ToString(CultureInfo.InvariantCulture) : "?" + get(Map)) + "\n" + (get(Point) ?? "") + "\n" + (get("feature") ?? "") + "\n" + (get("locale") ?? "");
+        }
+
+        /// <summary>What a table should have once: the row's id and its difficulty range.</summary>
         public static string Key(Func<string, string> get)
         {
-            return MapOf(get(Map)).ToString(CultureInfo.InvariantCulture) + "\n" + (get(Point) ?? "") + "\n" + (get(Difficulty) ?? "") + "\n" + (get(DifficultyMin) ?? "")
-                + "\n" + (get("feature") ?? "") + "\n" + (get("locale") ?? "");
+            return Id(get) + "\n" + (get(Difficulty) ?? "") + "\n" + (get(DifficultyMin) ?? "");
         }
 
         public static List<string> Tags(string tag)
@@ -239,39 +249,45 @@ namespace MS2.ModKit
         string KeyOf(int side, TableRow r)
         {
             TableDraft t = Sides[side].Table;
-            return SpawnRules.Key(a => r.IsAdded ? t.Get(r, a) : t.GetOriginal(r, a));
+            return SpawnRules.Id(a => r.IsAdded ? t.Get(r, a) : t.GetOriginal(r, a));
         }
 
+        static long ListedUnder(long map) { return map > 0 ? map : SpawnRules.NoMap; }
+
+        // the n-th row of an id in one copy is the n-th row of that id in the others
         void Pair()
         {
-            var at = new Dictionary<string, SpawnRow>(StringComparer.Ordinal);
+            var at = new Dictionary<string, List<SpawnRow>>(StringComparer.Ordinal);
             for (int i = 0; i < Sides.Count; i++)
             {
                 TableDraft t = Sides[i].Table;
-                var taken = new HashSet<SpawnRow>();
+                var nth = new Dictionary<string, int>(StringComparer.Ordinal);
                 foreach (TableRow r in t.Rows)
                 {
                     if (r.Base == null || r.Base.Name != SpawnRules.Row) continue;
                     string key = KeyOf(i, r);
-                    SpawnRow s;
-                    if (!at.TryGetValue(key, out s) || taken.Contains(s))
+                    List<SpawnRow> same;
+                    if (!at.TryGetValue(key, out same)) at[key] = same = new List<SpawnRow>();
+                    int n;
+                    nth.TryGetValue(key, out n);
+                    nth[key] = n + 1;
+                    if (n == same.Count)
                     {
-                        s = new SpawnRow(Sides.Count);
-                        if (!at.ContainsKey(key)) at[key] = s;
-                        long map = SpawnRules.MapOf(r.IsAdded ? t.Get(r, SpawnRules.Map) : t.GetOriginal(r, SpawnRules.Map));
+                        var s = new SpawnRow(Sides.Count);
+                        same.Add(s);
+                        long map = ListedUnder(SpawnRules.MapOf(r.IsAdded ? t.Get(r, SpawnRules.Map) : t.GetOriginal(r, SpawnRules.Map)));
                         List<SpawnRow> l;
                         if (!byMap.TryGetValue(map, out l)) byMap[map] = l = new List<SpawnRow>();
                         l.Add(s);
                     }
-                    taken.Add(s);
-                    s.Rows[i] = r;
+                    same[n].Rows[i] = r;
                 }
             }
         }
 
         // ---- reading ----
 
-        /// <summary>The maps that have spawn rows, in the order of their ids.</summary>
+        /// <summary>The maps that have spawn rows, in the order of their ids (SpawnRules.NoMap: the rows whose mapCode is no map id).</summary>
         public List<long> Maps()
         {
             var l = new List<long>(byMap.Keys);
@@ -400,7 +416,8 @@ namespace MS2.ModKit
                 if (r == null || r.IsDeleted) continue;
                 TableDraft t = Sides[i].Table;
                 foreach (string p in SpawnRules.CheckRow(a => t.Get(r, a))) if (!l.Contains(p)) l.Add(p);
-                if (!r.IsAdded) continue;
+                // a shipped row is looked at when the mod moves it to another difficulty range
+                if (!r.IsAdded && !t.IsEdited(r, SpawnRules.Difficulty) && !t.IsEdited(r, SpawnRules.DifficultyMin)) continue;
                 string key = SpawnRules.Key(a => t.Get(r, a));
                 int same = 0;
                 foreach (TableRow o in t.Rows) if (!o.IsDeleted && o.Base != null && o.Base.Name == SpawnRules.Row && SpawnRules.Key(a => t.Get(o, a)) == key) same++;
@@ -466,15 +483,48 @@ namespace MS2.ModKit
             return made;
         }
 
-        /// <summary>A new row for another point of the same map, with the fields of source.</summary>
+        /// <summary>A new row for another point of the same map: on each copy that has source, that copy's row with
+        /// every attribute it has there (feature, locale and ones the editor does not know too).</summary>
         public SpawnRow Clone(SpawnRow source, long point)
         {
             if (source.IsDeleted) throw new ModKitException("the row is removed; restore it before copying");
-            Func<string, long> num = f => { long n; return long.TryParse(Get(source, f), NumberStyles.None, CultureInfo.InvariantCulture, out n) ? n : 0; };
-            SpawnRow made = Add(SpawnRules.MapOf(Get(source, SpawnRules.Map)), point, Get(source, SpawnRules.Tag), num(SpawnRules.Population), num(SpawnRules.CoolTime),
-                num(SpawnRules.Difficulty), num(SpawnRules.DifficultyMin));
-            foreach (string f in new[] { SpawnRules.PetPopulation, SpawnRules.PetProbability })
-                if (Get(source, f).Length > 0) Set(made, f, Get(source, f));
+            if (point < 0) throw new ModKitException("a spawn row needs the number of a spawn point of the map");
+            long map = SpawnRules.MapOf(Get(source, SpawnRules.Map));
+            if (map <= 0) throw new ModKitException("a spawn row needs a map id");
+            string to = point.ToString(CultureInfo.InvariantCulture);
+            var xml = new string[Sides.Count];
+            for (int i = 0; i < Sides.Count; i++)
+            {
+                TableRow from = source.Rows[i];
+                if (from == null || from.IsDeleted) continue;
+                TableDraft t = Sides[i].Table;
+                var names = new List<string>();
+                foreach (XmlAttr a in from.Base.Attrs) names.Add(a.Name);
+                foreach (string f in SpawnRules.Known) if (!names.Contains(f) && t.Get(from, f) != null) names.Add(f);
+                var sb = new StringBuilder("<" + SpawnRules.Row);
+                foreach (string f in names)
+                {
+                    string v = f == SpawnRules.Point ? to : t.Get(from, f);
+                    if (v != null) sb.Append(' ').Append(f).Append("=\"").Append(Esc(v)).Append('"');
+                }
+                xml[i] = sb.Append(" />").ToString();
+                XmlElem made1 = XmlDoc.ParseFragment(xml[i], "the copied row").Root;
+                string key = SpawnRules.Key(made1.Attr);
+                foreach (TableRow o in t.Rows)
+                    if (!o.IsDeleted && o.Base != null && o.Base.Name == SpawnRules.Row && SpawnRules.Key(a => t.Get(o, a)) == key)
+                        throw new ModKitException("map " + map + " already has a row for point " + point + " at difficulty " + made1.Attr(SpawnRules.DifficultyMin) + "-" + made1.Attr(SpawnRules.Difficulty) + " in " + Sides[i].Archive);
+            }
+            var made = new SpawnRow(Sides.Count);
+            for (int i = 0; i < Sides.Count; i++)
+            {
+                if (xml[i] == null) continue;
+                TableRow last = null;
+                foreach (SpawnRow o in Of(map)) if (o.Rows[i] != null && !o.Rows[i].IsAdded) last = o.Rows[i];
+                made.Rows[i] = Sides[i].Table.AddRow(xml[i], last, false);
+            }
+            List<SpawnRow> l;
+            if (!byMap.TryGetValue(map, out l)) byMap[map] = l = new List<SpawnRow>();
+            l.Add(made);
             return made;
         }
 

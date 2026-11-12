@@ -74,13 +74,24 @@ namespace MS2.Tables
                 if (!watched.Contains(pane))
                 {
                     watched.Add(pane);
-                    pane.SizeChanged += delegate { FitPane(pane); };
-                    if (pane.DockPanel != null)
+                    EventHandler fit = delegate { FitPane(pane); };
+                    DockPanel panel = pane.DockPanel;
+                    pane.SizeChanged += fit;
+                    if (panel != null)
                     {
-                        pane.DockPanel.SizeChanged += delegate { FitPane(pane); };
-                        pane.DockPanel.ActiveDocumentChanged += delegate { FitPane(pane); };
+                        panel.SizeChanged += fit;
+                        panel.ActiveDocumentChanged += fit;
                     }
-                    pane.Disposed += delegate { watched.Remove(pane); };
+                    // the panel outlives the pane: its handlers go with the pane
+                    pane.Disposed += delegate
+                    {
+                        watched.Remove(pane);
+                        if (panel != null)
+                        {
+                            panel.SizeChanged -= fit;
+                            panel.ActiveDocumentChanged -= fit;
+                        }
+                    };
                 }
                 foreach (DockPane p in new List<DockPane>(watched)) FitPane(p);
             }

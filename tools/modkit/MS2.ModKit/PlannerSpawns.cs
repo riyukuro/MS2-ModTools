@@ -1,7 +1,8 @@
 // The plan's checks of spawn rows (table/mapspawntag.xml, see Spawns.cs): every row the mods add or change is read
 // as it ends up in each target and checked with SpawnRules. On top of the editor's checks the plan knows the final
 // tables: a row a table then has twice (same map, point, difficulty, feature and locale) and a map the target
-// does not have.
+// does not have. A shipped row is found by map, point, feature and locale, so one the mod moves to another
+// difficulty range is a changed row, not a new one.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -49,13 +50,16 @@ namespace MS2.ModKit
                 XmlDoc orig = OrigDoc(run, archive, entry.Name), doc = FinalDoc(run, archive, entry.Name);
                 if (orig == null || orig.Root == null || doc == null || doc.Root == null) continue;
 
-                var shipped = new Dictionary<string, string>();
+                // a row is found by its id (SpawnRules.Id); a table that ships an id twice has a text per row
+                var shipped = new Dictionary<string, List<string>>();
                 var shippedCount = new Dictionary<string, int>();
                 foreach (XmlElem e in orig.Root.Children)
                 {
                     if (e.Name != SpawnRules.Row) continue;
-                    string k = SpawnRules.Key(e.Attr);
-                    shipped[k] = RowText(e);
+                    string id = SpawnRules.Id(e.Attr), k = SpawnRules.Key(e.Attr);
+                    List<string> texts;
+                    if (!shipped.TryGetValue(id, out texts)) shipped[id] = texts = new List<string>();
+                    texts.Add(RowText(e));
                     int n;
                     shippedCount.TryGetValue(k, out n);
                     shippedCount[k] = n + 1;
@@ -74,16 +78,18 @@ namespace MS2.ModKit
                 foreach (XmlElem e in doc.Root.Children)
                 {
                     if (e.Name != SpawnRules.Row) continue;
-                    string k = SpawnRules.Key(e.Attr), was;
-                    bool isNew = !shipped.TryGetValue(k, out was);
+                    string k = SpawnRules.Key(e.Attr);
+                    List<string> was;
+                    bool isNew = !shipped.TryGetValue(SpawnRules.Id(e.Attr), out was);
+                    bool asShipped = !isNew && was.Contains(RowText(e));
                     int n0;
                     shippedCount.TryGetValue(k, out n0);
-                    if (!isNew && was == RowText(e) && count[k] <= n0) continue;      // as shipped
+                    if (asShipped && count[k] <= n0) continue;
                     long map = SpawnRules.MapOf(e.Attr(SpawnRules.Map));
                     string what = "spawn row of map " + (map > 0 ? map.ToString(CultureInfo.InvariantCulture) : "\"" + e.Attr(SpawnRules.Map) + "\"") + " point " + (e.Attr(SpawnRules.Point) ?? "?");
                     if (count[k] > Math.Max(n0, 1) && twice.Add(k))
                         Say(plan, said, plan.Errors, mod, archive, entry.Name, what + ": the table ends up with " + count[k] + " rows for the same difficulty, feature and locale");
-                    if (!isNew && was == RowText(e)) continue;
+                    if (asShipped) continue;
                     foreach (string problem in SpawnRules.CheckRow(e.Attr))
                         Say(plan, said, plan.Warnings, mod, archive, entry.Name, what + ": " + problem);
                     if (isNew && map > 0 && maps != null && !maps.ContainsKey(map))
