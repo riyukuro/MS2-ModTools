@@ -2050,6 +2050,53 @@ number, and a constant the copies shipped
 alike that now differs between them (the server's two copies disagree, the client shows one value and the server
 uses another, or the two clients disagree). A constant whose copies shipped different values raises nothing.
 
+## Attendance calendars
+
+A view, **MS2 Attendance** (menu **MS2 Mods > Attendance**), edits the server's login calendars: the `AttendGift`
+events of `table/Server/NA/GameEvent.xml` in the server's `Server.m2d`. A player who plays long enough on a day of the
+event gets that day's item by mail: the first item on the first day attended, the next one on the next day attended,
+until the items run out. Only the server reads the file (no locale or feature pick: every row counts), and it sends
+the event and its items to the client, so there is no client copy to keep in step. The file holds every other event
+type too, in one id space.
+
+The server keeps only the events that have not ended, and **every shipped event has ended**: to run a calendar,
+give a shipped one new dates or add a new one. A row:
+
+| attribute | what it is |
+|---|---|
+| `gameEventID` | the event's id. Two events of one id that have not ended stop the server's ingest |
+| `eventStart`, `eventEnd` | `yyyy-MM-dd-HH-mm` (or with `-ss`). An end the server cannot read counts as ended |
+| `value1` | the days, as XML text: `<items><v itemID count grade/>...</items>`, one `v` per day |
+| `value2` | as XML text: `<ms2><string name mailTitle mailContents detailUrl/><Config requirePlaySeconds/></ms2>`. Without `<Config>` (and without `<payAttend>`, the paid catch-up of missed days) the server leaves the event out; some shipped events have neither |
+| `value3` | a requirement, optional: `<ms2><require type value1 value2/></ms2>` (shown, not edited here) |
+
+The server sends the event's `name`; the shipped rows have `tabButton` instead, which the server does not read. Setting
+the name writes `name`, and `tabButton` too where the row has it.
+
+1. The list shows each event with the mod: its name, dates, number of days and play seconds (`paid`: catch-up only).
+   An edited event is blue, a new one green, one that has ended grey; the tooltip says why one is left out.
+2. Pick an event. Type its **Dates**, **Name**, **Mail title**, **Mail text**, **Event page** link and **Play seconds**
+   (the play time in a day before the day's item can be had; 0: none) and **Set event**. Setting the shipped values
+   takes the event's line out of the mod. An id with more than one row in the file is refused: edit it by hand.
+3. The days: pick one, type the **item** id, **count** and **grade**, and **Add day** (after the chosen one), **Set
+   day**, **Remove day**, **Up** or **Down**. The item must be a whole number above 0, the count too, the grade a whole
+   number. Setting the shipped days back gives the shipped text back.
+4. **New** adds an event with no days, empty texts and no play time asked, under the **New id** (empty: the next free
+   id) **from** and **to** the dates given; **Copy** adds a copy of the chosen event with the mod's days, texts and play
+   time. **Take event** puts a shipped event back as shipped and takes a new one out; **Take all** does every event.
+   **Plan**, **Apply** and **Save mod** are the Tables view's.
+
+Plan checks the rows the mods add or change, as the file ends up with them. Errors: a `value1`, `value2` or `value3`
+that is not XML text (the ingest stops), two events of one id that have not ended (the ingest stops), a `value2` that
+is not `<ms2>`, has no `<string>`, or has neither `<Config>` nor `<payAttend>` (the event is left out), a `value1`
+with no element, a day whose item id is not a whole number above 0 or not one of the server's items (the server gives
+nothing that day, and the player stays on it), a count or grade that is not a whole number, and a
+`requirePlaySeconds` that is not one (the server asks for no play time). Warnings: an event that has ended or whose
+end does not read (left out), a start that does not read, an end at or before the start, an event with no days, an
+`eventType` spelled otherwise than `AttendGift`, a `require` of type `ItemID` (the server never lets a player attend
+it), a `<string>` with `tabButton` but no `name`, and an id that other rows of the file also use (where the others
+have ended).
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different
