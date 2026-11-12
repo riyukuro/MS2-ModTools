@@ -68,7 +68,7 @@ namespace MS2.ModKit.Tests
             public readonly string Dir;
             public readonly DataSet Data;
 
-            public FakeIcons(bool kmsImages, bool serverImages)
+            public FakeIcons(bool kmsImages, bool serverImages, bool gmsImages = false)
             {
                 Dir = Path.Combine(Path.GetTempPath(), "modkit-icons-" + Guid.NewGuid().ToString("N"));
                 string k = Path.Combine(Dir, "kms"), g = Path.Combine(Dir, "gms"), s = Path.Combine(Dir, "server");
@@ -95,6 +95,8 @@ namespace MS2.ModKit.Tests
                 };
                 Directory.CreateDirectory(Path.Combine(k, "Resource"));
                 Directory.CreateDirectory(Path.Combine(s, "Resource"));
+                Directory.CreateDirectory(Path.Combine(g, "Resource"));
+                if (gmsImages) M2dWriter.Create(Path.Combine(g, "Resource", "Image.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>> { B("item/icon/77000001.png", Img("g77")) });
                 if (kmsImages) M2dWriter.Create(Path.Combine(k, "Resource", "Image.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, images);
                 if (serverImages)
                     M2dWriter.Create(Path.Combine(s, "Resource", "Image.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
@@ -209,6 +211,164 @@ namespace MS2.ModKit.Tests
                 Assert.AreEqual("Portrait/Npc/fake_guard.png", guard.PortraitEntry());
                 Assert.AreEqual(Img("mole"), src.Read(mole.PortraitEntry()));
                 Assert.AreEqual(Img("guard"), src.Read(guard.PortraitEntry()));
+            }
+        }
+
+        // ---- an item's own icon (ItemIcon.cs) ----
+
+        // a made-up PNG: the signature, an IHDR chunk of the size and an empty IEND (the checks read the header only)
+        static byte[] Png(int w, int h)
+        {
+            var b = new List<byte> { 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, (byte)'I', (byte)'H', (byte)'D', (byte)'R' };
+            foreach (int v in new[] { w, h }) { b.Add((byte)(v >> 24)); b.Add((byte)(v >> 16)); b.Add((byte)(v >> 8)); b.Add((byte)v); }
+            b.AddRange(new byte[] { 8, 6, 0, 0, 0, 0, 0, 0, 0 });
+            b.AddRange(new byte[] { 0, 0, 0, 0, (byte)'I', (byte)'E', (byte)'N', (byte)'D', 0, 0, 0, 0 });
+            return b.ToArray();
+        }
+
+        static Plan PlanOf(FakeIcons f, Mod m) { return Planner.Build(f.Data, new[] { m }, new PlanOptions { Maps = FieldMaps.Parse(MapXml) }); }
+
+        static List<string> Lines(List<PlanMessage> l, string part)
+        {
+            var r = new List<string>();
+            foreach (PlanMessage x in l) if (x.ToString().IndexOf(part, StringComparison.Ordinal) >= 0) r.Add(x.ToString());
+            return r;
+        }
+
+        static List<EntryOp> ImageOps(Mod m)
+        {
+            var l = new List<EntryOp>();
+            foreach (ModOp o in m.Ops) { var e = o as EntryOp; if (e != null) l.Add(e); }
+            return l;
+        }
+
+        [Test]
+        public void PngHeader()
+        {
+            string why;
+            PngInfo p = PngInfo.Read(Png(60, 60), out why);
+            Assert.IsNotNull(p, why);
+            Assert.AreEqual("60x60", p.ToString());
+            Assert.AreEqual(6, p.ColorType);
+            Assert.IsNull(PngInfo.Read(Img("not a png at all, long enough to read"), out why));
+            StringAssert.Contains("no PNG signature", why);
+            Assert.IsNull(PngInfo.Read(new byte[] { 0x89, 0x50 }, out why));
+            StringAssert.Contains("too short", why);
+            Assert.IsNull(PngInfo.Read(Png(0, 60), out why));
+            Assert.IsNull(PngInfo.Read(null, out why));
+        }
+
+        [Test]
+        public void OwnIconGoesToEachClientAndBothSides()
+        {
+            using (var f = new FakeIcons(true, true, true))
+            {
+                Mod m = NewMod();
+                ItemDraft d = Items(f, m).Open(1200002);
+                byte[] png = Png(60, 60);
+                CollectionAssert.AreEqual(new[] { "client:Resource/Image.m2d", "gms-client:Resource/Image.m2d" }, ItemIcon.Set(d, png));
+                List<EntryOp> ops = ImageOps(m);
+                Assert.AreEqual(2, ops.Count);
+                foreach (EntryOp o in ops)
+                {
+                    Assert.AreEqual("item/icon/mod/1200002.png", o.Name);
+                    Assert.AreEqual(png, m.Files[o.File]);
+                }
+                Assert.AreEqual("files/gms-client/item/icon/mod/1200002.png", ops[1].File);
+                // the kms row and the per-id files name it; the server's file too, though the server draws no icon
+                Assert.AreEqual("item/icon/mod/1200002.png", d.IconEntry(Profile.KmsClient));
+                Assert.AreEqual("item/icon/mod/1200002.png", d.IconEntry(Profile.GmsClient));
+                Assert.AreEqual("item/icon/mod/1200002.png", d.IconEntry(Profile.Server));
+                Assert.IsTrue(ItemIcon.HasOwn(d));
+                Assert.AreEqual(png, ItemIcon.ModImage(m, "Item/Icon/Mod/1200002.png"));
+                Assert.IsNull(ItemIcon.ModImage(m, "item/icon/1200002.png"));
+                Plan plan = PlanOf(f, m);
+                CollectionAssert.IsEmpty(plan.Errors);
+                CollectionAssert.IsEmpty(Lines(plan.Warnings, "image"));
+                CollectionAssert.IsEmpty(Lines(plan.Warnings, "slotIcon"));
+            }
+        }
+
+        [Test]
+        public void TakeOutPutsTheShippedIconsBack()
+        {
+            using (var f = new FakeIcons(true, true))
+            {
+                Mod m = NewMod();
+                ItemDraft d = Items(f, m).Open(1200002);
+                ItemIcon.Set(d, Png(60, 60));
+                Assert.AreEqual(1, ImageOps(m).Count);   // no gms image archive: the kms client's only
+                ItemIcon.Take(d);
+                CollectionAssert.IsEmpty(ImageOps(m));
+                CollectionAssert.IsEmpty(m.Files);
+                Assert.IsFalse(ItemIcon.HasOwn(d));
+                // each side its own shipped value again, and no edit is left in the mod
+                Assert.AreEqual("item/icon/77000001.png", d.IconEntry(Profile.KmsClient));
+                Assert.AreEqual("item/icon/77000009.png", d.IconEntry(Profile.Server));
+                foreach (EntitySection s in d.Sections) Assert.IsFalse(d.IsEdited(s, "slotIcon"), s.Part.Archive);
+                CollectionAssert.IsEmpty(Items(f, Mod.Parse(m.ToXml(), "round trip")).Open(1200002).Sections.FindAll(s => s.Part.IsNew));
+            }
+        }
+
+        [Test]
+        public void OwnIconRejectsWhatIsNotAPng()
+        {
+            using (var f = new FakeIcons(true, true))
+            {
+                Mod m = NewMod();
+                ItemDraft d = Items(f, m).Open(1200001);
+                var x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(d, Img("a jpeg, say, or some text file")); });
+                StringAssert.Contains("not a PNG image", x.Message);
+                CollectionAssert.IsEmpty(m.Ops);
+                CollectionAssert.IsEmpty(m.Files);
+            }
+            using (var f = new FakeIcons(false, true))
+            {
+                // the server's image archive does not count: no client could show the icon
+                Mod m = NewMod();
+                var x = Assert.Throws<ModKitException>(delegate { ItemIcon.Set(Items(f, m).Open(1200001), Png(60, 60)); });
+                StringAssert.Contains("no client data folder", x.Message);
+                CollectionAssert.IsEmpty(m.Ops);
+            }
+        }
+
+        [Test]
+        public void SavedModReadsTheIconFromItsFolder()
+        {
+            using (var f = new FakeIcons(true, true))
+            {
+                Mod m = NewMod();
+                byte[] png = Png(60, 60);
+                ItemIcon.Set(Items(f, m).Open(1200001), png);
+                string dir = Path.Combine(f.Dir, "mod");
+                m.Save(dir);
+                CollectionAssert.IsEmpty(m.Files);
+                Assert.AreEqual(png, ItemIcon.ModImage(m, "item/icon/mod/1200001.png"));
+                Assert.IsTrue(System.IO.File.Exists(Path.Combine(dir, "files", "client", "item", "icon", "mod", "1200001.png")));
+                CollectionAssert.IsEmpty(PlanOf(f, m).Errors);
+            }
+        }
+
+        [Test]
+        public void PlanChecksTheImages()
+        {
+            using (var f = new FakeIcons(true, true))
+            {
+                Mod m = NewMod();
+                ItemEditor ed = Items(f, m);
+                var trig = new TriggerEditor(f.Data, m);
+                ItemIcon.Set(ed.Open(1200001), Png(32, 32));
+                trig.Store("client:Resource/Image.m2d", "item/icon/mod/broken.png", Img("no png"));
+                trig.Store("client:Resource/Image.m2d", "item/icon/1200001.png", Png(60, 60));
+                ed.Open(1200003).SetBoth(Icons.ItemIconField, "./Data/Resource/Image/item/icon/sub/none.png");
+                Plan plan = PlanOf(f, m);
+                Assert.AreEqual(1, Lines(plan.Errors, "broken.png: not a PNG image").Count, string.Join("\n", Lines(plan.Errors, "")));
+                Assert.AreEqual(1, Lines(plan.Warnings, "1200001.png: an item icon of 32x32").Count, string.Join("\n", Lines(plan.Warnings, "")));
+                Assert.AreEqual(1, Lines(plan.Warnings, "item/icon/1200001.png: replaces a shipped image").Count);
+                Assert.AreEqual(1, Lines(plan.Warnings, "item 1200003: slotIcon names item/icon/sub/none.png").Count, string.Join("\n", Lines(plan.Warnings, "")));
+                // the shipped icons the mod does not touch, and the mod's own new entry, raise nothing
+                Assert.AreEqual(0, Lines(plan.Warnings, "item 1200002").Count);
+                Assert.AreEqual(0, Lines(plan.Warnings, "mod/1200001.png: replaces").Count);
             }
         }
     }

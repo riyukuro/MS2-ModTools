@@ -46,6 +46,8 @@ namespace MS2.Tables
         long modelId;          // and the item it was for
         // the icon entry of each listed item as the mod has it (null: none); filled when the row is drawn
         readonly Dictionary<long, string> iconOf = new Dictionary<long, string>();
+        // the bytes of the icon the mod holds for each listed item (no entry: the archives' image); filled with iconOf
+        readonly Dictionary<long, byte[]> ownIconOf = new Dictionary<long, byte[]>();
         readonly Label itemLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly TextBox cloneIdBox = new TextBox { Width = 80 };
         readonly TextBox optionBox = new TextBox { Width = 80 };
@@ -97,6 +99,8 @@ namespace MS2.Tables
             itemBar.Controls.Add(Btn("Remove clone", "Takes the chosen new item out of the mod again", delegate { RemoveClone(); }));
             itemBar.Controls.Add(Btn("Own stat row", "Stat rows are shared between items. This copies the item's stat row to the code in the box and points the item at the copy, so a stat change touches this item only", delegate { OwnOption(); }));
             itemBar.Controls.Add(optionBox);
+            itemBar.Controls.Add(Btn("Icon...", "Gives the item its own icon from a PNG file (60x60, the size of the shipped icons): the image goes into Resource/Image.m2d of each client (item/icon/mod/<id>.png) and the item's slotIcon names it, on the client and the server side", delegate { SetOwnIcon(); }));
+            itemBar.Controls.Add(Btn("Take out icon", "Takes the item's own icon out of the mod: the shipped icon again", delegate { TakeOwnIcon(); }));
             itemBar.Controls.Add(mirrorBox);
             tips.SetToolTip(mirrorBox, "A change is written once, where you make it, the same way a mod file has it. On Plan, a field changed in the kms-client's item row reaches the per-id item file (server, gms-client) too, and the other way round, when the two sides corresponded before; the field map says which field corresponds and how the value is written there. A server change reaches the gms-client as well, since its item files are the same as the server's. Unticked, the change stays on one side and Plan says so. Plan lists what each target gets");
             itemBar.Controls.Add(Btn("Save mod", "Saves the mod being edited (the same mod and the same Save as in the MS2 Tables view)", delegate { host.SaveFromOutside(); }));
@@ -371,6 +375,7 @@ namespace MS2.Tables
         void OnHostChanged()
         {
             iconOf.Clear();
+            ownIconOf.Clear();
             grid.CancelEdit();
             long id = draft != null ? draft.Id : 0;
             ShowItem(null);
@@ -387,7 +392,7 @@ namespace MS2.Tables
         void Edited()
         {
             grid.Invalidate();
-            if (draft != null) { iconOf.Remove(draft.Id); ShowIcon(draft); ShowModel(draft); hitList.Invalidate(); }
+            if (draft != null) { iconOf.Remove(draft.Id); ownIconOf.Remove(draft.Id); ShowIcon(draft); ShowModel(draft); hitList.Invalidate(); }
             host.EditedOutside();
         }
 
@@ -487,8 +492,9 @@ namespace MS2.Tables
             try { entry = d.IconEntry(); }
             catch (ModKitException) { }
             iconOf[d.Id] = entry;
-            iconBox.Show(Cache(), entry);
-            tips.SetToolTip(iconBox, entry == null ? "This item names no icon" : "Icon: " + entry + " in Resource/Image.m2d");
+            byte[] own = OwnIcon(d.Id, entry);
+            iconBox.Show(Cache(), entry, own);
+            tips.SetToolTip(iconBox, entry == null ? "This item names no icon" : "Icon: " + entry + (own != null ? ", the mod's own image" : " in Resource/Image.m2d"));
         }
 
         // ---- model ----
@@ -537,7 +543,51 @@ namespace MS2.Tables
             catch (ModKitException) { }
             catch (System.IO.IOException) { }
             iconOf[id] = entry;
+            OwnIcon(id, entry);
             return entry;
+        }
+
+        // the mod's own image of the entry (ItemIcon.ModImage), kept per item with iconOf
+        byte[] OwnIcon(long id, string entry)
+        {
+            byte[] b = null;
+            try { b = ItemIcon.ModImage(Editor().Mod, entry); }
+            catch (ModKitException) { }
+            if (b == null) ownIconOf.Remove(id); else ownIconOf[id] = b;
+            return b;
+        }
+
+        void SetOwnIcon()
+        {
+            if (host.Busy) { host.SayOutside("wait for the running job"); return; }
+            ItemDraft d = Draft();
+            grid.EndEdit();
+            string path;
+            using (var dlg = new OpenFileDialog { Title = "Icon for item " + d.Id, Filter = "PNG images (*.png)|*.png|All files|*.*", CheckFileExists = true })
+            {
+                if (dlg.ShowDialog(this) != DialogResult.OK) return;
+                path = dlg.FileName;
+            }
+            byte[] png = System.IO.File.ReadAllBytes(path);
+            List<string> archives = ItemIcon.Set(d, png);
+            string why;
+            PngInfo info = PngInfo.Read(png, out why);
+            Edited();
+            ShowItem(d);
+            host.SayOutside("item " + d.Id + ": own icon " + ItemIcon.EntryOf(d.Id) + " (" + info + ", from " + System.IO.Path.GetFileName(path) + ") in " + string.Join(", ", archives.ToArray()) + "; slotIcon names it"
+                + (info.Width != ItemIcon.Size || info.Height != ItemIcon.Size ? ". The shipped item icons are " + ItemIcon.Size + "x" + ItemIcon.Size + ": the client draws this one scaled" : ""));
+        }
+
+        void TakeOwnIcon()
+        {
+            if (host.Busy) { host.SayOutside("wait for the running job"); return; }
+            ItemDraft d = Draft();
+            grid.EndEdit();
+            bool had = ItemIcon.HasOwn(d);
+            ItemIcon.Take(d);
+            Edited();
+            ShowItem(d);
+            host.SayOutside("item " + d.Id + ": " + (had ? "the mod's own icon taken out; the shipped icon again" : "the mod gives this item no own icon"));
         }
 
         void OnDrawHit(object sender, DrawItemEventArgs e)
@@ -550,7 +600,9 @@ namespace MS2.Tables
             var box = new Rectangle(e.Bounds.X + 2, e.Bounds.Y + 2, size, size);
             IconCache cache = Cache();
             string entry = cache != null ? IconEntryOf(h.Id) : null;
-            IconCache.Draw(e.Graphics, box, cache != null ? cache.Get(entry, hitList) : null);
+            byte[] own;
+            ownIconOf.TryGetValue(h.Id, out own);
+            IconCache.Draw(e.Graphics, box, cache == null ? null : own != null ? cache.FromBytes(own) : cache.Get(entry, hitList));
             var text = new Rectangle(box.Right + 6, e.Bounds.Y, e.Bounds.Width - box.Width - 10, e.Bounds.Height);
             TextRenderer.DrawText(e.Graphics, h.ToString(), e.Font, text, e.ForeColor, TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
             e.DrawFocusRectangle();

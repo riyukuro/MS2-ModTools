@@ -73,6 +73,42 @@ namespace MS2.Tables
             return null;
         }
 
+        // the images of a mod's own files (ItemIcon.ModImage), by the bytes they come from (the same array: the same image)
+        readonly Dictionary<byte[], Image> own = new Dictionary<byte[], Image>(new SameArray());
+
+        sealed class SameArray : IEqualityComparer<byte[]>
+        {
+            public bool Equals(byte[] a, byte[] b) { return ReferenceEquals(a, b); }
+            public int GetHashCode(byte[] a) { return System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(a); }
+        }
+
+        /// <summary>The image of a mod's file (decoded here, at once: one small icon), or null when it does not decode.</summary>
+        public Image FromBytes(byte[] bytes)
+        {
+            if (bytes == null) return null;
+            lock (gate)
+            {
+                if (disposed) return null;
+                Image img;
+                if (own.TryGetValue(bytes, out img)) return img == Missing ? null : img;
+                if (own.Count >= 64)
+                {
+                    foreach (Image i in own.Values) if (i != Missing) i.Dispose();
+                    own.Clear();
+                }
+                img = Missing;
+                try
+                {
+                    using (var ms = new MemoryStream(bytes))
+                    using (Image decoded = Image.FromStream(ms))
+                        img = new Bitmap(decoded);
+                }
+                catch (Exception) { img = Missing; }
+                own[bytes] = img;
+                return img == Missing ? null : img;
+            }
+        }
+
         /// <summary>True when the entry was looked for and no archive has it (or it is not an image).</summary>
         public bool IsMissing(string entry)
         {
@@ -122,6 +158,8 @@ namespace MS2.Tables
                 disposed = true;
                 foreach (Image i in images.Values) if (i != Missing) i.Dispose();
                 images.Clear();
+                foreach (Image i in own.Values) if (i != Missing) i.Dispose();
+                own.Clear();
                 waiting.Clear();
             }
             source.Dispose();
@@ -154,6 +192,7 @@ namespace MS2.Tables
     {
         IconCache cache;
         string entry;
+        byte[] bytes;
 
         public IconBox()
         {
@@ -161,10 +200,14 @@ namespace MS2.Tables
         }
 
         /// <summary>Shows the entry's image (null: the plain placeholder).</summary>
-        public void Show(IconCache c, string e)
+        public void Show(IconCache c, string e) { Show(c, e, null); }
+
+        /// <summary>Shows the image of the mod's own file when there is one (b), else the entry's image of the archives.</summary>
+        public void Show(IconCache c, string e, byte[] b)
         {
             cache = c;
             entry = e;
+            bytes = b;
             Invalidate();
         }
 
@@ -173,7 +216,7 @@ namespace MS2.Tables
         protected override void OnPaint(PaintEventArgs e)
         {
             e.Graphics.Clear(BackColor);
-            Image img = cache != null ? cache.Get(entry, this) : null;
+            Image img = cache == null ? null : bytes != null ? cache.FromBytes(bytes) : cache.Get(entry, this);
             IconCache.Draw(e.Graphics, new Rectangle(0, 0, Width, Height), img);
         }
     }

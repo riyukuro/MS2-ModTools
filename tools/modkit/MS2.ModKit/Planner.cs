@@ -543,6 +543,7 @@ namespace MS2.ModKit
             GlobalDropChecks(run);
             AchievementChecks(run);
             LoginMusicChecks(run);
+            IconChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 

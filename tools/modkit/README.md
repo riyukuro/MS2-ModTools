@@ -468,6 +468,26 @@ The box says `no model` when the item names none, and `cannot show: <reason>` wh
 read; a missing texture only leaves that part plain. The picture is the bind pose, with no animation. The box is
 left out when the view is too narrow for it.
 
+### An own icon: Icon...
+
+**Icon...** gives the picked item an icon of your own from a PNG file. The image goes into the mod as a new entry
+`item/icon/mod/<id>.png` of `Resource/Image.m2d`, once for each client data folder that has that archive (the
+Korean and the global client read their own). The item's `property@slotIcon` names it on both sides:
+`./Data/Resource/Image/item/icon/mod/<id>.png`. The server draws no icons and gets no image. The list, the large
+icon and the grid show the new icon at once, before the mod is saved.
+
+The shipped item icons are 60x60 RGBA PNG files. Another size is taken, but the client draws it scaled, and the
+view and Plan say so. **Take out icon** drops the image entries and puts each side's shipped `slotIcon` back (for a
+clone: its source's).
+
+Plan checks the images too:
+
+- an image a mod puts into an image archive that is not a PNG file is an error (the client shows nothing);
+- an item icon that is not 60x60 is a warning, and so is an image that replaces a shipped one (everything that
+  names it shows the new one);
+- a `slotIcon` a mod sets that names an image neither the client's image archive nor a mod has is a warning (the
+  item shows an empty slot).
+
 ### A new item: Clone to new id
 
 Select a shipped item and press **Clone to new id**. With the id box empty the next free id after the source is
