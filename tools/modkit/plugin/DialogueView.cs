@@ -66,6 +66,7 @@ namespace MS2.Tables
         readonly CheckBox changedBox = new CheckBox { Text = "changed by the mod", AutoSize = true, Margin = new Padding(8, 6, 3, 0) };
         readonly ComboBox langBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 70 };
         readonly Label hitsLabel = new Label { AutoSize = true, Margin = new Padding(8, 8, 3, 0) };
+        int talkCount;
         readonly DataGridView npcGrid = new DataGridView { Dock = DockStyle.Left, Width = 420 };
         readonly Label npcLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 8, 0) };
         readonly ComboBox kindBox = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 90 };
@@ -529,10 +530,17 @@ namespace MS2.Tables
                 npcGrid.ClearSelection();
             }
             finally { filling = false; }
-            hitsLabel.Text = hits.Count + " NPC(s), " + all.Count + " with a talk, " + mine.Count + " changed by the mod";
+            talkCount = all.Count;
+            ShowCount(mine);
             int at = keep >= 0 ? hits.IndexOf(keep) : -1;
             if (at >= 0) SelectNpc(keep);
             else ShowTalk(null);
+        }
+
+        // the header's counts: the hits, the NPCs with a talk (read with the hits) and the NPCs the mod changes now
+        void ShowCount(HashSet<long> mine)
+        {
+            hitsLabel.Text = hits.Count + " NPC(s), " + talkCount + " with a talk, " + mine.Count + " changed by the mod";
         }
 
         void SelectNpc(long id)
@@ -909,6 +917,7 @@ namespace MS2.Tables
         {
             infos.Remove(t.NpcId);
             host.EditedOutside();
+            ShowCount(Editor().ModNpcIds());
             var sb = new StringBuilder(said);
             if (missed != null && missed.Count > 0) sb.Append("\r\nnot changed on: ").Append(string.Join("; ", missed.ToArray())).Append(" (a side named alone has no such place)");
             if (talk == null || talk.NpcId != t.NpcId)
