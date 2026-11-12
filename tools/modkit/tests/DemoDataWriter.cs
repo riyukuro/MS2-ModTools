@@ -68,11 +68,16 @@ namespace MS2.ModKit.Tests
             // fake_attic
             var exported = new List<KeyValuePair<string, byte[]>>
             {
-                E("flat/demo/triggerbox_demo.flat", Flat("TriggerBox_Demo", "TriggerObjectID", "MS2TriggerObject", "MS2TriggerBox")),
+                E("flat/demo/triggerbox_demo.flat", With(Flat("TriggerBox_Demo", "TriggerObjectID", "MS2TriggerObject", "MS2TriggerBox"), "ShapeDimensions", "Point3", "150, 150, 150")),
                 E("flat/demo/triggermesh_demo.flat", Flat("TriggerMesh_Demo", "TriggerObjectID", "MS2TriggerObject", "MS2TriggerMesh")),
                 E("flat/demo/triggermodel_demo.flat", Flat("TriggerModel_Demo", "TriggerModelID", "MS2TriggerModel")),
                 E("flat/demo/crate_demo.flat", Flat("Crate_Demo", null)),
                 E("flat/demo/lantern_demo.flat", Flat("Lantern_Demo", null)),
+                // the kinds the Maps view adds: a spawn point, a portal, an NPC spawn point, an interact object
+                E("flat/demo/spawnpoint_demo.flat", Flat("SpawnPoint_Demo", "SpawnPointID", "SpawnPoint")),
+                E("flat/demo/portal_demo.flat", With(With(Flat("Portal_Demo", "PortalID", "Portal"), "TargetFieldSN", "SInt32", "0"), "TargetPortalID", "SInt32", "0")),
+                E("flat/demo/spawnpointnpc_demo.flat", With(With(Flat("SpawnPointNPC_Demo", "SpawnPointID", "SpawnPoint", "SpawnPointNPC"), "NpcList", "AssocUInt32", null), "NpcCount", "UInt32", "1")),
+                E("flat/demo/interact_demo.flat", Flat("Interact_Demo", "interactID", "MS2InteractObject")),
                 E("xblock/fake_meadow.xblock", XBlock(
                     Ent("TriggerBox_Demo", "GateBox", "Position", "0, 450, 0", "TriggerObjectID", "101") +
                     Ent("TriggerMesh_Demo", "GateLeft", "Position", "-150, 600, 0", "TriggerObjectID", "3001") +
@@ -81,7 +86,8 @@ namespace MS2.ModKit.Tests
                     Ent("Crate_Demo", "Crate_02", "Position", "450, 150, 0", "Rotation", "0, 0, 90") +
                     Ent("Crate_Demo", "Crate_03", "Position", "450, 150, 150", "Scale", "0.5") +
                     Ent("Lantern_Demo", "Lantern_01", "Position", "-300, 300, 150", "IsVisible", "False") +
-                    Ent("Lantern_Demo", "Lantern_02", "Position", "300, 300, 150"))),
+                    Ent("Lantern_Demo", "Lantern_02", "Position", "300, 300, 150") +
+                    Ent("Portal_Demo", "Portal_ToHarbor", "Position", "-450, 0, 0", "PortalID", "1", "TargetFieldSN", "9100002", "TargetPortalID", "1"))),
             };
             foreach (string block in new[] { "fake_harbor", "fake_far_shore", "fake_cove", "fake_ridge" })
                 exported.Add(E("xblock/" + block + ".xblock", XBlock("")));
@@ -154,6 +160,15 @@ namespace MS2.ModKit.Tests
             sb.Append("\t<property name=\"IsVisible\" type=\"Boolean\" id=\"" + (id++) + "\"><set value=\"True\" /></property>\n");
             if (idProp != null) sb.Append("\t<property name=\"" + idProp + "\" type=\"SInt32\" id=\"" + id + "\"><set value=\"0\" /></property>\n");
             return sb.Append("</model>\n").ToString();
+        }
+
+        /// <summary>The flat with one more property (a null value: no set, as an empty list).</summary>
+        static string With(string flat, string name, string type, string value)
+        {
+            int id = 1;
+            while (flat.Contains("id=\"" + id + "\"")) id++;
+            string p = "\t<property name=\"" + name + "\" type=\"" + type + "\" id=\"" + id + "\">" + (value == null ? "" : "<set value=\"" + value + "\" />") + "</property>\n";
+            return flat.Replace("</model>\n", p + "</model>\n");
         }
 
         static string Ent(string model, string name, params string[] props)
