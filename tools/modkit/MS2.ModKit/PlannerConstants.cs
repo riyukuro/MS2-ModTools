@@ -2,9 +2,9 @@
 // as the copy ends up with it. Errors: a changed value the readers do not take (for a key the server ingest reads,
 // against the ingest's type; else against what the shipped value looks like). Warnings: a row the mods add whose key
 // no copy ships (nothing reads it), a shipped row the mods leave out or whose value they take out (the game takes
-// its built-in value), an id with more rows than it shipped with (the server keeps the last), a changed row of
-// another locale than the copy's game runs with (the server reads only the rows of its locale and those without
-// one), a fraction where a key the server does not read shipped a whole number, and a row the copies shipped alike
+// its built-in value), an id with more rows than it shipped with (the server keeps one), a changed row the copy's
+// game does not read (of another locale than the game runs with; without a locale while the copy has a row of the
+// key for the game's locale; without a feature next to a row of the key with one), a fraction where a key the server does not read shipped a whole number, and a row the copies shipped alike
 // that now differs between them (the client shows one value and the server uses another, or the two clients
 // disagree).
 using System;
@@ -15,7 +15,8 @@ namespace MS2.ModKit
 {
     public static partial class Planner
     {
-        // the rows by id (the last row of an id, the one the server keeps; rows without a key are left out)
+        // the rows by id (the row of an id the server's parser keeps: the last without a feature, the first with
+        // one; rows without a key are left out)
         static Dictionary<ConstId, XmlElem> ConstRows(XmlDoc d)
         {
             var s = new Dictionary<ConstId, XmlElem>();
@@ -23,7 +24,8 @@ namespace MS2.ModKit
             foreach (XmlElem e in d.Root.Children)
             {
                 if (e.Name != "v" || string.IsNullOrEmpty(e.Attr("key"))) continue;
-                s[ConstId.Of(e)] = e;
+                ConstId id = ConstId.Of(e);
+                if (id.Feature.Length == 0 || !s.ContainsKey(id)) s[id] = e;
             }
             return s;
         }
@@ -88,7 +90,7 @@ namespace MS2.ModKit
                     int now, then;
                     string folded = kv.Key.Folded;
                     if (counted.Add(folded) && finalCounts[i].TryGetValue(folded, out now) && now > 1 && (!origCounts[i].TryGetValue(folded, out then) || then < now))
-                        plan.Msg(plan.Warnings, mod, side.Archive, side.Entry, "constant " + kv.Key + " has " + now + " rows after the mods (keys that differ only by case or spaces count as the same): the server keeps the last one");
+                        plan.Msg(plan.Warnings, mod, side.Archive, side.Entry, "constant " + kv.Key + " has " + now + " rows after the mods (keys that differ only by case or spaces count as the same): the server keeps one of them (the last without a feature, the first with one)");
                     if (origs[i].TryGetValue(kv.Key, out old))
                     {
                         string was = old.Attr("value") ?? "";
@@ -103,9 +105,8 @@ namespace MS2.ModKit
                         if (bad != null) plan.Msg(plan.Errors, mod, side.Archive, side.Entry, bad);
                         string doubt = bad == null ? Constants.Doubt(kv.Key, was, v) : null;
                         if (doubt != null) plan.Msg(plan.Warnings, mod, side.Archive, side.Entry, doubt);
-                        if (kv.Key.Locale.Length > 0 && locale.Length > 0 && !string.Equals(kv.Key.Locale, locale, StringComparison.OrdinalIgnoreCase))
-                            plan.Msg(plan.Warnings, mod, side.Archive, side.Entry, "constant " + kv.Key + " is changed, but this copy's game runs with locale " + locale
-                                + ": it reads the rows of its locale and those without one, so the change likely does nothing");
+                        string shadow = Constants.Shadow(finals[i].Keys, kv.Key, locale);
+                        if (shadow != null) plan.Msg(plan.Warnings, mod, side.Archive, side.Entry, "constant " + kv.Key + " is changed, but " + shadow);
                     }
                     else if (!shippedKeys.Contains(kv.Key.Key))
                         plan.Msg(plan.Warnings, mod, side.Archive, side.Entry, "constant " + kv.Key + " is added, and no copy of the constants ships the key: the game reads only the keys it knows");

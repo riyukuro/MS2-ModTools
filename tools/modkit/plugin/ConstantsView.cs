@@ -267,11 +267,10 @@ namespace MS2.Tables
                         it.SubItems.Add(now ?? "");
                         if (was == null) { tip.Add(Short(s) + ": no row"); continue; }
                         int rowsOf = cs.RowCount(s, id);
-                        Profile p = Profile.OfArchive(s.Archive);
-                        bool otherLocale = id.Locale.Length > 0 && p != null && !string.Equals(id.Locale, p.Locale, StringComparison.OrdinalIgnoreCase);
+                        string shadow = cs.Shadow(s, id);
                         tip.Add(Short(s) + ": " + was + " shipped" + (now != was ? ", " + now + " with the mod" : "")
-                            + (rowsOf > 1 ? " (" + rowsOf + " rows: the server keeps the last; not editable here)" : "")
-                            + (otherLocale ? " (this copy's game runs with locale " + p.Locale + ": it likely does not read the row)" : ""));
+                            + (rowsOf > 1 ? " (" + rowsOf + " rows: the server keeps one; not editable here)" : "")
+                            + (shadow != null ? " (" + shadow + ")" : ""));
                     }
                     it.SubItems.Add(edited ? "yes" : "");
                     if (differs) it.ForeColor = Color.DarkOrange;

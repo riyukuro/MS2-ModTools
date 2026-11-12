@@ -2019,20 +2019,23 @@ There are four copies:
 
 A constant is one key with its locale and feature. The copies do not all agree as shipped (a few keys differ, and many
 are on the server table only), so each copy is edited on its own, with one edit per copy (no field map is needed).
-The server ingest matches keys trimmed and case-insensitive, reads the rows in order and keeps the last row of a key
-(after its locale and feature filter: a game reads the rows of its own locale and those without one). The list shows
-that last row.
+For each key the server's parser picks one row: a game reads the rows of its own locale, and only when there is none
+those without one; among them a row of a feature that is on wins over the rows without a feature (of two rows with
+the same feature the first counts, of two without one the last). The ingest then matches keys trimmed and
+case-insensitive. The list shows, of rows with the same key, locale and feature, the one the parser keeps. The tool
+takes the locale `KR` for the kms client and `NA` for the global client and the server.
 
 1. Type part of a **key** to filter the list; **edited only** and **copies differ only** narrow it further. The list
    shows each constant with its kind and its
    value on every copy with the mod. A constant the mod changes is blue, one whose copies differ is orange; the
-   tooltip gives every copy's shipped value, a copy with more than one row of the constant, and a row of another
-   locale than the copy's game runs with. The kind of a key the server ingest reads is the ingest's type (`int`,
+   tooltip gives every copy's shipped value, a copy with more than one row of the constant, and a row the copy's
+   game does not read (of another locale; without a locale where the copy has a row of the key for its game's
+   locale; without a feature next to a row of the key with one, which wins while the feature is on). The kind of a key the server ingest reads is the ingest's type (`int`,
    `long`, `byte`, `float` or `bool`); of another key, what the shipped value looks like (`int`, `float`, `bool`,
    `list` or `text`).
 2. Pick a constant, choose **(every copy)** or one copy, type the value and **Set** (or Enter). The value must be one
    the readers take: for a key the server reads, a whole number in range for `int`, `long` and `byte`, a number
-   (a trailing `f` is fine) for `float`, `true`, `false`, `1` or `0` for `bool`. For another key a number where a
+   (a trailing lowercase `f` is fine; the ingest does not take `F`) for `float`, `true`, `false`, `1` or `0` for `bool`. For another key a number where a
    number shipped (a fraction where a whole number shipped is a warning) and `true` or `false` where a bool shipped.
    A constant with more than one row in a copy is refused: take the extra rows out by hand first. Setting the
    shipped value takes the copy's line out of the mod.
@@ -2041,8 +2044,8 @@ that last row.
 Plan checks every copy the mods change, as the copy ends up with it. An error: a changed value the readers do not
 take (as in step 2). Warnings: a row the mods add whose key no copy ships (the game reads only the keys it knows),
 a shipped row the mods leave without a row or without a value (the game takes its built-in value, 0 or false), a
-constant with more rows than it shipped with (the server keeps the last), a changed row of another locale than the
-copy's game runs with (it likely does nothing), a fraction where a key the server does not read shipped a whole
+constant with more rows than it shipped with (the server keeps one), a changed row the copy's game does not read
+(as in the tooltip of step 1: the change does nothing there, or only while a feature is off), a fraction where a key the server does not read shipped a whole
 number, and a constant the copies shipped
 alike that now differs between them (the server's two copies disagree, the client shows one value and the server
 uses another, or the two clients disagree). A constant whose copies shipped different values raises nothing.
@@ -2257,6 +2260,8 @@ The real-archive tests copy your archives to a temporary folder (`MS2_MODKIT_TMP
 there: read every entry and compare with `tools/m2d`'s reader, rewrite and compare with its repack, and change one
 attribute of one table on both sides and check that every other entry is unchanged. Without the two settings they
 are skipped.
+`MS2_SERVER_SOURCE`, set to a server source tree, also runs a check that the constant types the tool knows
+(`MS2.ModKit/ConstantKinds.cs`) are still those of the server's `ConstantsTable`.
 
 The pictures in `docs/shots/` are of a made-up data set (invented names and ids, drawn icons, a model of boxes), so
 they show no game data. `tests/DemoDataWriter.cs` writes it:

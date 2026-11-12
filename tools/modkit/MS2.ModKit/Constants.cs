@@ -97,7 +97,7 @@ namespace MS2.ModKit
 
         /// <summary>
         /// The shipped values of one copy by id (empty when the copy is not there). Of an id with more than one row
-        /// the last row's value: the server ingest reads the rows in order and keeps the last.
+        /// the value the server's parser keeps: the last row without a feature, the first row with one.
         /// </summary>
         public Dictionary<ConstId, string> Rows(ConstSide side)
         {
@@ -116,7 +116,7 @@ namespace MS2.ModKit
             {
                 if (e.Name != "v" || string.IsNullOrEmpty(e.Attr("key"))) continue;
                 ConstId id = ConstId.Of(e);
-                d[id] = e.Attr("value") ?? "";
+                if (id.Feature.Length == 0 || !d.ContainsKey(id)) d[id] = e.Attr("value") ?? "";
                 int n;
                 string k = id.Folded;
                 same[k] = same.TryGetValue(k, out n) ? n + 1 : 1;
@@ -259,6 +259,8 @@ namespace MS2.ModKit
         // ---- kinds ----
 
         static readonly Regex IntRx = new Regex(@"^\s*-?\d+\s*$"), FloatRx = new Regex(@"^\s*-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?[fF]?\s*$");
+        // a float the server ingest reads: it strips a trailing f only when the value has a lowercase f
+        static readonly Regex ServerFloatRx = new Regex(@"^\s*-?(\d+\.\d*|\.\d+|\d+)([eE][-+]?\d+)?f?\s*$");
         static Dictionary<string, string> serverKinds;
 
         /// <summary>What a value looks like: int, float, bool, list (has a comma) or text.</summary>
@@ -291,6 +293,47 @@ namespace MS2.ModKit
             }
             string s;
             return serverKinds.TryGetValue((key ?? "").Trim(), out s) ? s : null;
+        }
+
+        /// <summary>Every key the server ingest reads with a type, and the type (int, long, byte, float or bool).</summary>
+        public static IEnumerable<KeyValuePair<string, string>> ServerKinds()
+        {
+            ServerKind("");
+            return serverKinds;
+        }
+
+        /// <summary>
+        /// Why the game of a copy reads another row of the key than the row of id (null: it reads this one, or may).
+        /// rows are the ids of the copy, locale the locale the copy's game runs with ("" for unknown). As the
+        /// server's parser picks per key: the rows of the game's locale, and only when there is none the rows
+        /// without a locale; among those a row of an enabled feature wins over the rows without one.
+        /// </summary>
+        public static string Shadow(IEnumerable<ConstId> rows, ConstId id, string locale)
+        {
+            locale = locale ?? "";
+            if (locale.Length == 0) return null;
+            if (id.Locale.Length > 0 && !string.Equals(id.Locale, locale, StringComparison.OrdinalIgnoreCase))
+                return "this copy's game runs with locale " + locale + " and reads only the rows of its locale, or those without one when it has none, so the change does nothing there";
+            bool own = id.Locale.Length > 0;
+            string feature = null;
+            foreach (ConstId r in rows)
+            {
+                if (r.Key != id.Key) continue;
+                if (!own && string.Equals(r.Locale, locale, StringComparison.OrdinalIgnoreCase))
+                    return "this copy also has a row of the key for its game's locale " + locale + ": the game reads that row, so the change does nothing there";
+                bool sameGroup = own ? string.Equals(r.Locale, locale, StringComparison.OrdinalIgnoreCase) : r.Locale.Length == 0;
+                if (sameGroup && id.Feature.Length == 0 && r.Feature.Length > 0 && feature == null) feature = r.Feature;
+            }
+            if (feature != null)
+                return "this copy also has a row of the key with feature " + feature + ": the game reads that row when the feature is on, and this one only when it is off";
+            return null;
+        }
+
+        /// <summary>The same for a copy of the data set, with the locale of the copy's game.</summary>
+        public string Shadow(ConstSide side, ConstId id)
+        {
+            Profile p = Profile.OfArchive(side.Archive);
+            return Shadow(Rows(side).Keys, id, p == null ? "" : p.Locale);
         }
 
         /// <summary>
@@ -366,7 +409,8 @@ namespace MS2.ModKit
                         if (n < lo || n > hi) return v + " is out of range: the server reads the key as " + server + " (" + lo + " to " + hi + ")";
                         return null;
                     case "float":
-                        return Number(t, out d) ? null : v + " is not a number: the server reads the key as one and takes 0 for anything else";
+                        return ServerFloatRx.IsMatch(t) && Number(t, out d) ? null
+                            : v + " is not a number the server reads: it reads the key as one (a trailing f is taken, F is not) and takes 0 for anything else";
                     default:
                         return Truth(t, out b) ? null : v + " is not a truth value: the server reads the key as true, false, 1 or 0 and takes false for anything else";
                 }
@@ -415,7 +459,7 @@ namespace MS2.ModKit
                 int rowsOf = RowCount(s, id);
                 if (rowsOf > 1)
                     throw new ModKitException(s.Archive + " " + s.Entry + " has " + rowsOf + " rows of constant " + id + " (keys that differ only by case or spaces count as the same): "
-                        + "the server reads the last one; take the extra rows out by hand first");
+                        + "the server reads one of them only; take the extra rows out by hand first");
                 string bad = Problem(id, was, value);
                 if (bad != null) throw new ModKitException(bad);
             }

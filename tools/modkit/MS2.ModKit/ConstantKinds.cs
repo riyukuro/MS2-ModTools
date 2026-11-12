@@ -1,6 +1,7 @@
 // The type the server ingest gives each constant it reads (the properties of its ConstantsTable record):
-// i int, l long, b byte, f float, t bool. Generated from the server source; keys it reads as text, times or
-// vectors are left out (any value goes). The ingest matches keys trimmed and without regard to case.
+// i int, l long, b byte, f float, t bool. Taken from the server source (the test Kinds_AreTheServerSourcesProperties,
+// run with MS2_SERVER_SOURCE set to a server tree, checks it still matches); keys it reads as text, times or vectors
+// are left out (any value goes). The ingest matches keys trimmed and without regard to case.
 namespace MS2.ModKit
 {
     static class ConstantKinds

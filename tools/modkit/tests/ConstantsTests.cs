@@ -247,6 +247,7 @@ namespace MS2.ModKit.Tests
             Assert.That(Constants.KindOf(Price, "100"), Is.EqualTo("int"), "an unknown key: the shipped shape");
             Assert.That(Constants.Problem(Scale, "1", "1.5"), Is.Null);
             Assert.That(Constants.Problem(Scale, "1", "2.5f"), Is.Null, "the ingest strips a trailing f");
+            Assert.That(Constants.Problem(Scale, "1", "1.5F"), Does.Contain("not a number the server reads"), "it strips F only next to a lowercase f, so the server gets 0");
             Assert.That(Constants.Problem(Jump, "0", "true"), Is.Null);
             Assert.That(Constants.Problem(Jump, "0", "1"), Is.Null);
             Assert.That(Constants.Problem(Jump, "0", "2"), Does.Contain("not a truth value"));
@@ -329,6 +330,77 @@ namespace MS2.ModKit.Tests
                 Plan p = f.Plan(m);
                 Assert.That(Texts(p.Warnings, "runs with locale KR"), Is.Not.Empty, string.Join("\n", p.Warnings.Select(x => x.Text)));
             }
+        }
+
+        const string Picked =
+            "\t<v key=\"TestOpt\" value=\"1\" />\n" +
+            "\t<v key=\"TestOpt\" value=\"2\" locale=\"KR\" />\n" +
+            "\t<v key=\"TestCap\" value=\"5\" />\n" +
+            "\t<v key=\"TestCap\" value=\"9\" feature=\"TestFeat\" />\n" +
+            "\t<v key=\"TestDup\" value=\"1\" feature=\"TestFeat\" />\n" +
+            "\t<v key=\"TestDup\" value=\"2\" feature=\"TestFeat\" />\n" +
+            "\t<v key=\"TestTwice\" value=\"1\" />\n" +
+            "\t<v key=\"TestTwice\" value=\"2\" />\n";
+
+        [Test]
+        public void Plan_WarnsWhenTheGameReadsAnotherRowOfTheKey()
+        {
+            using (var f = new FakeConstants(Picked))
+            {
+                Mod m = FakeConstants.NewMod();
+                var c = new Constants(f.Data, m);
+                var opt = new ConstId("TestOpt");
+                Assert.That(c.Shadow(K, opt), Does.Contain("locale KR"), "the KR game reads its own row");
+                Assert.That(c.Shadow(ST, opt), Is.Null, "an NA game has no row of its locale: it reads the one without");
+                Assert.That(c.Shadow(ST, new ConstId("TestCap")), Does.Contain("feature TestFeat"));
+                Assert.That(c.Shadow(ST, new ConstId("TestCap", "", "TestFeat")), Is.Null);
+                c.Set(opt, "3");
+                c.Set(new ConstId("TestCap"), "6");
+                Plan p = f.Plan(m);
+                Assert.That(p.Errors, Is.Empty);
+                Assert.That(Texts(p.Warnings, "TestOpt is changed, but this copy also has a row of the key for its game's locale KR"), Has.Count.EqualTo(1), string.Join("\n", p.Warnings.Select(x => x.Text)));
+                Assert.That(Texts(p.Warnings, "TestCap is changed, but this copy also has a row of the key with feature TestFeat"), Has.Count.EqualTo(4));
+            }
+        }
+
+        [Test]
+        public void Rows_OfOneId_AreTheOneTheParserKeeps()
+        {
+            using (var f = new FakeConstants(Picked))
+            {
+                var c = new Constants(f.Data, FakeConstants.NewMod());
+                Assert.That(c.GetShipped(ST, new ConstId("TestDup", "", "TestFeat")), Is.EqualTo("1"), "rows with a feature: the first");
+                Assert.That(c.GetShipped(ST, new ConstId("TestTwice")), Is.EqualTo("2"), "rows without one: the last");
+            }
+        }
+
+        // ConstantKinds against the server's ConstantsTable record (skipped unless MS2_SERVER_SOURCE names a server
+        // source tree): every int, long, byte, float and bool property is listed with its type, and nothing else.
+        [Test]
+        public void Kinds_AreTheServerSourcesProperties()
+        {
+            string dir = Environment.GetEnvironmentVariable("MS2_SERVER_SOURCE");
+            if (string.IsNullOrEmpty(dir)) Assert.Ignore("MS2_SERVER_SOURCE is not set");
+            string file = Path.Combine(dir, "Maple2.Model", "Metadata", "ServerTable", "ConstantsTable.cs");
+            if (!File.Exists(file)) Assert.Ignore("no " + file);
+            string text = File.ReadAllText(file);
+            int at = text.IndexOf("record ConstantsTable(", StringComparison.Ordinal), end = text.IndexOf(") : ServerTable", at < 0 ? 0 : at, StringComparison.Ordinal);
+            Assert.That(at >= 0 && end > at, Is.True, "the ConstantsTable record");
+            var want = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            var rx = new System.Text.RegularExpressions.Regex(@"^\s*(int|long|byte|float|bool)\s+(\w+)\s*=", System.Text.RegularExpressions.RegexOptions.Multiline);
+            foreach (System.Text.RegularExpressions.Match x in rx.Matches(text.Substring(at, end - at))) want[x.Groups[2].Value] = x.Groups[1].Value;
+            Assert.That(want.Count, Is.GreaterThan(100));
+            var have = new SortedDictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (KeyValuePair<string, string> kv in Constants.ServerKinds()) have[kv.Key] = kv.Value;
+            var diff = new List<string>();
+            foreach (KeyValuePair<string, string> kv in want)
+            {
+                string h;
+                if (!have.TryGetValue(kv.Key, out h)) diff.Add("missing " + kv.Value + " " + kv.Key);
+                else if (h != kv.Value) diff.Add(kv.Key + ": " + h + ", the server reads " + kv.Value);
+            }
+            foreach (string k in have.Keys) if (!want.ContainsKey(k)) diff.Add("extra " + k);
+            Assert.That(diff, Is.Empty, string.Join("\n", diff));
         }
 
         [Test]
