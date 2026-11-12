@@ -1,10 +1,11 @@
 // The plan's checks of the attendance calendar (AttendGift rows of the server's table/Server/NA/GameEvent.xml, see
 // AttendGifts.cs), on the rows as the mods leave them: the rows the mods add and the rows whose text they change.
-// Errors: text the server's ingest stops on (value1, value2 or value3 that is not XML, two events of one id that
-// have not ended), an event the ingest leaves out (value2 without <string>), and a day that gives nothing (an item
-// id that is not a number or not in the server's items, a count or grade that is not a whole number). Warnings: an
-// event that has ended or whose dates do not read, an event with no days, an eventType spelled otherwise than the
-// server's, a requirement the server never meets, an event without play time (no <Config>, or 0 seconds: given at
+// Errors: text the server's ingest stops on (value1, value2 or value3 that is not XML, two rows of one id the ingest
+// keeps: rows that have not ended, and NpcShopShowItem rows even when ended), an event the ingest leaves out (value2
+// without <string>, an eventType not of the exact case), and a day that gives nothing (an item id that is not a
+// number or not in the server's items, a count of 0 or less). Warnings: an event that has ended or whose dates do not
+// read, an event with no days, a count, grade or requirePlaySeconds that is not a whole number (the server reads 1,
+// -1 and 0), a requirement the server never meets, an event without play time (no <Config>, or 0 seconds: given at
 // login), a <string> with no tab name (tabButton, else name).
 using System;
 using System.Collections.Generic;
@@ -34,7 +35,7 @@ namespace MS2.ModKit
                     l.Add(e.OuterText);
                 }
             DateTime now = DateTime.UtcNow;
-            // the live (not ended) rows of each id, every event type: two stop the ingest
+            // the rows of each id the ingest keeps (every event type: an ended NpcShopShowItem row stays): two stop it
             var live = new Dictionary<string, int>(StringComparer.Ordinal);
             var all = new Dictionary<string, int>(StringComparer.Ordinal);
             foreach (XmlElem e in fin.Root.Children)
@@ -43,8 +44,7 @@ namespace MS2.ModKit
                 string id = (e.Attr(AttendGifts.Key) ?? "").Trim();
                 int n;
                 all[id] = all.TryGetValue(id, out n) ? n + 1 : 1;
-                DateTime? end = AttendGifts.ParseTime(e.Attr("eventEnd"));
-                if (end != null && end.Value >= now) live[id] = live.TryGetValue(id, out n) ? n + 1 : 1;
+                if (AttendGifts.KeptByIngest(e.Attr, now) == true) live[id] = live.TryGetValue(id, out n) ? n + 1 : 1;
             }
             HashSet<long> items = null;
             bool itemsRead = false;
@@ -70,8 +70,8 @@ namespace MS2.ModKit
                 int c;
                 if (told.Add(id))
                 {
-                    if (live.TryGetValue(id, out c) && c > 1) errors.Add("the file has " + c + " events of id " + id + " that have not ended: the server's ingest stops");
-                    else if (all.TryGetValue(id, out c) && c > 1) warnings.Add("the file has " + c + " events of id " + id + " (the others have ended): the server keeps the one that has not");
+                    if (live.TryGetValue(id, out c) && c > 1) errors.Add("the server's ingest keeps " + c + " events of id " + id + " (rows that have not ended, and NpcShopShowItem rows even when ended): it stops on the second");
+                    else if (all.TryGetValue(id, out c) && c > 1) warnings.Add("the file has " + c + " events of id " + id + ": the server keeps at most one (it leaves out the ended ones, and the rows it cannot read)");
                 }
                 foreach (string s in errors) plan.Msg(plan.Errors, mod, archive, entry, what + s);
                 foreach (string s in warnings) plan.Msg(plan.Warnings, mod, archive, entry, what + s);

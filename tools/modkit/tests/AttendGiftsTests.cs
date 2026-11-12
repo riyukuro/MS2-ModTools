@@ -22,10 +22,13 @@ namespace MS2.ModKit.Tests
         public const string Table = Head + "<ms2>\n" +
             "\t<gameEvent gameEventID='1' eventType='AttendGift' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-23-59' value1='" + Days1 + "' value2='" + Value2One + "' value3='' />\n" +
             "\t<gameEvent gameEventID='2' eventType='AttendGift' eventStart='2001-03-01-00-00' eventEnd='2001-04-01-23-59' value1='&lt;items&gt;&lt;v itemID=&quot;39000001&quot; count=&quot;1&quot; grade=&quot;1&quot;/&gt;&lt;/items&gt;' value2='&lt;ms2&gt;&lt;string tabButton=&quot;Paid&quot;/&gt;&lt;payAttend type=&quot;meso&quot; price=&quot;100&quot; maxCount=&quot;3&quot;/&gt;&lt;/ms2&gt;' />\n" +
-            "\t<gameEvent gameEventID='3' eventType='StringBanner' eventStart='2001-01-01-00-00' eventEnd='2099-01-01-00-00' value1='x' />\n" +
+            "\t<gameEvent gameEventID='3' eventType='StringBoard' eventStart='2001-01-01-00-00' eventEnd='2099-01-01-00-00' value1='x' />\n" +
             "\t<gameEvent gameEventID='4' eventType='AttendGift' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-00-00' value1='&lt;items&gt;&lt;/items&gt;' value2='&lt;ms2&gt;&lt;string tabButton=&quot;No config&quot;/&gt;&lt;/ms2&gt;' />\n" +
             "\t<gameEvent gameEventID='5' eventType='AttendGift' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-00-00' value1='&lt;items&gt;&lt;/items&gt;' value2='&lt;ms2&gt;&lt;string name=&quot;&quot;/&gt;&lt;Config requirePlaySeconds=&quot;0&quot;/&gt;&lt;/ms2&gt;' />\n" +
             "\t<gameEvent gameEventID='5' eventType='StringBanner' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-00-00' value1='y' />\n" +
+            "\t<gameEvent gameEventID='6' eventType='NpcShopShowItem' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-00-00' value1='z' />\n" +
+            "\t<gameEvent gameEventID='11' eventType='AttendGift' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-00-00' value1='&lt;items&gt;&lt;v itemID=&quot;39000001&quot; grade=&quot;-1&quot;/&gt;&lt;v itemID=&quot;39000002&quot; count=&quot;1&quot; grade=&quot;1&quot;/&gt;&lt;/items&gt;' value2='&lt;ms2&gt;&lt;string tabButton=&quot;Odd days&quot;/&gt;&lt;Config requirePlaySeconds=&quot;60&quot;/&gt;&lt;/ms2&gt;' />\n" +
+            "\t<gameEvent gameEventID='12' eventType='AttendGift' eventStart='2001-01-01-00-00' eventEnd='2001-02-01-00-00' value1='&lt;items&gt;&lt;/items&gt;' value2='&lt;ms2&gt;&lt;string tabButton=&quot;Lines&quot; mailContents=&quot;a&#10;b&quot;/&gt;&lt;/ms2&gt;' />\n" +
             "</ms2>\n";
 
         static KeyValuePair<string, byte[]> E(string name, string text) { return new KeyValuePair<string, byte[]>(name, Fake.Crlf(text)); }
@@ -70,7 +73,7 @@ namespace MS2.ModKit.Tests
                 var a = new AttendGifts(f.Data, FakeEvents.NewMod());
                 Assert.That(a.Has, Is.True);
                 List<int> ids = a.Events().Select(e => e.Id).ToList();
-                Assert.That(ids, Is.EqualTo(new[] { 1, 2, 4, 5 }));
+                Assert.That(ids, Is.EqualTo(new[] { 1, 2, 4, 5, 11, 12 }));
                 AttendEvent one = a.Find(1);
                 Assert.That(a.Start(one), Is.EqualTo("2001-01-01-00-00"));
                 Assert.That(a.Text(one, "name"), Is.EqualTo("Test Days"));
@@ -85,7 +88,8 @@ namespace MS2.ModKit.Tests
                 Assert.That(a.PlaySeconds(two), Is.Null);
                 Assert.That(a.Find(5).Rows, Is.EqualTo(2));
                 Assert.That(a.IdUsed(3), Is.True);
-                Assert.That(a.IdUsed(6), Is.False);
+                Assert.That(a.IdUsed(6), Is.True);
+                Assert.That(a.IdUsed(7), Is.False);
             }
         }
 
@@ -206,25 +210,77 @@ namespace MS2.ModKit.Tests
                     "<edit archive=\"server:Server.m2d\" entry=\"" + AttendGifts.Entry + "\">" +
                     "<change at=\"gameEvent[gameEventID=1]\"><set name=\"value1\" value=\"&lt;items&gt;\" /></change>" +
                     "<change at=\"gameEvent[gameEventID=4]\"><set name=\"eventEnd\" value=\"2099-01-01-00-00\" /></change>" +
-                    "<add><xml><gameEvent gameEventID=\"3\" eventType=\"AttendGift\" eventStart=\"2001-01-01-00-00\" eventEnd=\"2099-01-01-00-00\" value1=\"&lt;items&gt;&lt;v itemID=&quot;39000009&quot; count=&quot;x&quot; grade=&quot;1&quot;/&gt;&lt;/items&gt;\" value2=\"&lt;ms2&gt;&lt;string name=&quot;a&quot;/&gt;&lt;Config requirePlaySeconds=&quot;1.5&quot;/&gt;&lt;/ms2&gt;\" value3=\"&lt;ms2&gt;&lt;require type=&quot;ItemID&quot; value1=&quot;1&quot;/&gt;&lt;/ms2&gt;\" /></xml></add>" +
+                    "<add><xml><gameEvent gameEventID=\"3\" eventType=\"AttendGift\" eventStart=\"2001-01-01-00-00\" eventEnd=\"2099-01-01-00-00\" value1=\"&lt;items&gt;&lt;v itemID=&quot;39000009&quot; count=&quot;x&quot; grade=&quot;1&quot;/&gt;&lt;v itemID=&quot;39000001&quot; count=&quot;1&quot; grade=&quot;y&quot;/&gt;&lt;v itemID=&quot;39000001&quot; count=&quot;0&quot; grade=&quot;1&quot;/&gt;&lt;/items&gt;\" value2=\"&lt;ms2&gt;&lt;string name=&quot;a&quot;/&gt;&lt;Config requirePlaySeconds=&quot;1.5&quot;/&gt;&lt;/ms2&gt;\" value3=\"&lt;ms2&gt;&lt;require type=&quot;ItemID&quot; value1=&quot;1&quot;/&gt;&lt;/ms2&gt;\" /></xml></add>" +
                     "<add><xml><gameEvent gameEventID=\"9\" eventType=\"attendGift\" eventStart=\"2099-01-01\" eventEnd=\"2001-01-01-00-00\" value1=\"&lt;items&gt;&lt;/items&gt;\" value2=\"&lt;ms2&gt;&lt;string name=&quot;a&quot;/&gt;&lt;Config/&gt;&lt;/ms2&gt;\" /></xml></add>" +
+                    "<add><xml><gameEvent gameEventID=\"6\" eventType=\"AttendGift\" eventStart=\"2001-01-01-00-00\" eventEnd=\"2099-01-01-00-00\" value1=\"&lt;items&gt;&lt;v itemID=&quot;39000001&quot;/&gt;&lt;/items&gt;\" value2=\"&lt;ms2&gt;&lt;string name=&quot;a&quot;/&gt;&lt;Config requirePlaySeconds=&quot;60&quot;/&gt;&lt;/ms2&gt;\" /></xml></add>" +
+                    "<add><xml><gameEvent gameEventID=\"10\" eventType=\"AttendGift\" eventStart=\"2001-01-01-00-00\" eventEnd=\"2099-01-01-00-00\" value1=\"&lt;items&gt;&lt;v itemID=&quot;39000001&quot;/&gt;&lt;/items&gt;\" value2=\"&lt;x/&gt;\" /></xml></add>" +
+                    "<add><xml><gameEvent gameEventID=\"10\" eventType=\"AttendGift\" eventStart=\"2001-01-01-00-00\" eventEnd=\"2099-01-01-00-00\" value1=\"&lt;items&gt;&lt;v itemID=&quot;39000001&quot;/&gt;&lt;/items&gt;\" value2=\"&lt;ms2&gt;&lt;string name=&quot;a&quot;/&gt;&lt;Config requirePlaySeconds=&quot;60&quot;/&gt;&lt;/ms2&gt;\" /></xml></add>" +
                     "</edit></mod>", "hand mod");
                 Plan p = f.Plan(m);
                 Assert.That(Texts(p.Errors, "attendance event 1: value1 is not XML text"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Errors, "attendance event 4"), Is.Empty);
                 Assert.That(Texts(p.Warnings, "attendance event 4: value2 has no <Config>: no play time, the day's item is given at login"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "attendance event 9: <Config> has no requirePlaySeconds: no play time"), Has.Count.EqualTo(1));
-                Assert.That(Texts(p.Errors, "attendance event 3: the file has 2 events of id 3 that have not ended"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "attendance event 3: the server's ingest keeps 2 events of id 3"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Errors, "attendance event 3: day 1 item 39000009 is not in the server's items"), Has.Count.EqualTo(1));
-                Assert.That(Texts(p.Errors, "attendance event 3: day 1 count \"x\""), Has.Count.EqualTo(1));
-                Assert.That(Texts(p.Errors, "attendance event 3: requirePlaySeconds \"1.5\""), Has.Count.EqualTo(1));
+                // a count, grade or play time that is not a number: the ingest reads 1 / -1 / 0 and keeps the event
+                Assert.That(Texts(p.Errors, "attendance event 3: day 1 count"), Is.Empty);
+                Assert.That(Texts(p.Warnings, "attendance event 3: day 1 count \"x\" is not a whole number: the server reads 1"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "attendance event 3: day 2 grade \"y\" is not a whole number: the server reads -1"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "attendance event 3: day 3 count 0 is not above 0"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Errors, "attendance event 3: requirePlaySeconds"), Is.Empty);
+                Assert.That(Texts(p.Warnings, "attendance event 3: requirePlaySeconds \"1.5\" is not a whole number: the server reads 0"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "attendance event 3: value3 asks for an item"), Has.Count.EqualTo(1));
-                Assert.That(Texts(p.Warnings, "attendance event 9: eventType \"attendGift\""), Has.Count.EqualTo(1));
+                // the ingest's type parse is case-sensitive: the row is left out
+                Assert.That(Texts(p.Errors, "attendance event 9: eventType \"attendGift\" is not \"AttendGift\""), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "attendance event 9: eventType"), Is.Empty);
+                // an ended NpcShopShowItem row stays in the ingest's events: a live AttendGift row of its id stops it
+                Assert.That(Texts(p.Errors, "attendance event 6: the server's ingest keeps 2 events of id 6"), Has.Count.EqualTo(1));
+                // a live row the ingest leaves out (value2 not <ms2>) is not counted
+                Assert.That(Texts(p.Errors, "attendance event 10: the server's ingest keeps"), Is.Empty);
+                Assert.That(Texts(p.Errors, "attendance event 10: value2 is not <ms2>"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "attendance event 9: eventStart \"2099-01-01\""), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "attendance event 9: the event ended 2001-01-01-00-00"), Has.Count.EqualTo(1));
                 Assert.That(Texts(p.Warnings, "attendance event 2"), Is.Empty);
             }
         }
+        [Test]
+        public void DaysTheServerReadsItsOwnWayDoNotBlockAnEdit()
+        {
+            using (var f = new FakeEvents())
+            {
+                Assert.That(AttendGifts.DayProblem(new AttendDay("39000001", "1", "-1")), Is.Null);
+                var a = new AttendGifts(f.Data, FakeEvents.NewMod());
+                AttendEvent ev = a.Find(11);
+                List<AttendDay> days = a.Days(ev);
+                Assert.That(days[0].Count, Is.EqualTo(""));
+                days[1] = new AttendDay("39000003", "2", "1");
+                Assert.That(a.SetDays(ev, days), Is.True);
+                Assert.That(a.Days(ev)[0].Grade, Is.EqualTo("-1"));
+                Assert.That(a.Days(ev)[1].ItemId, Is.EqualTo("39000003"));
+                // a changed day is still checked
+                days[1] = new AttendDay("39000003", "", "1");
+                Assert.Throws<ModKitException>(() => a.SetDays(ev, days));
+            }
+        }
+
+        [Test]
+        public void AppendingConfigKeepsLineBreaksInOtherTexts()
+        {
+            using (var f = new FakeEvents())
+            {
+                var a = new AttendGifts(f.Data, FakeEvents.NewMod());
+                AttendEvent ev = a.Find(12);
+                Assert.That(a.Get(ev, "value2"), Does.Contain("a\nb"));
+                Assert.That(a.SetPlaySeconds(ev, "300"), Is.True);
+                string v2 = a.Get(ev, "value2");
+                Assert.That(v2, Does.Contain("a\nb"));
+                Assert.That(v2, Does.Contain("<Config requirePlaySeconds=\"300\" /></ms2>"));
+                Assert.That(v2.Replace("a\nb", ""), Does.Not.Contain("\n"));
+                Assert.That(AttendGifts.Inline("<a x=\"1\n2\"></a>", "<a x=\"1\n2\">\n\t<b /></a>"), Is.EqualTo("<a x=\"1\n2\"><b /></a>"));
+            }
+        }
+
         [Test]
         public void RealServerEvents()
         {

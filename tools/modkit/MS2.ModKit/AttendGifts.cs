@@ -339,15 +339,25 @@ namespace MS2.ModKit
             if (e == null)
             {
                 ed.Append(d.Root, "<" + element + " " + attr + "=\"" + XmlDoc.EscapeAttr(value, '"') + "\" />", "");
-                return Inline(ed.Apply());
+                return Inline(text, ed.Apply());
             }
             ed.SetAttr(e, attr, value);
             if (alsoAttr != null && e.Attr(alsoAttr) != null) ed.SetAttr(e, alsoAttr, value);
             return ed.Apply();
         }
 
-        // value2 is one line in the shipped rows: keep it so when an element is appended
-        static string Inline(string s) { return s.Replace("\r", "").Replace("\n", "").Replace("\t", ""); }
+        // value2 is one line in the shipped rows: keep it so when an element is appended. Only the text the append
+        // put in (between the part before and the part after it that the two texts share) loses its line breaks and
+        // tabs; a break or tab inside another attribute (a decoded &#10;) stays.
+        public static string Inline(string was, string now)
+        {
+            int pre = 0, max = Math.Min(was.Length, now.Length);
+            while (pre < max && was[pre] == now[pre]) pre++;
+            int suf = 0;
+            while (suf < max - pre && was[was.Length - 1 - suf] == now[now.Length - 1 - suf]) suf++;
+            string mid = now.Substring(pre, now.Length - pre - suf);
+            return now.Substring(0, pre) + mid.Replace("\r", "").Replace("\n", "").Replace("\t", "") + now.Substring(now.Length - suf);
+        }
 
         /// <summary>
         /// Sets a text of value2 (name, mailTitle, mailContents, detailUrl). Setting name writes tabButton, which the
@@ -405,7 +415,7 @@ namespace MS2.ModKit
             short g;
             if (!int.TryParse(d.ItemId.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n) || n <= 0) return "item id \"" + d.ItemId + "\" is not a whole number above 0";
             if (!int.TryParse(d.Count.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out n) || n <= 0) return "count \"" + d.Count + "\" is not a whole number above 0";
-            if (!short.TryParse(d.Grade.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out g)) return "grade \"" + d.Grade + "\" is not a whole number";
+            if (!short.TryParse(d.Grade.Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out g)) return "grade \"" + d.Grade + "\" is not a whole number";
             return null;
         }
 
@@ -417,13 +427,20 @@ namespace MS2.ModKit
             return true;
         }
 
-        /// <summary>Sets the days. The shipped days give the shipped value1 back. Returns whether anything changed.</summary>
+        /// <summary>
+        /// Sets the days. The shipped days give the shipped value1 back. A day left as the row has it (at its place) is
+        /// not checked, so a shipped day the server reads its own way (no count, grade -1) does not block the others.
+        /// Returns whether anything changed.
+        /// </summary>
         public bool SetDays(AttendEvent ev, IList<AttendDay> days)
         {
             var clean = new List<AttendDay>();
+            List<AttendDay> now = Days(ev);
             for (int i = 0; i < days.Count; i++)
             {
                 var d = new AttendDay(days[i].ItemId.Trim(), days[i].Count.Trim(), days[i].Grade.Trim());
+                AttendDay old = now != null && i < now.Count ? now[i] : null;
+                if (old != null && old.ItemId.Trim() == d.ItemId && old.Count.Trim() == d.Count && old.Grade.Trim() == d.Grade) { clean.Add(d); continue; }
                 string bad = DayProblem(d);
                 if (bad != null) throw new ModKitException("event " + ev.Id + " day " + (i + 1) + ": " + bad);
                 clean.Add(d);
@@ -538,8 +555,8 @@ namespace MS2.ModKit
         /// </summary>
         public static void Check(Func<string, string> attr, DateTime now, Func<long, bool> itemKnown, List<string> errors, List<string> warnings)
         {
-            string type = attr("eventType") ?? "";
-            if (type != Type) warnings.Add("eventType \"" + type + "\" is not \"" + Type + "\" as the server writes it: the server does not read the row as an attendance event");
+            string type = (attr("eventType") ?? "").Trim();
+            if (type != Type) errors.Add("eventType \"" + type + "\" is not \"" + Type + "\": the server's ingest reads the type by its exact case, takes the row for another type and leaves it out");
             string bad;
             System.Xml.XmlDocument v1 = Load(attr("value1"), out bad);
             if (bad != null) errors.Add("value1 is not XML text: " + bad + " (the server's ingest stops)");
@@ -573,8 +590,9 @@ namespace MS2.ModKit
                         short g;
                         if (!int.TryParse(id, out i) || i <= 0) errors.Add("day " + day + " item id \"" + (id ?? "") + "\" is not a whole number above 0: the server gives nothing that day");
                         else if (itemKnown != null && !itemKnown(i)) errors.Add("day " + day + " item " + i + " is not in the server's items: the server gives nothing that day, and the player stays on it");
-                        if (count != null && (!int.TryParse(count, out i) || i <= 0)) errors.Add("day " + day + " count \"" + count + "\" is not a whole number above 0" + (int.TryParse(count, out i) ? "" : ": the server reads 1"));
-                        if (grade != null && !short.TryParse(grade, out g)) errors.Add("day " + day + " grade \"" + grade + "\" is not a whole number: the server reads -1");
+                        if (count != null && !int.TryParse(count, out i)) warnings.Add("day " + day + " count \"" + count + "\" is not a whole number: the server reads 1");
+                        else if (count != null && i <= 0) errors.Add("day " + day + " count " + count + " is not above 0: the server gives nothing that day");
+                        if (grade != null && !short.TryParse(grade, out g)) warnings.Add("day " + day + " grade \"" + grade + "\" is not a whole number: the server reads -1");
                     }
                     if (day == 0) warnings.Add("the event has no days: there is nothing to attend for");
                 }
@@ -590,7 +608,7 @@ namespace MS2.ModKit
                     string secs = cfg == null ? null : AttrOf(cfg, "requirePlaySeconds");
                     int s;
                     bool readable = secs == null || int.TryParse(secs, out s);
-                    if (!readable) errors.Add("requirePlaySeconds \"" + secs + "\" is not a whole number: the server reads 0 and gives the day's item at login");
+                    if (!readable) warnings.Add("requirePlaySeconds \"" + secs + "\" is not a whole number: the server reads 0 and gives the day's item at login (game start), once a day");
                     else if (!int.TryParse(secs, out s) || s <= 0)
                         warnings.Add((cfg == null ? "value2 has no <Config>" : secs == null ? "<Config> has no requirePlaySeconds" : "requirePlaySeconds is " + secs) + ": no play time, the day's item is given at login (game start), once a day; the client shows no countdown for it");
                     if (str != null && (AttrOf(str, "tabButton") ?? AttrOf(str, "name") ?? "").Length == 0)
@@ -603,6 +621,43 @@ namespace MS2.ModKit
             if (en == null) warnings.Add("eventEnd \"" + (end ?? "") + "\" is not a time the server reads (yyyy-MM-dd-HH-mm): the event counts as ended and is left out");
             else if (en.Value < now) warnings.Add("the event ended " + FormatTime(en.Value) + ": the server leaves it out");
             if (st != null && en != null && en.Value <= st.Value) warnings.Add("the event ends at or before its start");
+        }
+
+        /// <summary>The server's event types (GameEventType); the ingest reads eventType by these names, case and all.</summary>
+        public static readonly string[] EventTypes = ("SAHotTime StringBoard QuestAdditionalReward FindDungeonHelperBonus DungeonHelpBonusReward MiniGameReward FieldBossReward " +
+            "TimeEventHotTime RandomRoomProb SaleEnchant SaleRemake SaleGemStoneUpgrade SaleBeautyShop AdventureLevelBonusExpRate SaleHousing DungeonOpenPeriod " +
+            "PetComposeSale MasteryReward TransferItemBound DTReward StringBoardLink ConditionCount SaleAutoFishing SaleAutoPlayInstrument SaleLapenshardUpgradeRGB " +
+            "SaleChat DungeonBonusReward UserCondition PlayGift UGCMapSaleCoupon PremiumMarketSale CharacterFirstConnect LevelUpPackage DailyLoginReward FreeAirTaxi " +
+            "MesoRevival EventFieldPopup AttendGift ReturnUser NewUser ReturnUserYearRound ReturnUserCandidate DungeonExtraReward ItemBuffDungeon BlueMarble " +
+            "NpcEventDrop LoginNotice SaleUgcDesign EpicRestart LobbyMap DungeonEnterTimeLimit ReverseRaidDungeonOpen SurvivalHotField SurvivalDoubleHotField " +
+            "SurvivalHotTime BurningLevelup GuildPartyDungeonReward RankDuelReward GuildSkillSale StampEvent WorldmapIcon MasteryReduce SpawnNpc " +
+            "BlackMarketFeeDiscount GuildVsGameOpen UGCMapContractSale UGCMapExtensionSale ReverseOxQuiz CustomTriggerString PetMastery MeratMarketOpenTab ItemBox " +
+            "PetBattleExp GuildPersonalSkillSale Gallery DungoneBuff TimeRunEvent GuildChampionship ShutdownTriggerSkipAction Festival FieldEffect Maview GameLog " +
+            "Snowman reactor CollectItemGroup RPS TreeWatering CoupleDance LuckyChance ArcadeOpen BingoEvent LimitedQuantity MapleSurvivalOpenPeriod " +
+            "ShutdownMapleSurvival FinishPayback ExchangeScrollSale SendMail TrafficOptimizer StarShop NpcShopShowItem FieldBuff LongTermAttendGift " +
+            "MassiveConstructionEvent ConstructShowItem MiniGameBonusReward GuildChampionShip GuildEventFund GuildExp ActiveUser SaleSkillUpgrade DungeonBuff QuestTag").Split(' ');
+
+        /// <summary>
+        /// Whether the ingest keeps a gameEvent row in its events by id (ParseGameEventTable), so that a second kept row
+        /// of the id stops it. true: kept; false: left out (an AttendGift row whose value1/value2 the ingest leaves
+        /// out, an ended row, an NpcShopShowItem row without a readable end); null: not known here (a type the ingest
+        /// does not know, which it reads as SAHotTime, or text it stops on anyway). An ended NpcShopShowItem row stays.
+        /// Rows of other known types are taken as kept: their own value checks are not mirrored.
+        /// </summary>
+        public static bool? KeptByIngest(Func<string, string> attr, DateTime now)
+        {
+            string type = (attr("eventType") ?? "").Trim();
+            if (Array.IndexOf(EventTypes, type) < 0 || type == "SAHotTime") return null;
+            if (type == Type)
+            {
+                string bad;
+                System.Xml.XmlDocument v1 = Load(attr("value1"), out bad), v2 = bad == null ? Load(attr("value2"), out bad) : null;
+                if (bad != null) return null;
+                if (v1.FirstChild == null || v2.FirstChild == null || v2.FirstChild.Name != "ms2" || v2.FirstChild.SelectSingleNode("string") == null) return false;
+            }
+            DateTime? end = ParseTime(attr("eventEnd"));
+            if (type == "NpcShopShowItem") return end != null;
+            return end != null && end.Value >= now;
         }
 
         static string AttrOf(System.Xml.XmlNode n, string name)
