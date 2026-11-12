@@ -116,12 +116,19 @@ namespace MS2.ModKit.Tests
 
                 Plan p = f.Plan(m);
                 Assert.That(Texts(p.Errors, "Meret Market item 101"), Is.Empty);
-                Assert.That(Texts(p.Warnings, "Meret Market item 101: 2 bundles: the game server"), Has.Count.EqualTo(1));
+                // the game server puts each bundle under its sale, in any order: no warning for a bundle
+                Assert.That(Texts(p.Warnings, "Meret Market item 101"), Is.Empty);
                 var fin = p.Errors.Concat(p.Warnings).Select(x => x.Text).Where(t => t.Contains("Meret Market") && !t.Contains("item 101")).ToList();
                 Assert.That(fin, Is.Empty);
                 // the set line under the row reaches the shipped bundle
                 s.SetBundle(two, 103, "salePrice", "-5");
                 Assert.That(Texts(f.Plan(m).Errors, "Meret Market item 101: bundle 103: the price is below 0"), Has.Count.EqualTo(1));
+                s.SetBundle(two, 103, "salePrice", "4000");
+                // a sale the game server leaves out takes its bundles with it
+                s.SetField(two, "itemID", "39999999");
+                Plan gone = f.Plan(m);
+                Assert.That(Texts(gone.Errors, "Meret Market item 101: item 39999999 is not in the server's items"), Has.Count.EqualTo(1));
+                Assert.That(Texts(gone.Errors, "Meret Market item 101: 2 bundles: the sale is left out, so the game server drops them too"), Has.Count.EqualTo(1));
             }
         }
 
@@ -203,7 +210,7 @@ namespace MS2.ModKit.Tests
 
                 Plan p = f.Plan(m);
                 Assert.That(Texts(p.Errors, "Meret Market"), Is.Empty);
-                Assert.That(Texts(p.Warnings, "Meret Market item 106: 1 bundle:"), Has.Count.EqualTo(1));
+                Assert.That(Texts(p.Warnings, "Meret Market item 106"), Is.Empty);
                 Assert.That(Texts(p.Warnings, "Meret Market item 108"), Is.Empty);
                 Assert.That(Texts(p.Warnings, "Meret Market item 104"), Is.Empty);
 

@@ -482,7 +482,6 @@ namespace MS2.Tables
                 if (Ended(mm.Get(sale, "saleEndTime"))) info.Add("the sale has ended");
                 if (sale.Rows > 1) info.Add("id used by " + sale.Rows + " rows: edit them by hand");
                 List<MeretBundle> bundles = removed ? new List<MeretBundle>() : mm.Bundles(sale);
-                if (bundles.Count > 0) info.Add("the game server drops bundles (they load before their sale)");
                 infoLabel.Text = string.Join("; ", info.ToArray());
                 foreach (string f in MeretMarket.Fields)
                 {
@@ -561,7 +560,7 @@ namespace MS2.Tables
                     if (t.Length == 0) id = mm.FreeId(sale.Id);
                     mm.AddBundle(sale, id, bQtyBox.Text, bBonusBox.Text, bPriceBox.Text, bSaleBox.Text);
                     if (bDaysBox.Text.Trim().Length > 0 && bDaysBox.Text.Trim() != "0") mm.SetBundle(mm.Find(sale.Id), id, "durationDay", bDaysBox.Text);
-                    Edited("sale " + sale.Id + ": bundle " + id + " added (the game server drops bundles: see the plan's warning)");
+                    Edited("sale " + sale.Id + ": bundle " + id + " added");
                     return;
                 case 's':
                     if (t.Length == 0) throw new ModKitException("choose a bundle");

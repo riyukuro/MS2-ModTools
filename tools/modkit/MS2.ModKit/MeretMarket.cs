@@ -785,8 +785,9 @@ namespace MS2.ModKit
             if (item.Attr("id") == null) errors.Add("the row has no id (the server's ingest reads 0)");
             Func<string, string> at = delegate (string n) { return (item.Attr(n) ?? "").Trim(); };
             long itemId = Num(at("itemID"));
+            bool leftOut = itemId <= 0 || itemKnown != null && !itemKnown(itemId);
             if (itemId <= 0) errors.Add("itemID \"" + at("itemID") + "\" is not an item: the game server leaves the sale out");
-            else if (itemKnown != null && !itemKnown(itemId)) errors.Add("item " + itemId + " is not in the server's items: the game server leaves the sale out");
+            else if (leftOut) errors.Add("item " + itemId + " is not in the server's items: the game server leaves the sale out");
             long tab = Num(at("tabID"));
             if (tabKnown != null && tab != 1 && (tab < int.MinValue || tab > int.MaxValue || !tabKnown((int)tab)))
                 warnings.Add("tabID " + at("tabID") + " is not a tab of " + TabEntry + ": the shop shows the item in no tab");
@@ -822,8 +823,10 @@ namespace MS2.ModKit
                 if ((bs != 0 ? bs : bp) < 0) errors.Add(what + "the price is below 0: the server refuses the purchase");
                 if (Num(c.Attr("quantity")) + Num(c.Attr("bonusQuantity")) <= 0) warnings.Add(what + "quantity and bonusQuantity give no item");
             }
-            if (bundles > 0)
-                warnings.Add(bundles + " bundle" + (bundles == 1 ? "" : "s") + ": the game server (GameServer.cs) adds a bundle only when its item is loaded before it, and the ingest writes the bundles first, so the shop shows the item without them");
+            // The game server puts each bundle under its sale (any order) and gives the sale's item; a bundle whose
+            // sale it leaves out is dropped with it.
+            if (bundles > 0 && leftOut)
+                errors.Add(bundles + " bundle" + (bundles == 1 ? "" : "s") + ": the sale is left out, so the game server drops " + (bundles == 1 ? "it" : "them") + " too");
         }
 
         // ---- the mod's lines ----

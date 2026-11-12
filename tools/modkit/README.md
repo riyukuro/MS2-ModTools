@@ -2138,9 +2138,9 @@ Plan checks the rows the mods add or change, as the file ends up with them. Erro
 of the server's items (the game server leaves the sale out), a `jobRequire` that names no job, a `paymentType` other
 than 0, 1 or 2, a price (or sale price) below 0, a `minLevel` above `maxLevel`, and an end at or before the start
 (nobody can buy it). Warnings: a `tabID` that is not a shop tab, a grade not 1 to 6, a sale that gives no item, a
-`saleTag` or `bannerTag` out of range, a sale that has ended or not started yet, and any bundle: the game server
-adds a bundle only when its sale is loaded before it, and the ingest writes the bundles first, so the shop shows the
-sale without them.
+`saleTag` or `bannerTag` out of range, and a sale that has ended or not started yet. The game server puts each bundle
+under its sale whatever the order of the rows, and a bundle gives its sale's item, tab, payment, jobs and times; a
+bundle of a sale the game server leaves out (an item it does not have) is dropped with it, an error too.
 
 ## One mod, both sides
 
