@@ -933,6 +933,44 @@ differ. An item can be in several shipped sets, so that is not checked. Removing
 option row and its name rows. A bonus the mod adds in a hand-written mirrored `<add>` is not changed by the view;
 edit that mod by hand.
 
+## Dungeon rooms
+
+The **MS2 Dungeons** view (menu **MS2 Mods > Dungeons**) edits the dungeon rooms: the row that makes a set of maps a
+dungeon players can enter, with its player counts, level, time limit, entry limits, missions and rewards. Once a mod
+has its own map, triggers and spawns, this row is what lets players enter the map as a dungeon. Each side reads its
+own table and the two do not write a room the same way:
+
+| side | file | how it differs |
+|---|---|---|
+| Korean client | `Xml.m2d`, `table/dungeonroom.xml` | `groupType` is a number, the time limit is `durationSeconds`, counted entries are `limitEnter="1"`, the npc that clears the dungeon is `clearKillNpc` |
+| server (and the global client) | `Xml.m2d`, `table/na/dungeonroom.xml` | `groupType` is a word (`normal`, `raid`, ...), the time limit is `durationTick`, counted entries are `playType="limitEnter"`, the clear rule is `clearType` with `clearValue`; `cooldownType` and other reset fields are here only |
+| names | `Xml.m2d`, `string/<lang>/stringfieldenterance.xml` | one `<key id name uiDescription>` per room |
+
+1. **Find** a dungeon id, a part of a name or the start of a map id. The list has every room with its group, number
+   of maps and player counts. A room the mod changes is bold with `(changed)`, a new one `(new)` and listed first.
+2. Pick a room. The grid has the name, the description and a row per field, with a column for **every side** and a
+   column per side. `≠` marks a field the sides do not agree on (many shipped rooms differ). An edit in **every side**
+   sets the field on each side in that side's notation: 600 seconds become `durationSeconds="600"` on the Korean
+   client and `durationTick="600000"` on the server. A side's column shows the value in the Korean notation too. An edit in a side's column sets that side only. A grey cell is a field
+   that side does not have. **set fields only** hides the fields no side has a value for.
+3. **Add** makes a normal room for 1 to 4 players without a map and **Clone** a copy of the chosen room, under the id
+   in **new id** or the next free one from 98000000 to 98009999, on every side. **Remove / restore** removes the room
+   or brings a removed one back, **Undo changes** drops every change the mod makes to a shipped room. **Save mod**,
+   **Plan**, **Apply** and **Revert** are the Tables view's.
+
+The view warns while you edit: an id that is not a number above 0, a room without a map, a `fieldIDs` entry that is
+not an id, `maxUserCount` 0 or below `minUserCount`, a `groupType`, `timerType`, `playType` or `cooldownType` the
+side does not know, a clear by monster that names no npc, and a room that is on some sides only.
+
+Plan checks every room the mods add or change as it ends up in each target: the checks above, a `fieldIDs` or
+`lobbyFieldID` that is not a map of the target, a mission or a round group the target does not have, a new room
+added on one side only, and a room id the plan puts into the server's table twice (an error: the server's data
+ingest fails; the Korean client reads the last row).
+
+Limits: the missions (`table/dungeonmission.xml`), round groups and reward tables are named by id and edited in the
+MS2 Tables view. The room does not place the portal or the entry in the dungeon window's lists beyond its own
+fields; a map needs its own triggers and spawns. Removing a shipped room leaves its name rows.
+
 ## Quests
 
 The **MS2 Quests** view (menu **MS2 Mods > Quests**) edits one quest on every target at once: the Korean client,
