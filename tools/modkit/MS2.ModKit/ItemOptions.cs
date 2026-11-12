@@ -488,12 +488,13 @@ namespace MS2.ModKit
                 foreach (XmlElem opt in Options(root))
                 {
                     if (bundle) { if (KmsArchive != null) Name(ix, KmsArchive + "\nconstant", opt.Attr("constantID"), id); }
-                    else
-                        foreach (string archive in FlatArchives)
-                        {
-                            Name(ix, archive + "\nconstant", opt.Attr("constant"), id);
-                            Name(ix, archive + "\nstatic", opt.Attr("static"), id);
-                        }
+                    else if (items.FileXml != null && FlatArchives.Contains(items.FileXml))
+                    {
+                        // the per-id item files are read from one archive (the server's): its pointers count for that
+                        // archive's option files only, not for another flat side's
+                        Name(ix, items.FileXml + "\nconstant", opt.Attr("constant"), id);
+                        Name(ix, items.FileXml + "\nstatic", opt.Attr("static"), id);
+                    }
                 }
             };
             items.ScanShipped(visit, delegate(string file, Exception ex) { ix.Skipped.Add(file + ": " + ex.Message); });
@@ -626,13 +627,27 @@ namespace MS2.ModKit
         OptNode KmsNode(TableRow r)
         {
             if (r == null) return null;
-            OptNode n = OptNode.Of(r.Base);
-            // an add that copies a row and sets attributes (Items' own option): the attributes as they end up
+            // the row as its add or change leaves it: every attribute op, on the row and under it (a hand edit of a
+            // <v> or a <rank>), the way the plan applies them
             RowOp op = r.Add ?? r.Change;
-            if (op != null)
-                foreach (AttrOp a in op.Attrs)
-                    if (string.IsNullOrEmpty(a.At) && a.Kind == AttrOpKind.Set) n.SetAttr(a.Name, a.Value);
-            return n;
+            if (op == null || op.Attrs.Count == 0) return OptNode.Of(r.Base);
+            XmlDoc f = XmlDoc.ParseFragment(r.Base.OuterText, "the kms option row");
+            var ed = new XmlEditor(f);
+            foreach (AttrOp a in op.Attrs)
+            {
+                XmlElem el = f.Root;
+                if (!string.IsNullOrEmpty(a.At))
+                {
+                    string error;
+                    try { el = RowPath.Parse(a.At).TryResolve(f.Root, out error); }
+                    catch (ModKitException) { el = null; }
+                }
+                if (el == null) continue;
+                if (a.Kind == AttrOpKind.Set) ed.SetAttr(el, a.Name, a.Value);
+                else if (a.Kind == AttrOpKind.Unset) ed.RemoveAttr(el, a.Name);
+                else ed.SetText(el, a.Value);
+            }
+            return OptNode.Of(XmlDoc.ParseFragment(ed.Apply(), "the kms option row").Root);
         }
 
         /// <summary>The kms row of a code as the mod leaves it; null when the side has none.</summary>
@@ -1029,8 +1044,7 @@ namespace MS2.ModKit
                 if (r == null)
                 {
                     if (value.Length == 0) continue;
-                    d = Draft(side.Archive, EntriesOf(side, code)[0]);
-                    r = d.AddRow("<option code=\"" + CodeText(code) + "\" grade=\"" + g.ToString(CultureInfo.InvariantCulture) + "\" />");
+                    r = AddGradeRow(side, code, g, out d);
                 }
                 d.Set(r, stat, value.Length == 0 ? null : value);
                 // an added row left with its key only goes again
@@ -1044,6 +1058,29 @@ namespace MS2.ModKit
                 done.Add(g.ToString(CultureInfo.InvariantCulture));
             }
             return side.Title + ": " + ItemOptionRules.KindName(side.Kind) + " grade " + string.Join(",", done.ToArray()) + " " + stat + (value.Length == 0 ? " removed" : " = " + value);
+        }
+
+        // a grade row the code lacks on a flat side: in a file of the code that the server reads (the first one; else
+        // the first file of the code), right after the code's row of the nearest lower grade there (else before the
+        // nearest higher one; at the end of the file when the code has no shipped row in it)
+        TableRow AddGradeRow(OptionSide side, long code, int grade, out TableDraft d)
+        {
+            List<string> files = EntriesOf(side, code);
+            string entry = files.Find(e => ItemOptionRules.ServerReads(side.Kind, e)) ?? files[0];
+            d = Draft(side.Archive, entry);
+            TableRow below = null, above = null;
+            int bg = int.MinValue, ag = int.MaxValue;
+            List<TableRow> rows;
+            if (RowsByCode(d).TryGetValue(CodeText(code), out rows))
+                foreach (TableRow r in rows)
+                {
+                    int rg;
+                    if (r.IsAdded || r.IsDeleted || !int.TryParse((d.Get(r, "grade") ?? "").Trim(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out rg)) continue;
+                    if (rg < grade && rg > bg) { below = r; bg = rg; }
+                    if (rg > grade && rg < ag) { above = r; ag = rg; }
+                }
+            string xml = "<option code=\"" + CodeText(code) + "\" grade=\"" + grade.ToString(CultureInfo.InvariantCulture) + "\" />";
+            return below != null ? d.AddRow(xml, below, false) : d.AddRow(xml, above, true);
         }
 
         // the kms row of a code becomes n: the shipped row is deleted and n added, or the shipped row restored when n is it
@@ -1062,8 +1099,52 @@ namespace MS2.ModKit
             Changed(d);
         }
 
-        /// <summary>Takes back the mod's edits of a code on every side of the kind (its own rows: a code the mod adds goes away).</summary>
+        /// <summary>
+        /// Takes back the mod's edits of a code on every side of the kind (its own rows: a code the mod adds goes away).
+        /// A code of the mod's own (a fork) also gives its items their old pointers back and frees its reservation; when
+        /// an item has no old pointer to go back to, nothing is reverted and the message says which item.
+        /// </summary>
         public int Revert(OptionKind kind, long code)
+        {
+            if (ShippedAnywhere(kind, code)) return RevertRows(kind, code);
+            // the items first: every pointer has an old value to go back to, or nothing is written
+            var back = new List<KeyValuePair<ItemDraft, KeyValuePair<EntitySection, string>>>();
+            var items = new ItemEditor(Data, Mod);
+            var seen = new List<long>();
+            foreach (KeyValuePair<long, long> kv in ModPointers(kind))
+            {
+                if (kv.Value != code || seen.Contains(kv.Key)) continue;
+                seen.Add(kv.Key);
+                ItemDraft d = items.Open(kv.Key);
+                foreach (EntitySection s in d.Sections)
+                {
+                    if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
+                    foreach (string f in PointerFields(kind))
+                    {
+                        if ((d.Get(s, f) ?? "").Trim() != CodeText(code)) continue;
+                        if ((d.GetOriginal(s, f) ?? "").Trim() == CodeText(code))
+                            throw new ModKitException("item " + kv.Key.ToString(CultureInfo.InvariantCulture) + " names option " + CodeText(code) + " in its own data (" + f + "): point it at another code first; nothing was reverted");
+                        back.Add(new KeyValuePair<ItemDraft, KeyValuePair<EntitySection, string>>(d, new KeyValuePair<EntitySection, string>(s, f)));
+                    }
+                }
+            }
+            var undo = new ModUndo(Mod);
+            try
+            {
+                int n = RevertRows(kind, code);
+                foreach (var b in back) { b.Key.Set(b.Value.Key, b.Value.Value, b.Key.GetOriginal(b.Value.Key, b.Value.Value), false); n++; }
+                if (Mod.Ids.Exists(r => r.Space == ItemOptionRules.Space && code >= r.From && code <= r.To)) { IdSpaces.Unreserve(Mod, ItemOptionRules.Space, code); n++; }
+                return n;
+            }
+            catch
+            {
+                undo.Restore();
+                Forget();
+                throw;
+            }
+        }
+
+        int RevertRows(OptionKind kind, long code)
         {
             int n = 0;
             foreach (OptionSide s in Sides(kind))
@@ -1116,7 +1197,9 @@ namespace MS2.ModKit
                 if (m == null || m.Id == Mod.Id) continue;
                 foreach (IdRange r in m.Ids)
                     if (r.Space == ItemOptionRules.Space && code >= r.From && code <= r.To) return "mod " + m.Id + " reserves option codes " + r.From + "-" + r.To;
+                if (AddsCode(m, code)) return "mod " + m.Id + " adds option " + CodeText(code);
             }
+            if (AddsCode(Mod, code)) return "this mod already has rows of option " + CodeText(code);
             return null;
         }
 
@@ -1136,58 +1219,193 @@ namespace MS2.ModKit
 
         /// <summary>
         /// Copies a code's rows to a new code on every side of the kind that has it (into the same files), reserves the
-        /// new code and points the given items at it (kms constantID and the item file's constant, or static), where
-        /// they name the old code. Returns the number of items changed.
+        /// new code and points the given items at it where they name the old code: the kms constantID when the kms
+        /// table has the old code, the item file's constant (or static) when a flat side has it. All or nothing: an
+        /// item that cannot be opened stops the fork before anything is written, and a failure while writing takes
+        /// every row, pointer and reservation of the fork back. Returns the number of items changed.
         /// </summary>
         public int Fork(OptionKind kind, long code, long newCode, IList<long> itemIds)
         {
             string bad = CheckNewCode(newCode);
             if (bad != null) throw new ModKitException(bad);
-            bool any = false;
+            var sides = new List<OptionSide>();
+            bool kmsHas = false, flatHas = false;
             foreach (OptionSide s in Sides(kind))
             {
                 if (!Has(s, code)) continue;
-                any = true;
-                if (s.Kms)
+                sides.Add(s);
+                if (s.Kms) kmsHas = true; else flatHas = true;
+            }
+            if (sides.Count == 0) throw new ModKitException("no side has option " + CodeText(code) + " (" + ItemOptionRules.KindName(kind) + ")");
+            // the items first: every one opens, or nothing is written
+            var itemDrafts = new List<ItemDraft>();
+            if (itemIds != null)
+            {
+                var items = new ItemEditor(Data, Mod);
+                foreach (long id in itemIds)
                 {
-                    OptNode n = KmsNow(code).Copy();
-                    n.SetAttr("code", CodeText(newCode));
-                    KmsDraft.AddRow(n.Text());
-                    Changed(KmsDraft);
+                    try { itemDrafts.Add(items.Open(id)); }
+                    catch (ModKitException ex) { throw new ModKitException("item " + id.ToString(CultureInfo.InvariantCulture) + ": " + ex.Message + "; nothing was forked"); }
+                }
+            }
+            var undo = new ModUndo(Mod);
+            try
+            {
+                foreach (OptionSide s in sides)
+                {
+                    if (s.Kms)
+                    {
+                        OptNode n = KmsNow(code).Copy();
+                        n.SetAttr("code", CodeText(newCode));
+                        KmsDraft.AddRow(n.Text());
+                        Changed(KmsDraft);
+                        continue;
+                    }
+                    foreach (string e in EntriesOf(s, code))
+                    {
+                        TableDraft d = Draft(s.Archive, e);
+                        List<TableRow> rows;
+                        if (!RowsByCode(d).TryGetValue(CodeText(code), out rows)) continue;
+                        foreach (TableRow r in rows.ToArray())
+                        {
+                            if (r.IsDeleted) continue;
+                            TableRow c = d.Clone(r);
+                            d.Set(c, "code", CodeText(newCode));
+                        }
+                        Changed(d);
+                    }
+                }
+                IdSpaces.Reserve(Mod, ItemOptionRules.Space, newCode);
+                int changed = 0;
+                foreach (ItemDraft d in itemDrafts)
+                {
+                    bool hit = false;
+                    foreach (EntitySection s in d.Sections.ToArray())
+                    {
+                        if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
+                        foreach (string f in PointerFields(kind))
+                        {
+                            // a pointer is moved only on a layout that gets the new code
+                            if (!(f == "constantID" ? kmsHas : flatHas)) continue;
+                            if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode), false); hit = true; }
+                        }
+                    }
+                    if (hit) changed++;
+                }
+                return changed;
+            }
+            catch
+            {
+                undo.Restore();
+                Forget();
+                throw;
+            }
+        }
+
+        // the drafts read the mod's ops: after the ops are put back they are read again
+        void Forget()
+        {
+            drafts.Clear();
+            byCode.Clear();
+        }
+
+        /// <summary>Drops the parsed flat files (a view calls it when it leaves a code); they are read again when needed.</summary>
+        public void DropDrafts() { Forget(); }
+
+        /// <summary>True when an op of the mod adds a row of the option code to an option table (kms or flat).</summary>
+        internal static bool AddsCode(Mod m, long code)
+        {
+            string c = CodeText(code);
+            foreach (ModOp op in m.Ops)
+            {
+                var ed = op as EditOp;
+                OptionKind k;
+                if (ed == null) continue;
+                string entry = ed.Entry.Replace('\\', '/');
+                if (!string.Equals(entry, ItemOptionRules.KmsEntry, StringComparison.OrdinalIgnoreCase) && !ItemOptionRules.IsFlatEntry(entry, out k)) continue;
+                foreach (RowOp r in ed.Rows)
+                {
+                    if (r.Kind == RowOpKind.Delete) continue;
+                    string set = null;
+                    foreach (AttrOp a in r.Attrs) if (string.IsNullOrEmpty(a.At) && a.Name == "code" && a.Kind == AttrOpKind.Set) set = a.Value;
+                    if (set != null) { if (set.Trim() == c) return true; continue; }
+                    if (r.Kind != RowOpKind.Add || r.Xml == null) continue;
+                    try
+                    {
+                        XmlDoc f = XmlDoc.ParseFragment(r.Xml.Trim(), "a row of mod " + m.Id);
+                        if (f.Root != null && (f.Root.Attr("code") ?? "").Trim() == c) return true;
+                    }
+                    catch (ModKitException) { }
+                }
+            }
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// The ops, id ranges and unsaved files of a mod as they are now, to put back after an edit of many steps fails
+    /// part way. The same op objects are put back with their old contents.
+    /// </summary>
+    public sealed class ModUndo
+    {
+        readonly Mod mod;
+        readonly List<ModOp> ops;
+        readonly List<IdRange> ids;
+        readonly Dictionary<string, byte[]> files;
+        readonly List<Action> restore = new List<Action>();
+
+        public ModUndo(Mod m)
+        {
+            mod = m;
+            ops = new List<ModOp>(m.Ops);
+            ids = new List<IdRange>(m.Ids);
+            files = new Dictionary<string, byte[]>(m.Files, StringComparer.Ordinal);
+            foreach (IdRange r in m.Ids)
+            {
+                IdRange q = r;
+                long from = q.From, to = q.To;
+                var places = new List<IdPlace>(q.Places);
+                restore.Add(delegate { q.From = from; q.To = to; q.Places.Clear(); q.Places.AddRange(places); });
+            }
+            foreach (ModOp op in m.Ops)
+            {
+                var en = op as EntryOp;
+                if (en != null)
+                {
+                    string name = en.Name, copy = en.Copy, file = en.File;
+                    bool del = en.Delete;
+                    restore.Add(delegate { en.Name = name; en.Copy = copy; en.File = file; en.Delete = del; });
                     continue;
                 }
-                foreach (string e in EntriesOf(s, code))
+                var ed = op as EditOp;
+                if (ed == null) continue;
+                var rows = new List<RowOp>(ed.Rows);
+                restore.Add(delegate { ed.Rows.Clear(); ed.Rows.AddRange(rows); });
+                foreach (RowOp r in ed.Rows)
                 {
-                    TableDraft d = Draft(s.Archive, e);
-                    List<TableRow> rows;
-                    if (!RowsByCode(d).TryGetValue(CodeText(code), out rows)) continue;
-                    foreach (TableRow r in rows.ToArray())
+                    RowOp row = r;
+                    string at = r.At, cp = r.Copy, xml = r.Xml, after = r.After, before = r.Before, inn = r.In;
+                    bool sync = r.Sync;
+                    var attrs = new List<AttrOp>(r.Attrs);
+                    var vals = new List<string>();
+                    foreach (AttrOp a in r.Attrs) vals.Add(a.Value);
+                    restore.Add(delegate
                     {
-                        if (r.IsDeleted) continue;
-                        TableRow c = d.Clone(r);
-                        d.Set(c, "code", CodeText(newCode));
-                    }
-                    Changed(d);
+                        row.At = at; row.Copy = cp; row.Xml = xml; row.After = after; row.Before = before; row.In = inn; row.Sync = sync;
+                        row.Attrs.Clear(); row.Attrs.AddRange(attrs);
+                        for (int i = 0; i < attrs.Count; i++) attrs[i].Value = vals[i];
+                    });
                 }
             }
-            if (!any) throw new ModKitException("no side has option " + CodeText(code) + " (" + ItemOptionRules.KindName(kind) + ")");
-            IdSpaces.Reserve(Mod, ItemOptionRules.Space, newCode);
-            int changed = 0;
-            if (itemIds == null) return 0;
-            var items = new ItemEditor(Data, Mod);
-            foreach (long id in itemIds)
-            {
-                ItemDraft d = items.Open(id);
-                bool hit = false;
-                foreach (EntitySection s in d.Sections.ToArray())
-                {
-                    if (s.Elem == null || s.Elem.Name != "option" || s.Part.Kind == "option") continue;
-                    foreach (string f in PointerFields(kind))
-                        if ((d.Get(s, f) ?? "").Trim() == CodeText(code)) { d.Set(s, f, CodeText(newCode), false); hit = true; }
-                }
-                if (hit) changed++;
-            }
-            return changed;
+        }
+
+        public void Restore()
+        {
+            mod.Ops.Clear(); mod.Ops.AddRange(ops);
+            mod.Ids.Clear(); mod.Ids.AddRange(ids);
+            mod.Files.Clear();
+            foreach (KeyValuePair<string, byte[]> kv in files) mod.Files[kv.Key] = kv.Value;
+            foreach (Action a in restore) a();
         }
     }
 }

@@ -5,7 +5,12 @@
 //     above the stats listed, a row in a file the server does not read (warnings);
 //   - kms option rows (table/itemoptionconstant.xml): a code twice, a value that is no whole number (errors);
 //   - the kms client and the server giving a stat of a code different values at a grade where they agreed (warning);
-//   - an item file whose option names a constant or static code that no file the server reads has (error).
+//   - an item file whose option names a constant or static code that no file the server reads has (error);
+//   - a kms item row (itemdata/*.xml) whose constantID the mod changed to a code the kms table does not have (error);
+//   - a grade the items of a code could be at with no row: the server takes an item's rarity from where the item
+//     is made (drops, shops, rewards) and looks the row up at that exact grade, so a code that loses a grade row it
+//     shipped with, or an item moved to a code without a grade its old code had, leaves those items without the
+//     stats at that grade (warning).
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -53,6 +58,7 @@ namespace MS2.ModKit
             var touchedFlat = new HashSet<string>(StringComparer.OrdinalIgnoreCase);   // archive\nentry
             var flatArchives = new List<string>();
             var itemFiles = new List<EntryState>();
+            var kmsItemFiles = new List<EntryState>();
             bool kmsTouched = false;
             foreach (EntryState st in run.Order)
             {
@@ -66,8 +72,9 @@ namespace MS2.ModKit
                 }
                 else if (n == ItemOptionRules.KmsEntry) kmsTouched = true;
                 else if (n.StartsWith("item/", StringComparison.Ordinal) && st.Final != null) itemFiles.Add(st);
+                else if (n.StartsWith("itemdata/", StringComparison.Ordinal) && st.Final != null) kmsItemFiles.Add(st);
             }
-            if (touchedFlat.Count == 0 && !kmsTouched && itemFiles.Count == 0) return;
+            if (touchedFlat.Count == 0 && !kmsTouched && itemFiles.Count == 0 && kmsItemFiles.Count == 0) return;
             Plan plan = run.Plan;
             foreach (EntryState st in itemFiles) if (!flatArchives.Contains(st.Archive)) flatArchives.Add(st.Archive);
 
@@ -173,7 +180,7 @@ namespace MS2.ModKit
                 try { arch = run.Data.Open(kmsArchive); }
                 catch (ModKitException) { }
                 M2dEntry e = arch == null ? null : arch.Find(ItemOptionRules.KmsEntry);
-                if (e != null && (kmsTouched || touchedFlat.Count > 0))
+                if (e != null && (kmsTouched || touchedFlat.Count > 0 || kmsItemFiles.Count > 0))
                 {
                     XmlDoc orig = OriginalDoc(run, arch, kmsArchive, e);
                     XmlDoc fin = kmsTouched ? FinalDoc(run, kmsArchive, e.Name) : orig;
@@ -246,25 +253,95 @@ namespace MS2.ModKit
                 }
             }
 
+            // a code that loses a grade row it shipped with (a code the plan leaves with no row at all is the
+            // item check's error)
+            foreach (OptionFlat f in flats.Values)
+                foreach (string key in f.Original.Keys)
+                {
+                    string code = key.Substring(0, key.IndexOf('\n'));
+                    if (f.Final.ContainsKey(key) || !f.Codes.Contains(code)) continue;
+                    plan.Msg(plan.Warnings, FirstEditor(run, f, code), f.Archive, null, OptLabel(key) + ": the code ships a row at this grade and the mod leaves none, so its items at this rarity get no "
+                        + ItemOptionRules.KindName(f.Kind) + " stats");
+                }
+
             // the items' pointers
             foreach (EntryState st in itemFiles)
             {
                 XmlDoc d = FinalDoc(run, st.Archive, st.Name);
                 if (d == null || d.Root == null) continue;
+                XmlDoc o0 = ShippedDoc(run, st.Archive, st.Name);
+                var oldOpts = o0 == null || o0.Root == null ? new List<XmlElem>() : new List<XmlElem>(OptionElems(o0.Root));
+                Mod mod = EntryMod(run, st.Archive, st.Name.Replace('\\', '/'));
                 foreach (OptionKind k in new[] { OptionKind.Constant, OptionKind.Static })
                 {
                     OptionFlat f;
                     if (!flats.TryGetValue(st.Archive + "\n" + ItemOptionRules.KindName(k), out f)) continue;
                     string field = k == OptionKind.Constant ? "constant" : "static";
+                    int i = 0;
                     foreach (XmlElem o in OptionElems(d.Root))
                     {
                         string c = (o.Attr(field) ?? "").Trim();
-                        if (c.Length == 0 || c == "0" || f.Codes.Contains(c)) continue;
-                        plan.Msg(plan.Errors, EntryMod(run, st.Archive, st.Name.Replace('\\', '/')), st.Archive, st.Name,
-                            "the item names " + ItemOptionRules.KindName(k) + " option " + c + " but no " + ItemOptionRules.KindName(k) + " option file the server reads has it");
+                        string was = i < oldOpts.Count ? (oldOpts[i].Attr(field) ?? "").Trim() : "";
+                        i++;
+                        if (c.Length == 0 || c == "0") continue;
+                        if (!f.Codes.Contains(c))
+                        {
+                            plan.Msg(plan.Errors, mod, st.Archive, st.Name,
+                                "the item names " + ItemOptionRules.KindName(k) + " option " + c + " but no " + ItemOptionRules.KindName(k) + " option file the server reads has it");
+                            continue;
+                        }
+                        if (was.Length == 0 || was == "0" || was == c) continue;
+                        var lost = new List<string>();
+                        for (int g = 0; g <= ItemOptionRules.MaxGrade; g++)
+                        {
+                            string gs = g.ToString(CultureInfo.InvariantCulture);
+                            if (f.Final.ContainsKey(was + "\n" + gs) && !f.Final.ContainsKey(c + "\n" + gs)) lost.Add(gs);
+                        }
+                        if (lost.Count > 0)
+                            plan.Msg(plan.Warnings, mod, st.Archive, st.Name, "the item moves from " + ItemOptionRules.KindName(k) + " option " + was + " to " + c + ", which has no row at grade "
+                                + string.Join(",", lost.ToArray()) + ": made at that rarity, the item gets no " + ItemOptionRules.KindName(k) + " stats");
                     }
                 }
             }
+
+            // the kms items' constantID: an item that named a row of the kms table and now names a code the table lacks
+            if (kmsFinal != null)
+                foreach (EntryState st in kmsItemFiles)
+                {
+                    XmlDoc d = FinalDoc(run, st.Archive, st.Name);
+                    if (d == null || d.Root == null) continue;
+                    var shipped = new Dictionary<string, string>(StringComparer.Ordinal);   // item id -> its first constantID
+                    XmlDoc o0 = ShippedDoc(run, st.Archive, st.Name);
+                    if (o0 != null && o0.Root != null)
+                        foreach (XmlElem it in o0.Root.Children)
+                            foreach (XmlElem o in OptionElems(it))
+                            {
+                                string iid = (it.Attr("id") ?? "").Trim();
+                                if (!shipped.ContainsKey(iid)) shipped[iid] = (o.Attr("constantID") ?? "").Trim();
+                            }
+                    foreach (XmlElem it in d.Root.Children)
+                    {
+                        string iid = (it.Attr("id") ?? "").Trim(), was;
+                        if (!shipped.TryGetValue(iid, out was) || !kmsFinal.ContainsKey(was)) continue;
+                        foreach (XmlElem o in OptionElems(it))
+                        {
+                            string c = (o.Attr("constantID") ?? "").Trim();
+                            if (c.Length == 0 || c == "0" || c == was || kmsFinal.ContainsKey(c)) continue;
+                            plan.Msg(plan.Errors, EntryMod(run, st.Archive, st.Name.Replace('\\', '/')), st.Archive, st.Name,
+                                "item " + iid + " names constant option " + c + " (constantID, was " + was + ") but the kms table " + ItemOptionRules.KmsEntry + " has no row of it");
+                        }
+                    }
+                }
+        }
+
+        // an entry as shipped (null when the archive has no such entry: a new file)
+        static XmlDoc ShippedDoc(Run run, string archive, string entry)
+        {
+            M2dArchive arch;
+            try { arch = run.Data.Open(archive); }
+            catch (ModKitException) { return null; }
+            M2dEntry e = arch.Find(entry);
+            return e == null ? null : OriginalDoc(run, arch, archive, e);
         }
 
         static Mod FirstEditor(Run run, OptionFlat f, string code)

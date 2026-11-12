@@ -158,7 +158,9 @@ namespace MS2.ModKit.Tests
                 Plan p = Build(f, Client(Set(env + "odd", "a", "2") + Set(env + "option", "constantID", "78") + Set(env + "option", "optionLevel", "3") +
                     Set(env + "property", "tradable", "0")));
                 string dump = Fake.Dump(p);
-                Assert.That(p.Errors, Is.Empty, dump);
+                // the one error: the kms option table has no row 78 (ItemOptionChecks)
+                Assert.That(p.Errors.Count, Is.EqualTo(1), dump);
+                Assert.That(dump, Does.Contain("item 1200005 names constant option 78 (constantID, was 77) but the kms table table/itemoptionconstant.xml has no row of it"));
                 Assert.That(p.Warnings.Count, Is.EqualTo(2), dump);     // client-only fields are silent
                 Assert.That(dump, Does.Contain("odd@a is changed on the client only: the field map of \"item\" has no entry for it"));
                 Assert.That(dump, Does.Contain("option@constantID is changed on the client only: the field map of \"item\" has no entry for it (server drop@rate is a candidate that agreed on 6 of 10 compared ids; it is not written)"));
