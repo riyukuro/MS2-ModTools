@@ -458,6 +458,40 @@ namespace MS2.ModKit.Tests
             return cache.Keys.Count(k => k.StartsWith("entitydoc\n", StringComparison.Ordinal) && k.Contains("\nitem/"));
         }
 
+        static List<string> DocsCached(DataSet data)
+        {
+            var cache = (System.Collections.Generic.Dictionary<string, object>)typeof(DataSet).GetField("Cache", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic).GetValue(data);
+            return cache.Keys.Where(k => k.StartsWith("entitydoc\n", StringComparison.Ordinal)).ToList();
+        }
+
+        [Test]
+        public void LookKeepsOnlyTheLastFewFilesItRead_AndEveryFileReadBefore()
+        {
+            using (var f = new FakeOptions())
+            {
+                var items = new ItemEditor(f.Data, FakeOptions.ModOf(""));
+                var seen = new List<long>();
+                foreach (long id in new long[] { 99100001, 99100002, 99100003, 99100001, 99100003 })
+                {
+                    items.Look(id, d => seen.Add(d.Id));
+                    Assert.That(DocsCached(f.Data).Count, Is.LessThanOrEqualTo(4), "after item " + id);
+                }
+                Assert.That(seen, Is.EqualTo(new long[] { 99100001, 99100002, 99100003, 99100001, 99100003 }));
+            }
+            // what an Open read stays, however many looks follow
+            using (var f = new FakeOptions())
+            {
+                var items = new ItemEditor(f.Data, FakeOptions.ModOf(""));
+                items.Open(99100001);
+                List<string> opened = DocsCached(f.Data);
+                Assert.That(opened, Is.Not.Empty);
+                foreach (long id in new long[] { 99100002, 99100003, 99100002, 99100003 }) items.Look(id, d => { });
+                Assert.That(DocsCached(f.Data), Is.SupersetOf(opened));
+                Assert.That(DocsCached(f.Data).Count, Is.LessThanOrEqualTo(opened.Count + 4));
+                Assert.Throws<ModKitException>(() => items.Look(99199999, d => { }), "no such item");
+            }
+        }
+
         [Test]
         public void ForkAndRevertOpenOneItemAtATimeAndLetGoOfItsFile()
         {

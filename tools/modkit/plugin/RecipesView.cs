@@ -351,7 +351,11 @@ namespace MS2.Tables
 
         void OnHostSaid(string text) { OutputWrap.Set(outputBox, text); }
 
-        void OnHostBusy(bool on) { ViewLayout.Lock(this, lockable, on, outputBox); }
+        void OnHostBusy(bool on)
+        {
+            ViewLayout.Lock(this, lockable, on, outputBox);
+            if (!on) Invalidate(true);      // the names and icons a paint could not read during the job
+        }
 
         // the mod was replaced or edited in another view: read the table again and show the same recipe
         void OnHostChanged()
@@ -385,14 +389,20 @@ namespace MS2.Tables
             ItemInfo info;
             if (itemInfo.TryGetValue(id, out info)) return info;
             info = new ItemInfo();
+            // a running job (Plan, Apply) reads the same data on its own thread: the paint waits for its end
+            if (host == null || host.Busy) { info.Name = ""; return info; }
             try
             {
                 EditorSession s = host.SharedSession();
                 if (items == null || items.Mod != s.Mod || items.Data != s.Data) items = s.Items();
-                ItemDraft d = items.Open(id);
-                info.Name = d.Name;
-                info.Icon = d.IconEntry();
+                items.Look(id, delegate(EntityDraft e)
+                {
+                    var d = (ItemDraft)e;
+                    info.Name = d.Name;
+                    info.Icon = d.IconEntry();
+                });
             }
+            catch (OutOfMemoryException) { info.Name = ""; return info; }      // not kept: the next paint asks again
             catch (ModKitException) { info.Missing = true; info.Name = "(no such item)"; }
             catch (System.IO.IOException) { info.Name = ""; }
             itemInfo[id] = info;

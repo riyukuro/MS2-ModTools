@@ -557,6 +557,30 @@ namespace MS2.ModKit
             return name == null ? null : "entitydoc\n" + FileXml + "\n" + name.ToLowerInvariant();
         }
 
+        const int LookDocs = 4;
+
+        /// <summary>
+        /// Opens an id for a look (a name, an icon) and hands it over. The parsed files stay cached for every Open, and
+        /// a list that shows many ids would keep every bundle file of the data set in memory: of the files a look
+        /// reads first, only the last few stay.
+        /// </summary>
+        public void Look(long id, Action<EntityDraft> act)
+        {
+            var before = new HashSet<string>();
+            foreach (string k in Data.Cache.Keys) if (k.StartsWith("entitydoc\n", StringComparison.Ordinal)) before.Add(k);
+            try { act(OpenAny(id)); }
+            finally
+            {
+                object o;
+                List<string> mine;
+                if (Data.Cache.TryGetValue("entitylook", out o)) mine = (List<string>)o;
+                else Data.Cache["entitylook"] = mine = new List<string>();
+                foreach (string k in new List<string>(Data.Cache.Keys))
+                    if (k.StartsWith("entitydoc\n", StringComparison.Ordinal) && !before.Contains(k)) mine.Add(k);
+                while (mine.Count > LookDocs) { Data.Cache.Remove(mine[0]); mine.RemoveAt(0); }
+            }
+        }
+
         DocInfo Doc(string archive, string entry)
         {
             string key = "entitydoc\n" + archive + "\n" + entry.ToLowerInvariant();
