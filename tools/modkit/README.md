@@ -292,6 +292,10 @@ using (var data = new DataSet(clientDataDir, serverDataDir))
 XML entry of an archive as a grid, keeps your edits as a `mod.xml`, and runs plan, apply and revert. It holds no logic
 of its own: `MS2.ModKit.dll` does the work, as it does for the command line tool.
 
+Every editor opens as a tab of the centre area. The tab row has no second line, so the tabs shorten their labels
+to stay on it: `MS2 Item options` becomes `Item options`, then `Options`, as the window gets narrower (the full
+name stays in the tab's tooltip). All editors fit on the row from 1280 pixels of width.
+
 Build and install (the Toolbench assemblies are referenced in place, nothing of the SDK is copied):
 
 ```sh

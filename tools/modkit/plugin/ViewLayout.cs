@@ -33,7 +33,7 @@ namespace MS2.Tables
                     if (dc == null) continue;
                     DockPanel p = dc.DockPanel;
                     if (p == null) return false;
-                    if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) { WholeWindow.Collapse(p); return true; }
+                    if (dc.DockState == DockState.Document || dc.DockState == DockState.Float) { WholeWindow.Collapse(p); TabLabels.Fit(dc); return true; }
                     dc.DockAreas |= DockAreas.Document;
                     // a view made for another view's job (MS2 Tables under MS2 Triggers) is not the one the user is in
                     IDockContent before = p.ActiveDocument;
@@ -52,6 +52,7 @@ namespace MS2.Tables
                     if (front || before == null || before == dc || before.DockHandler.Form.IsDisposed) dc.Activate();
                     else before.DockHandler.Activate();
                     WholeWindow.Collapse(p);
+                    TabLabels.Fit(dc);
                     return true;
                 }
             }
