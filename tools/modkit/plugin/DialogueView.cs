@@ -110,11 +110,11 @@ namespace MS2.Tables
             applyBar.Controls.Add(Job("Revert", "Removes what Apply wrote, on every target", delegate { return host.DoRevert(); }));
 
             SetupGrid(npcGrid);
-            npcGrid.Columns.Add(Col("id", 80));
-            npcGrid.Columns.Add(Col("name", 150));
-            npcGrid.Columns.Add(Col("steps", 45));
-            npcGrid.Columns.Add(Col("targets", 90));
-            npcGrid.Columns.Add(Col("problems", 70));
+            npcGrid.Columns.Add(Col("id", 65));
+            npcGrid.Columns.Add(Col("name", 100));
+            npcGrid.Columns.Add(Col("steps", 40));
+            npcGrid.Columns.Add(Col("targets", 60));
+            npcGrid.Columns.Add(Col("problems", 50));
             npcGrid.ReadOnly = true;
             npcGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             npcGrid.CellValueNeeded += OnNpcValueNeeded;
@@ -138,9 +138,9 @@ namespace MS2.Tables
             npcBar.Controls.Add(npcLabel);
 
             SetupGrid(stepGrid);
-            stepGrid.Columns.Add(Col("", 22));
-            stepGrid.Columns.Add(Col("step", 90));
-            stepGrid.Columns.Add(Col("first line", 200));
+            stepGrid.Columns.Add(Col("", 20));
+            stepGrid.Columns.Add(Col("step", 70));
+            stepGrid.Columns.Add(Col("first line", 130));
             stepGrid.ReadOnly = true;
             stepGrid.SelectionMode = DataGridViewSelectionMode.FullRowSelect;
             stepGrid.CellValueNeeded += OnStepValueNeeded;
@@ -161,11 +161,11 @@ namespace MS2.Tables
             lineBar.Controls.Add(stepLabel);
 
             SetupGrid(lineGrid);
-            lineGrid.Columns.Add(Col("line", 120));
-            lineGrid.Columns.Add(Col("text", 260));
-            lineGrid.Columns.Add(Col("text id", 95));
-            foreach (string a in AttrColumns) lineGrid.Columns.Add(Col(a, a == "voiceID" || a == "illust" ? 90 : 60));
-            lineGrid.Columns.Add(Col("more attributes", 150));
+            lineGrid.Columns.Add(Col("line", 70));
+            lineGrid.Columns.Add(Col("text", 160));
+            lineGrid.Columns.Add(Col("text id", 75));
+            foreach (string a in AttrColumns) lineGrid.Columns.Add(Col(a, a == "voiceID" ? 55 : a == "gotoFail" ? 50 : a == "goto" ? 40 : 45));
+            lineGrid.Columns.Add(Col("more attributes", 60));
             lineGrid.Columns[0].ReadOnly = true;
             lineGrid.Columns[2].ReadOnly = true;
             lineGrid.CellValueNeeded += OnLineValueNeeded;
@@ -215,10 +215,12 @@ namespace MS2.Tables
             ViewLayout.KeepHeightShare(problemList, right, 0.16, 3 * Font.Height + 8);
             ViewLayout.KeepHeightShare(questList, right, 0.14, 3 * Font.Height + 8);
             ViewLayout.KeepHeightShare(flowTree, stepPane, 0.45, 4 * Font.Height + 8);
-            KeepWidthShare(npcGrid, this, 0.30, 300);
-            KeepWidthShare(stepPane, right, 0.36, 240);
+            KeepWidthShare(npcGrid, this, 0.28, 320);
+            KeepWidthShare(stepPane, right, 0.30, 240);
             ViewLayout.CentreOnFirstShow(this);
             Resize += delegate { FitListColumns(); };
+            // the list fills on the first show when the view was made before the data was there
+            VisibleChanged += delegate { if (Visible && hits.Count == 0 && !filling) Guard(delegate { Find(); }); };
             targetBox.SelectedIndexChanged += delegate { if (!filling && host != null) host.TargetIndex = targetBox.SelectedIndex; };
             langBox.SelectedIndexChanged += delegate { if (!filling) Guard(delegate { stepGrid.Invalidate(); ShowStep(); }); };
             changedBox.CheckedChanged += delegate { if (!filling) Guard(delegate { Find(); }); };
