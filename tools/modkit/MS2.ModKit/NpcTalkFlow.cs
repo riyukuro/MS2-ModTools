@@ -171,17 +171,37 @@ namespace MS2.ModKit
         }
 
         /// <summary>
-        /// Problems with the text ids of each target read once into texts (archive -> TextIds), for a list of many
-        /// NPCs; drop texts after an edit of the texts.
+        /// Problems with the text ids of each target read once into texts, for a list of many NPCs. A target's ids are
+        /// kept under a stamp of the text rows the mod adds there, so a text edit (a new or dropped own text) reads them
+        /// anew and the ids read before are let go.
         /// </summary>
         public List<TalkProblem> Problems(NpcTalk t, IDictionary<string, Dictionary<string, HashSet<long>>> texts)
         {
             return Problems(t, delegate(string archive)
             {
+                string key = archive + "\n" + ModTextStamp(archive);
                 Dictionary<string, HashSet<long>> d;
-                if (!texts.TryGetValue(archive, out d)) texts[archive] = d = TextIds(archive);
+                if (texts.TryGetValue(key, out d)) return d;
+                foreach (string k in new List<string>(texts.Keys))
+                    if (k == archive || k.StartsWith(archive + "\n", StringComparison.Ordinal)) texts.Remove(k);
+                texts[key] = d = TextIds(archive);
                 return d;
             });
+        }
+
+        // what TextIds reads of the mod on a target: the ids its rows add to the talk text files, in order
+        string ModTextStamp(string archive)
+        {
+            int rows = 0;
+            long h = 17;
+            foreach (ModOp o in Mod.Ops)
+            {
+                var ed = o as EditOp;
+                if (ed == null || ed.Archive != archive || !TextFile.IsMatch(ed.Entry.Replace('\\', '/'))) continue;
+                h = h * 31 + StringComparer.OrdinalIgnoreCase.GetHashCode(ed.Entry);
+                foreach (RowOp r in ed.Rows) { h = h * 31 + AddedId(r); rows++; }
+            }
+            return rows.ToString(CultureInfo.InvariantCulture) + ":" + h.ToString(CultureInfo.InvariantCulture);
         }
 
         /// <summary>

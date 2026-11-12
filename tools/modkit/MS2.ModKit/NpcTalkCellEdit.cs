@@ -61,13 +61,16 @@ namespace MS2.ModKit
                     changes.Add("the " + e.Language + " text set");
                 }
             }
+            // the attributes go in at once: a bad one (a name XML has no place for) leaves the mod as it was
+            var set = new List<KeyValuePair<string, string>>();
+            XmlElem shown = Shown(t, e.Path);
             foreach (KeyValuePair<string, string> a in e.Attrs)
             {
-                XmlElem now = Shown(t, e.Path);
-                if (now != null && (now.Attr(a.Key) ?? "") == (a.Value ?? "")) continue;
-                t = SetAttr(t, e.Path, a.Key, a.Value, missed);
+                if (shown != null && (shown.Attr(a.Key) ?? "") == (a.Value ?? "")) continue;
+                set.Add(a);
                 changes.Add(a.Key + (a.Value == null ? " removed" : " = " + a.Value));
             }
+            if (set.Count > 0) t = SetAttrs(t, e.Path, set, missed);
             if (changes.Count == 0) return null;
             said = "NPC " + t.NpcId + ", " + e.Path + ": " + string.Join(", ", changes.ToArray());
             return t;

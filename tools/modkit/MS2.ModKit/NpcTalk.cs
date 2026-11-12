@@ -440,6 +440,23 @@ namespace MS2.ModKit
             });
         }
 
+        /// <summary>
+        /// Sets several attributes at the place at once (a null or empty value removes one), on every side that has it:
+        /// one that fails leaves the mod as it was. Returns the talk as it is now.
+        /// </summary>
+        public NpcTalk SetAttrs(NpcTalk t, TalkPath at, IList<KeyValuePair<string, string>> attrs, List<string> missed)
+        {
+            foreach (KeyValuePair<string, string> a in attrs) if (string.IsNullOrEmpty(a.Key)) throw new ModKitException("no attribute name");
+            return Each(t, at, missed, (side, ed, e) =>
+            {
+                foreach (KeyValuePair<string, string> a in attrs)
+                {
+                    if (string.IsNullOrEmpty(a.Value)) ed.RemoveAttr(e, a.Key);
+                    else ed.SetAttr(e, a.Key, a.Value);
+                }
+            });
+        }
+
         /// <summary>Removes the element at the place (a step, content, distractor or event) on every side that has it.</summary>
         public NpcTalk Remove(NpcTalk t, TalkPath at, List<string> missed)
         {
@@ -459,6 +476,16 @@ namespace MS2.ModKit
         {
             if (at == null || at.Below.Count == 0) throw new ModKitException("only a page, a choice or an event moves, not a step");
             if (by != -1 && by != 1) throw new ModKitException("an element moves one place up or down");
+            // the shown side decides: its first element moves no higher, its last no lower
+            XmlElem shown = Shown(t, at);
+            if (shown != null && shown.Parent != null)
+            {
+                var sib = new List<XmlElem>();
+                foreach (XmlElem c in shown.Parent.Children) if (c.Name == shown.Name) sib.Add(c);
+                int k = sib.IndexOf(shown) + by;
+                if (k < 0) throw new ModKitException(at + " is the first " + shown.Name + ": it moves no higher");
+                if (k >= sib.Count) throw new ModKitException(at + " is the last " + shown.Name + ": it moves no lower");
+            }
             return Each(t, at, missed, (side, ed, e) =>
             {
                 var same = new List<XmlElem>();
@@ -507,7 +534,7 @@ namespace MS2.ModKit
                 }
                 if (anchor != null) ed.InsertAfter(anchor, text, from);
                 else ed.Append(e, text, from);
-            });
+            }, true);
         }
 
         /// <summary>The XML of a new step with one empty content.</summary>
@@ -533,9 +560,9 @@ namespace MS2.ModKit
         /// whose step is the same (SameStep) as on the first side that has it (the side the Dialogue view shows).
         /// Null when the side takes the edit, else the side and why, for missed.
         /// </summary>
-        internal static string DiffersFromShown(NpcTalk t, TalkPath at, TalkSide side)
+        internal static string DiffersFromShown(NpcTalk t, TalkPath at, TalkSide side, bool inside = false)
         {
-            if (at == null || at.Below.Count == 0) return null;
+            if (at == null || (at.Below.Count == 0 && !inside)) return null;
             TalkStep mine = side.Step(at.Step);
             foreach (TalkSide s in t.Sides)
             {
@@ -547,7 +574,8 @@ namespace MS2.ModKit
             return null;
         }
 
-        NpcTalk Each(NpcTalk t, TalkPath at, List<string> missed, Action<TalkSide, XmlEditor, XmlElem> edit)
+        // inside: the edit goes among the children of the place (an insert), so a step that differs is no place for it
+        NpcTalk Each(NpcTalk t, TalkPath at, List<string> missed, Action<TalkSide, XmlEditor, XmlElem> edit, bool inside = false)
         {
             if (t == null || t.Sides.Count == 0) throw new ModKitException("the NPC has no talk to edit");
             var made = new List<KeyValuePair<TalkSide, string>>();
@@ -555,7 +583,7 @@ namespace MS2.ModKit
             {
                 XmlElem e = at == null ? s.Root : at.Resolve(s);
                 if (e == null) { if (missed != null) missed.Add(s.Archive); continue; }
-                string differs = DiffersFromShown(t, at, s);
+                string differs = DiffersFromShown(t, at, s, inside);
                 if (differs != null) { if (missed != null) missed.Add(differs); continue; }
                 var ed = new XmlEditor(s.Doc);
                 try { edit(s, ed, e); }

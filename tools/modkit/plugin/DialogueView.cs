@@ -358,8 +358,14 @@ namespace MS2.Tables
             if (t != null) Edited(t, said, missed);
         }
 
-        // the save, plan or apply of the Tables view: the edit is reported like any other, the mod is read after it
-        void OnHostFlushing() { Guard(EndEdits); }
+        // the save, plan or apply of the Tables view: the edit is reported like any other, the mod is read after it; a
+        // held edit that fails stops the save, plan or apply with its error (the Tables view's Guard says it), so the
+        // lost edit is not hidden behind "saved ..."
+        void OnHostFlushing()
+        {
+            try { EndEdits(); }
+            catch (ModKitException ex) { throw new ModKitException("the edit typed in the Dialogue view did not go in, nothing was saved, planned or applied: " + ex.Message); }
+        }
 
         protected override void OnEnter(EventArgs e)
         {
@@ -862,7 +868,7 @@ namespace MS2.Tables
             TalkCellEdit edit = Typed(l, e.ColumnIndex, e.Value == null ? "" : e.Value.ToString());
             if (edit == null) return;
             // a second edit commits the first: one edit is held at a time
-            if (typed.Pending) CommitTyped();
+            if (typed.Pending) Guard(CommitTyped);
             typed.Post(edit);
             // the grid is still busy with the cell and the edit rebuilds the lines: commit it after the grid is done,
             // unless an NPC change, save, plan or apply commits it first (EndEdits)

@@ -203,7 +203,10 @@ namespace MS2.ModKit.Tests
                 Assert.That(Lf(Fake.Text(p, G, F1)), Is.EqualTo(FakeTalks.File(90000001).Replace("\t\t" + a + "\n\t\t" + b, "\t\t" + b + "\n\t\t" + a)));
 
                 // the first page cannot move up; moving it back down takes the talk out of the mod
-                Assert.Throws<ModKitException>(() => ed.Move(t, new TalkPath("script 11").Then("content", 0), -1, missed));
+                var first = Assert.Throws<ModKitException>(() => ed.Move(t, new TalkPath("script 11").Then("content", 0), -1, missed));
+                Assert.That(first.Message, Does.Contain("is the first content"));
+                var last = Assert.Throws<ModKitException>(() => ed.Move(t, new TalkPath("script 11").Then("content", 1), 1, missed));
+                Assert.That(last.Message, Does.Contain("is the last content"));
                 Assert.Throws<ModKitException>(() => ed.Move(t, new TalkPath("script 11"), 1, missed), "a step does not move");
                 ed.Move(t, new TalkPath("script 11").Then("content", 0), 1, missed);
                 Assert.That(m.IsEmpty, Is.True);
@@ -557,6 +560,27 @@ namespace MS2.ModKit.Tests
                 Assert.That(m.Ops.Exists(o => o.Archive != K), Is.False);
                 Assert.That(new TalkPath("script 11").Then("content", 0).Resolve(t.Sides[0]).Attr("text"), Is.EqualTo("$script:90000001008$"));
 
+                // a page added after page 1 (Add page) or at the end: kms only, the others keep 004, 005 as they were
+                foreach (KeyValuePair<string, int>? after in new KeyValuePair<string, int>?[] { new KeyValuePair<string, int>("content", 0), null })
+                {
+                    missed.Clear();
+                    t = ed.Insert(t, new TalkPath("script 11"), after, "<content text=\"$script:90000001001$\" />", missed);
+                    Assert.That(missed.Count, Is.EqualTo(2), string.Join("\n", missed.ToArray()));
+                    Assert.That(missed[0], Does.StartWith(G + " (its script 11 differs"));
+                    foreach (TalkSide s in t.Sides)
+                        if (s.Archive != K)
+                        {
+                            List<XmlElem> pages = s.Step("script 11").Elem.Children;
+                            Assert.That(pages.Count, Is.EqualTo(2), s.Archive);
+                            Assert.That(pages[0].Attr("text"), Is.EqualTo("$script:90000001004$"), s.Archive);
+                            Assert.That(pages[1].Attr("text"), Is.EqualTo("$script:90000001005$"), s.Archive);
+                        }
+                    Assert.That(t.Side(K).Step("script 11").Elem.Children.Count, Is.EqualTo(after.HasValue ? 2 : 3));
+                }
+                Assert.That(m.Ops.Exists(o => o.Archive != K), Is.False);
+                t = ed.Remove(t, new TalkPath("script 11").Then("content", 2), null);
+                t = ed.Remove(t, new TalkPath("script 11").Then("content", 1), null);
+
                 // a remove too: page 1 of kms goes, the global client and the server keep both pages
                 missed.Clear();
                 t = ed.Remove(t, new TalkPath("script 11").Then("content", 0), missed);
@@ -628,6 +652,44 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
                 Assert.That(Fake.Dump(p), Does.Contain("npc[id=90000001]"));
                 foreach (TalkSide s in ed.Open(90000001).Sides) Assert.That(Choice.Resolve(s).Attr("goto"), Is.EqualTo("11,10"), s.Archive);
+            }
+        }
+
+        [Test]
+        public void TheKeptTextIds_FollowATextEdit()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                var kept = new Dictionary<string, Dictionary<string, HashSet<long>>>();
+                Func<List<TalkProblem>, string> text = l => string.Join("\n", l.ConvertAll(p => p.Archive + " " + p.Text).ToArray());
+                NpcTalk t = ed.Open(90000001);
+                Assert.That(text(ed.Problems(t, kept)), Is.EqualTo(text(ed.Problems(t))));
+                t = ed.SetText(t, Line5, "en", "new", null);
+                Assert.That(text(ed.Problems(t, kept)), Is.EqualTo(text(ed.Problems(t))), "no false 'no en row' for the new own text");
+                Assert.That(text(ed.Problems(t, kept)), Does.Not.Contain("90000001008"));
+                Assert.That(kept.Count, Is.EqualTo(3), "one set per target, the one read before the edit let go");
+                ed.Revert(90000001);
+                t = ed.Open(90000001);
+                Assert.That(text(ed.Problems(t, kept)), Is.EqualTo(text(ed.Problems(t))));
+            }
+        }
+
+        [Test]
+        public void ACellEditOfSeveralAttributes_WithABadOne_LeavesTheModAsItWas()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                var e = new TalkCellEdit { NpcId = 90000001, Path = Line5, Language = "en" };
+                e.Attrs.Add(new KeyValuePair<string, string>("voiceID", "x/1"));
+                e.Attrs.Add(new KeyValuePair<string, string>("bad name", "y"));
+                string said;
+                Assert.Throws<ModKitException>(() => ed.Commit(ed.Open(90000001), e, null, out said));
+                Assert.That(m.IsEmpty, Is.True, "the first attribute is not in the mod either");
+                foreach (TalkSide s in ed.Open(90000001).Sides) Assert.That(Line5.Resolve(s).Attr("voiceID"), Is.Null, s.Archive);
             }
         }
     }
