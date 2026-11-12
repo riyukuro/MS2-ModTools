@@ -270,6 +270,40 @@ namespace MS2.ModKit
             mod.Ids.Add(made);
         }
 
+        /// <summary>
+        /// Records a new text id with the targets it has rows on (&lt;ids space&gt; with a place per target, rows "key"),
+        /// growing a range of the same targets that the id extends.
+        /// </summary>
+        public static void ReserveText(Mod mod, string space, string entries, long textId, List<string> targets)
+        {
+            foreach (IdRange r in mod.Ids)
+            {
+                if (r.Space != space || r.Places.Count != targets.Count) continue;
+                bool same = true;
+                for (int i = 0; i < targets.Count; i++) if (r.Places[i].Archive != targets[i]) same = false;
+                if (!same) continue;
+                if (textId >= r.From && textId <= r.To) return;
+                if (r.To + 1 != textId && r.From - 1 != textId) continue;
+                if (r.To + 1 == textId) r.To = textId; else r.From = textId;
+                // the id may have closed the gap to the next range of the same targets
+                IdRange next = mod.Ids.Find(delegate(IdRange q)
+                {
+                    if (q == r || q.Space != space || q.Places.Count != targets.Count || (q.From != r.To + 1 && q.To != r.From - 1)) return false;
+                    for (int i = 0; i < targets.Count; i++) if (q.Places[i].Archive != targets[i]) return false;
+                    return true;
+                });
+                if (next != null)
+                {
+                    r.From = Math.Min(r.From, next.From); r.To = Math.Max(r.To, next.To);
+                    mod.Ids.Remove(next);
+                }
+                return;
+            }
+            var made = new IdRange { Space = space, From = textId, To = textId };
+            foreach (string a in targets) made.Places.Add(new IdPlace { Archive = a, Entry = entries, Rows = "key", Key = "id" });
+            mod.Ids.Add(made);
+        }
+
         /// <summary>Takes id out of the mod's ranges of space again.</summary>
         public static void Unreserve(Mod mod, string space, long id)
         {

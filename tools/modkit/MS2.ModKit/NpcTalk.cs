@@ -147,7 +147,7 @@ namespace MS2.ModKit
         }
     }
 
-    public sealed class TalkEditor
+    public sealed partial class TalkEditor
     {
         public const string Folder = "script/npc/";
         public static readonly string[] StepKinds = { "select", "script", "monologue", "job" };

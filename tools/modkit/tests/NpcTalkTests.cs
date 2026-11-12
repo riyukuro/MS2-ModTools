@@ -37,6 +37,35 @@ namespace MS2.ModKit.Tests
         // a file of one NPC on the global client and the server (CRLF there); 90000001 has no monologue here
         public static string File(long npc) { return Head + "<ms2>\n" + Steps("\t", npc, false) + "</ms2>\n"; }
 
+        // talk text files: kms has ko (both NPCs) and en (only 90000002); the global client and the server have en in
+        // two files and a quest talk file that takes 90000001007, so a new text of 90000001 is 90000001008
+        static string Keys(params string[] rows)
+        {
+            var b = new StringBuilder(Head + "<ms2>\n");
+            foreach (string r in rows) b.Append("\t" + r + "\n");
+            return b.Append("</ms2>\n").ToString();
+        }
+
+        static string[] KeysOf(long npc, int count, string prefix)
+        {
+            var l = new List<string>();
+            for (int i = 1; i <= count; i++) l.Add("<key id=\"" + npc + i.ToString("000") + "\" name=\"" + prefix + npc % 10 + "-" + i + "\" />");
+            return l.ToArray();
+        }
+
+        static string[] Join(params string[][] parts)
+        {
+            var l = new List<string>();
+            foreach (string[] p in parts) l.AddRange(p);
+            return l.ToArray();
+        }
+
+        public static readonly string KoKeys = Keys(Join(KeysOf(90000001, 6, "ko"), new[] { "<key id=\"90000001005\" feature=\"F1\" name=\"ko1-5f\" />" }, KeysOf(90000002, 5, "ko")));
+        public static readonly string KmsEnKeys = Keys(KeysOf(90000002, 5, "en"));
+        public static readonly string FunctionKeys = Keys(KeysOf(90000001, 5, "en"));
+        public static readonly string NamKeys = Keys(KeysOf(90000002, 5, "en"));
+        public static readonly string QuestKeys = Keys("<key id=\"90000001007\" name=\"quest\" />");
+
         public FakeTalks()
         {
             Dir = Path.Combine(Path.GetTempPath(), "modkit-talks-" + Guid.NewGuid().ToString("N"));
@@ -45,12 +74,17 @@ namespace MS2.ModKit.Tests
             M2dWriter.Create(Path.Combine(k, "Xml.m2d"), PackVersion.NS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
             {
                 new KeyValuePair<string, byte[]>(Combined, Encoding.UTF8.GetBytes(Kms)),
+                new KeyValuePair<string, byte[]>("string/ko/scriptnpc.xml", Encoding.UTF8.GetBytes(KoKeys)),
+                new KeyValuePair<string, byte[]>("string/en/scriptnpc.xml", Encoding.UTF8.GetBytes(KmsEnKeys)),
             });
             foreach (string d in new[] { g, s })
                 M2dWriter.Create(Path.Combine(d, "Xml.m2d"), PackVersion.MS2F, M2dFlag.AesZlib, new List<KeyValuePair<string, byte[]>>
                 {
                     new KeyValuePair<string, byte[]>("script/npc/90000001.xml", Fake.Crlf(File(90000001))),
                     new KeyValuePair<string, byte[]>("script/npc/90000002.xml", Fake.Crlf(File(90000002))),
+                    new KeyValuePair<string, byte[]>("string/en/scriptnpcfunction.xml", Fake.Crlf(FunctionKeys)),
+                    new KeyValuePair<string, byte[]>("string/en/scriptnpcnam.xml", Fake.Crlf(NamKeys)),
+                    new KeyValuePair<string, byte[]>("string/en/scriptquest.xml", Fake.Crlf(QuestKeys)),
                 });
             Data = new DataSet(k, g, s);
         }
@@ -223,6 +257,98 @@ namespace MS2.ModKit.Tests
                 Assert.That(p.ToString(), Is.EqualTo("script 10 / content 1 / distractor 1"));
                 Assert.That(p.Resolve(t.Side(S)).Attr("goto"), Is.EqualTo("11"));
                 Assert.That(TalkPath.Of(k, k.Root), Is.Null);
+            }
+        }
+
+        static readonly TalkPath Line5 = new TalkPath("script 11").Then("content", 1);
+
+        [Test]
+        public void TheFirstTextEdit_CopiesTheRowsUnderAnOwnIdOnEverySide()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                Assert.That(ed.TextLanguages(), Is.EqualTo(new[] { "en", "ko" }));
+                NpcTalk t = ed.Open(90000001);
+                Assert.That(ed.Text(90000001, 90000001005, "ko").Rows, Is.EqualTo(2));
+                Assert.That(ed.Text(90000001, 90000001005, "ko").Differs, Is.True);
+                Assert.That(ed.Text(90000001, 90000001005, "en").Text, Is.EqualTo("en1-5"));
+                Assert.That(ed.Text(90000001, 90000001005, "en").Own, Is.False);
+
+                t = ed.SetText(t, Line5, "en", "Hello & bye", null);
+                const long N = 90000001008;
+                foreach (TalkSide s in t.Sides) Assert.That(Line5.Resolve(s).Attr("text"), Is.EqualTo("$script:90000001008$"), s.Archive);
+                TalkText en = ed.Text(90000001, N, "en"), ko = ed.Text(90000001, N, "ko");
+                Assert.That(en.Text, Is.EqualTo("Hello & bye"));
+                Assert.That(en.Own, Is.True);
+                Assert.That(en.Rows, Is.EqualTo(3), "kms gets a new en row, the others copy theirs");
+                Assert.That(ko.Rows, Is.EqualTo(2));
+                Assert.That(ko.Text, Is.EqualTo("ko1-5"), "other languages keep their text");
+                Assert.That(ed.Text(90000001, 90000001005, "en").Text, Is.EqualTo("en1-5"), "the shipped rows stay");
+                Assert.That(m.Ids.Count, Is.EqualTo(1));
+                Assert.That(m.Ids[0].Space, Is.EqualTo(TalkEditor.TextIdSpace));
+                Assert.That(m.Ids[0].From, Is.EqualTo(N));
+
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                string kmsKo = Fake.Text(p, K, "string/ko/scriptnpc.xml"), kmsEn = Fake.Text(p, K, "string/en/scriptnpc.xml");
+                Assert.That(kmsKo, Does.Contain("<key id=\"90000001008\" name=\"ko1-5\" />"));
+                Assert.That(kmsKo, Does.Contain("<key id=\"90000001008\" feature=\"F1\" name=\"ko1-5f\" />"));
+                Assert.That(kmsEn, Does.Contain("<key id=\"90000001008\" name=\"Hello &amp; bye\" />"));
+                foreach (string a in new[] { G, S })
+                {
+                    Assert.That(Fake.Text(p, a, "string/en/scriptnpcfunction.xml"), Does.Contain("<key id=\"90000001008\" name=\"Hello &amp; bye\" />"), a);
+                    Assert.That(Fake.Text(p, a, "string/en/scriptnpcfunction.xml"), Does.Contain("<key id=\"90000001005\" name=\"en1-5\" />"), a);
+                    Assert.That(Fake.Text(p, a, F1), Does.Contain("$script:90000001008$"), a);
+                }
+                Assert.That(Fake.Text(p, K, FakeTalks.Combined), Is.EqualTo(FakeTalks.Kms.Replace("$script:90000001005$", "$script:90000001008$")));
+            }
+        }
+
+        [Test]
+        public void ALaterTextEdit_ChangesTheOwnRows()
+        {
+            using (var f = new FakeTalks())
+            {
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m);
+                NpcTalk t = ed.SetText(ed.Open(90000001), Line5, "en", "one", null);
+                int ops = m.Ops.Count;
+                t = ed.SetText(t, Line5, "ko", "two", null);
+                t = ed.SetText(t, Line5, "en", "three", null);
+                Assert.That(m.Ops.Count, Is.EqualTo(ops));
+                Assert.That(m.Ids.Count, Is.EqualTo(1));
+                Assert.That(ed.Text(90000001, 90000001008, "en").Text, Is.EqualTo("three"));
+                Assert.That(ed.Text(90000001, 90000001008, "en").Differs, Is.False);
+                Assert.That(ed.Text(90000001, 90000001008, "ko").Text, Is.EqualTo("two"));
+                Assert.That(ed.Text(90000001, 90000001008, "ko").Rows, Is.EqualTo(2));
+                Assert.That(ed.Say(90000001, "$script:90000001008$", "ko"), Is.EqualTo("two"));
+
+                Plan p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty, Fake.Dump(p));
+                Assert.That(Fake.Text(p, K, "string/ko/scriptnpc.xml"), Does.Contain("<key id=\"90000001008\" feature=\"F1\" name=\"two\" />"));
+                Assert.That(Fake.Text(p, G, "string/en/scriptnpcfunction.xml"), Does.Contain("<key id=\"90000001008\" name=\"three\" />"));
+            }
+        }
+
+        [Test]
+        public void ANewTextId_SkipsTheIdsOfOtherMods_AndASecondLineGetsTheNext()
+        {
+            using (var f = new FakeTalks())
+            {
+                var other = NewMod();
+                new TalkEditor(f.Data, other).SetText(new TalkEditor(f.Data, other).Open(90000001), Line5, "en", "x", null);
+                var m = NewMod();
+                var ed = new TalkEditor(f.Data, m) { Others = () => new[] { other } };
+                NpcTalk t = ed.SetText(ed.Open(90000001), Line5, null, "mine", null);
+                Assert.That(Line5.Resolve(t.Side(K)).Attr("text"), Is.EqualTo("$script:90000001009$"));
+                Assert.That(ed.Text(90000001, 90000001009, "ko").Text, Is.EqualTo("mine"), "no language: every language");
+                t = ed.SetText(t, new TalkPath("select 0").Then("content", 0), "en", "first", null);
+                Assert.That(new TalkPath("select 0").Then("content", 0).Resolve(t.Side(G)).Attr("text"), Is.EqualTo("$script:90000001010$"));
+                Assert.That(m.Ids.Count, Is.EqualTo(1), "the ranges join");
+                Assert.That(m.Ids[0].To, Is.EqualTo(90000001010));
+                Assert.Throws<ModKitException>(() => ed.SetText(t, new TalkPath("script 10"), "en", "no", null));
             }
         }
     }
