@@ -997,8 +997,11 @@ shows the rows of one map as a grid.
 4. **Read NPC tags** reads the tags of every NPC once (it takes a while). After it the `spawns` column names the
    NPCs of each tag, and the checks say when no NPC has the tag a changed row uses.
 5. **Save mod**, then **Plan**. The plan checks every row the mods add or change, per target: a key that is in the
-   final table more than once, a field that is not a whole number, a row with a population but no tag, a `difficultyMin` above `difficulty`, and a new
-   row for a map the target does not have.
+   final table more than once, a field that is not a whole number, a row with a population but no tag, a
+   `difficultyMin` above `difficulty`, and a new row for a map the target does not have. Two more checks are plan
+   errors that name the row: a tag the row did not ship with that no NPC of the target carries (an NPC the same plan
+   gives the tag counts), and a new row whose map has no spawn point with that number (a point the same plan adds
+   to the map counts).
 
 A row is only half of a spawn: the map needs a spawn point with the same number (add it in the Maps view), and the
 server must ingest again before it uses the row.

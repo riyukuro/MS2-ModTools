@@ -14,6 +14,8 @@ namespace MS2.ModKit
         readonly Dictionary<string, M2dArchive> open = new Dictionary<string, M2dArchive>(StringComparer.Ordinal);
 
         // results of scans over the original data (used ids of a place), kept as long as the data set
+        /// <summary>The tags of the shipped NPC data (SpawnTags), once a plan has read them.</summary>
+        internal object SpawnTagsCache;
         internal readonly Dictionary<string, object> Cache = new Dictionary<string, object>(StringComparer.Ordinal);
 
         // The parsed per-id files (an item, an npc, a quest) are cached too, but not without end: a session that

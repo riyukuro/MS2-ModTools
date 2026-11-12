@@ -132,7 +132,17 @@ namespace MS2.ModKit
         }
 
         /// <summary>Reads the tags of every NPC: of the server's files (it decides the spawns), else of a client's.</summary>
-        public static SpawnTags Scan(DataSet data, Action<ProgressInfo> progress)
+        public static SpawnTags Scan(DataSet data, Action<ProgressInfo> progress) { return Scan(data, progress, true); }
+
+        /// <summary>The tags in one NPC file or bundle.</summary>
+        internal static List<string> TagsIn(byte[] file)
+        {
+            var l = new List<string>();
+            foreach (Match m in Own.Matches(Encoding.UTF8.GetString(file))) l.AddRange(SpawnRules.Tags(XmlDoc.Unescape(m.Groups[1].Value)));
+            return l;
+        }
+
+        internal static SpawnTags Scan(DataSet data, Action<ProgressInfo> progress, bool names)
         {
             var st = new SpawnTags();
             foreach (Profile p in new[] { Profile.Server, Profile.GmsClient, Profile.KmsClient })
@@ -175,8 +185,9 @@ namespace MS2.ModKit
                     }
                 }
                 st.NpcCount = seen.Count;
-                try { st.Names = TableIdList.NpcNames(data, Mod.Parse("<mod id=\"read\" name=\"read\" version=\"1\" />", "read")).Names(); }
-                catch (ModKitException) { }
+                if (names)
+                    try { st.Names = TableIdList.NpcNames(data, Mod.Parse("<mod id=\"read\" name=\"read\" version=\"1\" />", "read")).Names(); }
+                    catch (ModKitException) { }
                 foreach (List<long> l in st.Npcs.Values) l.Sort();
                 return st;
             }

@@ -526,5 +526,59 @@ namespace MS2.ModKit.Tests
                 Assert.That(again.Of(7100001).Count, Is.EqualTo(1));
             }
         }
+
+        [Test]
+        public void PlanChecksNewTagsAgainstTheNpcData()
+        {
+            using (var f = new FakeSpawns())
+            {
+                const string open = "<edit archive=\"server:Xml.m2d\" entry=\"table/mapspawntag.xml\">\n";
+                Mod mod = FakeRooms.ModOf(open +
+                    // a new row with a tag no NPC has; a shipped row that gets one more tag; a shipped row whose count changes
+                    "  <add><xml><region mapCode=\"07100009\" spawnPointID=\"2\" difficulty=\"1\" difficultyMin=\"1\" tag=\"quartz\" coolTime=\"0\" population=\"1\" /></xml></add>\n" +
+                    "  <change at=\"region[mapCode=07100002]\"><set name=\"tag\" value=\"reed,shale\" /></change>\n" +
+                    "  <change at=\"region[mapCode=07100004]\"><set name=\"population\" value=\"2\" /></change>\n" +
+                    "</edit>", "spawns.test");
+                Plan p = Planner.Build(f.Data, new[] { mod }, new PlanOptions());
+                List<string> e = Lines(p.Errors);
+                Assert.That(e, Has.Exactly(1).Contains("map 7100009 point 2: no NPC of server:Xml.m2d has the tag \"quartz\""), Fake.Dump(p));
+                Assert.That(e, Has.Exactly(1).Contains("map 7100002 point 10: no NPC of server:Xml.m2d has the tag \"shale\""), Fake.Dump(p));
+                Assert.That(e.Count, Is.EqualTo(2), Fake.Dump(p));
+
+                // the shipped tag of a changed row is not looked at, even when no NPC has it
+                Mod kept = FakeRooms.ModOf("<edit archive=\"client:Xml.m2d\" entry=\"table/mapspawntag.xml\">\n" +
+                    "  <change at=\"region[mapCode=07100003]\"><set name=\"population\" value=\"2\" /></change>\n</edit>", "spawns.test");
+                Assert.That(Lines(Planner.Build(f.Data, new[] { kept }, new PlanOptions()).Errors), Is.Empty);
+
+                // an NPC the same plan gives the tag counts
+                Mod npc = FakeRooms.ModOf(open +
+                    "  <add><xml><region mapCode=\"07100009\" spawnPointID=\"2\" difficulty=\"1\" difficultyMin=\"1\" tag=\"quartz\" coolTime=\"0\" population=\"1\" /></xml></add>\n" +
+                    "</edit>\n<edit archive=\"server:Xml.m2d\" entry=\"npc/66/10/66100003.xml\">\n" +
+                    "  <change at=\"environment/basic\"><set name=\"mainTags\" value=\"husk,quartz\" /></change>\n</edit>", "spawns.test");
+                Plan q = Planner.Build(f.Data, new[] { npc }, new PlanOptions());
+                Assert.That(Lines(q.Errors), Is.Empty, Fake.Dump(q));
+            }
+        }
+
+        [Test]
+        public void PlanChecksThatTheMapHasTheSpawnPoint()
+        {
+            using (var f = new FakeMaps())
+            {
+                Func<string, string> row = point => "  <add><xml><region mapCode=\"90000001\" spawnPointID=\"" + point
+                    + "\" difficulty=\"1\" difficultyMin=\"1\" tag=\"\" coolTime=\"0\" population=\"0\" /></xml></add>\n";
+                const string open = "<edit archive=\"server:Xml.m2d\" entry=\"table/mapspawntag.xml\">\n";
+                // the shipped map file has spawn point 7
+                Plan p = f.Plan(f.Mod("pts", open + row("7") + row("8") + "</edit>"));
+                List<string> e = Lines(p.Errors);
+                Assert.That(e, Has.Exactly(1).Contains("map 90000001 point 8: the map has no spawn point 8 ("), Fake.Dump(p));
+                Assert.That(e, Has.None.Contains("point 7"), Fake.Dump(p));
+
+                // a point the same plan puts into the map counts
+                Plan q = f.Plan(f.Mod("pts2", "<map xblock=\"" + FakeMaps.MapA + "\"><add name=\"s\" model=\"SpawnPoint_A\" entity-name=\"S_9\">"
+                    + "<property name=\"Position\" value=\"1, 2, 3\" /><property name=\"SpawnPointID\" value=\"140005\" /></add></map>\n" + open + row("140005") + "</edit>"));
+                Assert.That(Lines(q.Errors), Is.Empty, Fake.Dump(q));
+            }
+        }
     }
 }
