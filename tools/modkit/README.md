@@ -2147,6 +2147,63 @@ tab, payment, jobs and levels; its sale and promo times are its sale's, or its o
 (only then are they checked). A bundle's own job codes are not used, so only a part that is not a number is an error.
 A bundle of a sale the game server leaves out (an item it does not have) is dropped with it, an error too.
 
+## Fishing
+
+A view, **MS2 Fishing** (menu **MS2 Mods > Fishing**), edits the server's fishing tables. They are five tables in
+the server's `Server.m2d`:
+
+| table | rows | what a row is |
+|---|---|---|
+| `table/Server/fish.xml` | `fish` | a fish: `habitat` (the liquid it lives in), `fishMastery`, `lv`, `rank`, `pointCount`, `masteryPoint`, `exp`, `baitProp` (the chance in 10000 that it bites), `smallSize` and `bigSize` (`min-max` in cm), `ignoreSpotMastery`, `bait`, `individualDropBoxID` |
+| `table/Server/fishingSpot.xml` | `spot` | the fishing of a map: `liquidType` (a comma list), `minMastery` and `maxMastery`, `globalFishBoxID`, `individualFishBoxID`, the drop boxes, `spotLevel` |
+| `table/Server/fishLure.xml` | `lure` | a lure buff: `additionalEffectCode` and `additionalEffectLevel`, `catchRank`/`catchProp` and `spawnRank`/`spawnProp` (comma lists that go in pairs), drop boxes |
+| `table/Server/globalFishBox.xml`, `table/Server/individualFishBox.xml` | `box` | a fish box: `probability` (in 10000) with `fish` lines (`fishCode`, `weight`, `weightRate`) |
+
+Every row may also have `feature` and `locale`. The server fishes like this. The map's spot gives its two boxes, and
+each box is used when its probability comes up. A line gives its fish when the fish table has the fish, its habitat
+is the tile's liquid (a water tile counts as seawater when the spot lists seawater) and its `fishMastery` is within
+the spot's `minMastery` and `maxMastery` (unless `ignoreSpotMastery`). The weights of the lines pick the fish, and
+the sizes give its size. The server reads the lures but does not use them. The clients have a `table/fish.xml` and
+a `table/fishingspot.xml` in `Xml.m2d`, with the fish's book, habitat, mastery, rank and sizes.
+
+1. Choose the **Table** and type in **Find** (a key, or for a box a fish id of its lines). The list shows the rows
+   with the mod, those the mod changes first: an edited row is blue, a new one green, a removed one grey. A lure row
+   shows its code and level; a row with a feature or locale shows them.
+2. Pick a row. The fields list shows each field with the mod and what the value means: a habitat or box in words,
+   the fish a line names, or why the server cannot read the value. Pick a field, type the value and **Set** (empty
+   takes the attribute out). Under the fields: a box's lines (**Add fish**, **Set line**, **Remove / restore line**,
+   **Undo line**) and the row's checks.
+3. **New** adds a row under the **New id** (empty: the next free one) with the fields a working row needs; a new box
+   has no fish yet. **Copy** adds a copy of the chosen row with the mod, a box with its lines. A lure may have more
+   than one row of a code (one for each level), so a lure copy keeps the code unless the id is given. **Remove /
+   restore** deletes a shipped row or takes a new one out, and puts a removed one back. **Undo** puts a shipped row's
+   fields back (a box's lines stay). **Plan**, **Apply** and **Save mod** are the Tables view's.
+
+Plan checks the rows the mods add or change, as the tables end up with them. Errors (they stop the server's ingest
+or a catch):
+
+- a value it cannot read as written. A number may have spaces around it, and a boolean is 1, 0, true or false. A
+  comma list is read part by part. A size and a lure's drop mastery are lists split at `-`.
+- a fish without `smallSize` or `bigSize`, a size whose min is above its max, a `smallSize` max above the `bigSize`
+  min, a `bigSize` max too big to double, and `pointCount` 0.
+- a lure whose `catchProp` or `spawnProp` has fewer numbers than its ranks.
+
+Warnings:
+
+- a fish of a habitat the server does not know (it reads as all), or of all (no tile has it), and `baitProp` 0.
+- a fish that no box has a line for, or that no spot gives (by liquid and mastery). A fish that the Korean or the
+  global client's `table/fish.xml` has no row for, or whose client row has another value of a field the server has
+  (the client shows its own values: change the client table too).
+- a spot whose min is above its max, a liquid the server does not know, a spot that names no box or a box that is not
+  there, and a spot where nothing can be caught.
+- a box that no spot names, a box with no fish, a fish with more than one line (the last weight counts), a line of a
+  fish the table does not have, a line with weight 0, `probability` 0, and a box the mod takes away that a spot still
+  names.
+- a row the server does not keep. Rows with the same key are cut to one by their feature and locale, by the server's
+  rule (a row with the server's locale wins, then a row with a feature, then the higher feature level). The key of a
+  lure is its code alone, so of the levels of one lure the server keeps one. A changed row that loses says which row
+  wins; a changed row that wins names the rows it leaves out.
+
 ## One mod, both sides
 
 The game's data exists in more than one copy. Your client has its own copy, and the server has its own, in different

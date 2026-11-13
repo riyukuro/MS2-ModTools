@@ -548,6 +548,7 @@ namespace MS2.ModKit
             ConstantChecks(run);
             AttendChecks(run);
             MeretChecks(run);
+            FishingChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 
