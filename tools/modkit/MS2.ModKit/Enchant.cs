@@ -12,8 +12,10 @@
 //             of 0.001
 //   option    the stats, by BasicAttribute code, comma separated ("27, 28" weapon attack, "20" defense)
 // The server picks for a level the first row in file order with the item's slot, rank and that grade whose level
-// range holds the item's level; an item at +N has the rates of grades 1 to N added up. A level no row matches adds
-// nothing. The ingest reads the ids, slot, grade, rank and levels as ints and the rate as a float: an empty value or
+// range holds the item's level. It adds a step's bonus to the item when the item is enchanted to that level and saves
+// it with the item: an enchant to +N under this table has added the rates of grades 1 to N, and a change of the table
+// is for enchants done after it (gear already enchanted keeps what it got). An item that drops at a preset enchant
+// level +N gets the grade N row only. A level no row matches adds nothing. The ingest reads the ids, slot, grade, rank and levels as ints and the rate as a float: an empty value or
 // text stops it (a missing attribute is 0); a stat part that is not a whole number stops it too, and a duplicate id.
 using System;
 using System.Collections.Generic;
@@ -24,6 +26,46 @@ using MS2.ModKit.Xml;
 
 namespace MS2.ModKit
 {
+    /// <summary>The rows the server uses: for an item's slot, rank, enchant level and item level, the first row in file
+    /// order whose level range holds the item level.</summary>
+    public sealed class EnchantLookup
+    {
+        readonly EnchantEditor ed;
+        readonly Dictionary<string, List<TableRow>> rows = new Dictionary<string, List<TableRow>>(StringComparer.Ordinal);
+
+        internal EnchantLookup(EnchantEditor ed, List<TableRow> order)
+        {
+            this.ed = ed;
+            foreach (TableRow r in order)
+            {
+                string k = Key(ed.Int(r, EnchantRules.Slot), ed.Int(r, EnchantRules.Rank), ed.Int(r, EnchantRules.Grade));
+                List<TableRow> l;
+                if (!rows.TryGetValue(k, out l)) rows[k] = l = new List<TableRow>();
+                l.Add(r);
+            }
+        }
+
+        static string Key(long slot, long rank, long grade) { return slot + "\n" + rank + "\n" + grade; }
+
+        /// <summary>The row the server uses; null: none (the level adds nothing).</summary>
+        public TableRow Used(long slot, long rank, long grade, long level)
+        {
+            List<TableRow> l;
+            if (!rows.TryGetValue(Key(slot, rank, grade), out l)) return null;
+            foreach (TableRow r in l) if (ed.Int(r, EnchantRules.MinLv) <= level && level <= ed.Int(r, EnchantRules.MaxLv)) return r;
+            return null;
+        }
+
+        /// <summary>What enchanting an item of this slot, rank and item level to +grade adds: the rates of the rows the
+        /// server uses for grades 1 to grade.</summary>
+        public double Total(long slot, long rank, long grade, long level)
+        {
+            double t = 0;
+            for (long g = 1; g <= grade; g++) { TableRow r = Used(slot, rank, g, level); if (r != null) t += ed.RateOf(r); }
+            return t;
+        }
+    }
+
     /// <summary>The checks of one enchant row, shared by the editor (values as shown) and the plan (final rows).</summary>
     public static class EnchantRules
     {
@@ -387,13 +429,17 @@ namespace MS2.ModKit
             return null;
         }
 
-        /// <summary>The bonus of an item of the ladder at +grade: the rates of grades 1 to grade added up.</summary>
+        /// <summary>What enchanting an item of the ladder to +grade adds, by the ladder's own rows: the rates of grades 1
+        /// to grade added up (Lookup gives what the server uses where ladders overlap).</summary>
         public double Total(EnchantLadder l, long grade)
         {
             double t = 0;
             for (long g = 1; g <= grade; g++) { TableRow r = Row(l, g); if (r != null) t += RateOf(r); }
             return t;
         }
+
+        /// <summary>The table as the server looks it up, as the mod leaves it (taken now: edits after it are not seen).</summary>
+        public EnchantLookup Lookup() { return new EnchantLookup(this, FileOrder()); }
 
         /// <summary>The grades 1 to 15 the ladder has no row for.</summary>
         public List<long> Missing(EnchantLadder l)

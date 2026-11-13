@@ -1,12 +1,14 @@
 // The "MS2 Enchant" view: the stat bonus an item gets per enchant level (table/Server/enchantOptionTable.xml,
 // MS2.ModKit.EnchantEditor) as a mod edit. The server alone reads the table: a row gives, for items of one slot, rank
-// and level band, the rate one enchant level adds to the item's stats; the bonus at +N is the rates of +1 to +N added up.
+// and level band, the rate one enchant level adds to the item's stats. The server adds a step's bonus when an item is
+// enchanted and saves it with the item, so an edit is for enchants done after it (and an item that drops at +N gets
+// the +N row only).
 //
 // The list on the left shows the ladders (a slot, rank and level band with its rows of +1 to +15) with the mod (an
 // edited one in blue, a new one in green, one with every row removed in grey), filtered by slot, rank and an item
 // level. Several can be chosen: Scale, Set and Stats work on all the chosen ladders. On the right: the rows of the
-// first chosen ladder per enchant level (rate with the mod, the shipped rate, the bonus added up to that level, the
-// stats and the row id), and its checks. Choosing a row puts its rate in the box, Set rate writes it. Add grade adds a
+// first chosen ladder per enchant level (rate with the mod, the shipped rate, what an enchant to that level adds at one
+// item level by the rows the server uses (EnchantLookup), the stats and the row id), and its checks. Choosing a row puts its rate in the box, Set rate writes it. Add grade adds a
 // row for a level the ladder lacks, Copy ladder copies it for another slot, rank or level band with new ids, Remove /
 // restore takes a row or the ladder out or back, Revert drops the mod's changes to the ladder. Plan, Apply, Revert and
 // Save mod are the MS2 Tables view's.
@@ -42,6 +44,12 @@ namespace MS2.Tables
         readonly ListBox checkList = new ListBox { Dock = DockStyle.Bottom, Height = 90, HorizontalScrollbar = true, IntegralHeight = false };
         readonly Label rowLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 0, 0), Font = new Font(SystemFonts.DefaultFont, FontStyle.Bold) };
         readonly Label infoLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 0, 0) };
+        readonly Label noteLabel = new Label
+        {
+            AutoSize = true, Margin = new Padding(6, 2, 0, 0), ForeColor = SystemColors.GrayText,
+            Text = "The server adds a step's bonus when an item is enchanted and saves it with the item: a change is for enchants done after it, gear already enchanted keeps its bonus. A drop at +N gets the +N row only.",
+        };
+        EnchantLookup look;
         readonly Label gradeLabel = new Label { AutoSize = true, Margin = new Padding(6, 8, 0, 0), Text = "(choose a level)" };
         readonly TextBox rateBox = new TextBox { Width = 60 };
         readonly TextBox addGradeBox = new TextBox { Width = 30 };
@@ -132,7 +140,7 @@ namespace MS2.Tables
             gradeList.Columns.Add("level", 45, HorizontalAlignment.Right);
             gradeList.Columns.Add("rate", 60, HorizontalAlignment.Right);
             gradeList.Columns.Add("shipped", 60, HorizontalAlignment.Right);
-            gradeList.Columns.Add("bonus", 65, HorizontalAlignment.Right);
+            gradeList.Columns.Add("bonus", 90, HorizontalAlignment.Right);
             gradeList.Columns.Add("stats", 150);
             gradeList.Columns.Add("row id", 70, HorizontalAlignment.Right);
             gradeList.Columns.Add("in mod", 60);
@@ -140,6 +148,7 @@ namespace MS2.Tables
             var head = new FlowLayoutPanel { Dock = DockStyle.Top, AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Padding = new Padding(2) };
             head.Controls.Add(rowLabel);
             head.Controls.Add(infoLabel);
+            head.Controls.Add(noteLabel);
 
             FlowLayoutPanel setBar = Bar();
             setBar.Dock = DockStyle.Bottom;
@@ -292,7 +301,7 @@ namespace MS2.Tables
         void OnHostChanged()
         {
             if (shown != null) wantKey = KeyOf(shown);
-            ed = null;
+            ed = null; look = null;
             read = false;
             shown = null;
             if (Visible && !host.Busy) ReadTable();
@@ -303,7 +312,7 @@ namespace MS2.Tables
         void Reload()
         {
             if (shown != null) wantKey = KeyOf(shown);
-            ed = null;
+            ed = null; look = null;
             read = false;
             shown = null;
             ReadTable();
@@ -340,6 +349,13 @@ namespace MS2.Tables
             return ed;
         }
 
+        // the item level the bonuses are shown for: the Item level box when the ladder holds it, else its lowest level
+        long At(EnchantLadder l)
+        {
+            long v = Long(levelBox.Text);
+            return v >= l.MinLv && v <= l.MaxLv ? v : l.MinLv;
+        }
+
         static long Long(string v)
         {
             long n;
@@ -373,6 +389,7 @@ namespace MS2.Tables
                 int changed = order.Count;
                 if (!modOnly.Checked) foreach (EnchantLadder l in hits) if (!ed.IsChanged(l)) order.Add(l);
                 if (shown != null && !ed.Ladders.Contains(shown)) shown = null;
+                look = ed.Lookup();
                 int inMod = 0;
                 foreach (EnchantLadder l in ed.Ladders) if (ed.IsChanged(l)) inMod++;
                 foreach (EnchantLadder l in order)
@@ -380,7 +397,7 @@ namespace MS2.Tables
                     var it = new ListViewItem(l.Slot + " " + EnchantRules.SlotName(l.Slot)) { Tag = l };
                     it.SubItems.Add(l.Rank.ToString(CultureInfo.InvariantCulture));
                     it.SubItems.Add(l.MinLv + "-" + l.MaxLv);
-                    it.SubItems.Add(Gone(l) ? "" : EnchantRules.Percent(ed.Total(l, EnchantRules.MaxGrade)));
+                    it.SubItems.Add(Gone(l) ? "" : EnchantRules.Percent(look.Total(l.Slot, l.Rank, EnchantRules.MaxGrade, At(l))));
                     it.SubItems.Add(StatsOf(l));
                     bool added = ed.IsAdded(l), gone = Gone(l);
                     it.SubItems.Add(added ? "new" : gone ? "removed" : ed.IsChanged(l) ? "yes" : "");
@@ -410,9 +427,11 @@ namespace MS2.Tables
                 gradeList.Items.Clear();
                 checkList.Items.Clear();
                 if (l == null) { rowLabel.Text = "no ladder chosen"; infoLabel.Text = ""; return; }
+                if (look == null) look = ed.Lookup();
                 rowLabel.Text = l.Label + (ed.IsAdded(l) ? " (new)" : Gone(l) ? " (removed by the mod)" : ed.IsChanged(l) ? " (in the mod)" : "");
                 infoLabel.Text = "items of slot " + l.Slot + " (" + EnchantRules.SlotName(l.Slot) + "), rank " + l.Rank + ", level " + l.MinLv + " to " + l.MaxLv
-                    + (Gone(l) ? "" : ": " + StatsOf(l) + " +" + EnchantRules.Percent(ed.Total(l, EnchantRules.MaxGrade)) + " at +" + EnchantRules.MaxGrade);
+                    + (Gone(l) ? "" : ": " + StatsOf(l) + " +" + EnchantRules.Percent(look.Total(l.Slot, l.Rank, EnchantRules.MaxGrade, At(l))) + " for an enchant to +" + EnchantRules.MaxGrade
+                        + " at item level " + At(l) + " (the bonus column is for that level, by the rows the server uses)");
                 var listed = new HashSet<TableRow>();
                 for (long g = 1; g <= EnchantRules.MaxGrade; g++)
                 {
@@ -451,13 +470,16 @@ namespace MS2.Tables
             string rate = ed.Get(r, EnchantRules.Rate) ?? "", was = ed.Shipped(r, EnchantRules.Rate) ?? "";
             it.SubItems.Add(rate);
             it.SubItems.Add(r.IsAdded ? "" : was);
-            it.SubItems.Add(r.IsDeleted || g < 0 ? "" : EnchantRules.Percent(ed.Total(l, g)));
+            TableRow used = g < 0 ? null : look.Used(l.Slot, l.Rank, g, At(l));
+            string other = used != null && used != r ? " (row " + ed.Id(used) + ")" : "";
+            it.SubItems.Add(r.IsDeleted || g < 0 ? "" : EnchantRules.Percent(look.Total(l.Slot, l.Rank, g, At(l))) + other);
             it.SubItems.Add(EnchantRules.StatsText(ed.Get(r, EnchantRules.Stats)));
             it.SubItems.Add(ed.Get(r, EnchantRules.Key) ?? "");
             it.SubItems.Add(r.IsAdded ? "new" : r.IsDeleted ? "removed" : r.IsChanged ? "yes" : "");
             TableRow row = r;
             List<string> problems = EnchantRules.Check(f => ed.Get(row, f));
-            if (problems.Count > 0 && (r.IsAdded || r.IsChanged)) { it.ForeColor = Color.DarkOrange; it.ToolTipText = string.Join("; ", problems.ToArray()); }
+            if (other.Length > 0) problems.Add("at item level " + At(l) + " the server uses row " + ed.Id(used) + " for +" + g + ", which comes first in the table");
+            if (problems.Count > 0 && (r.IsAdded || r.IsChanged || other.Length > 0)) { it.ForeColor = Color.DarkOrange; it.ToolTipText = string.Join("; ", problems.ToArray()); }
             else if (r.IsAdded) it.ForeColor = Color.DarkGreen;
             else if (r.IsDeleted) it.ForeColor = SystemColors.GrayText;
             else if (r.IsChanged) it.ForeColor = Color.MediumBlue;

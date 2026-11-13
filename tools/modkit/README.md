@@ -2286,23 +2286,28 @@ the server sends. A row's fields:
 | `rate` | what the level adds, as a share of each listed stat: 0.016 is 1.6 %. The client is sent it in steps of 0.001 |
 | `option` | the stats, by stat code, comma separated (`27, 28` weapon attack, `20` defense) |
 
-For an item at enchant level N, the server takes, for each level 1 to N, the first row in file order with the item's
-slot, rank and that grade whose `minLv`-`maxLv` holds the item's level, and adds up their rates. A level no row
-matches adds nothing. The ingest reads the id, slot, grade, rank and levels as ints and the rate as a float: an empty
+For a level, the server uses the first row in file order with the item's slot, rank and that grade whose
+`minLv`-`maxLv` holds the item's level; a level no row matches adds nothing. It does so when an item is enchanted: each
+step adds its row's bonus to the item, and the item keeps it (the bonus is saved with the item). So an enchant to +N
+under this table has added the rates of grades 1 to N, and **a change of the table is for enchants done after it:
+gear already enchanted keeps the bonus it got**. Enchant scrolls that set a level add grades 1 to N up too; an item
+that drops with a preset enchant level +N gets the grade N row only. The ingest reads the id, slot, grade, rank and levels as ints and the rate as a float: an empty
 value or text stops it (a missing attribute is 0), and so do a stat part that is not a whole number and an id on two
 rows. Stat codes outside 0 to 255 are left out.
 
 The view shows the table as ladders: the 15 rows of one slot, rank and level range.
 
 1. **Read** reads the table. Narrow the list by **Slot**, **Rank**, **Item level** (the ladders that hold it) or
-   **in the mod**. Each ladder says its levels, its bonus at +15 and its stats; the ones the mod changes are blue, new
+   **in the mod**. Each ladder says its levels, what an enchant to +15 adds and its stats; the ones the mod changes are blue, new
    ones green, removed ones grey.
 2. Pick one or more ladders. **Scale** multiplies every rate by the factor; **Set** sets `minLv`, `maxLv`, `slot` or
    `rank` on all their rows (to raise a level cap, set `maxLv` of the top ladders to the new cap); **Set stats**
    sets the stat list; **Remove / restore** deletes the ladders or puts them back; **Revert** takes the mod's changes
    to them out.
-3. The levels list shows the chosen ladder's 15 levels: the rate with the mod, the shipped rate, the bonus so far,
-   the stats, the row id. A level with no row is orange ("no row: this level adds nothing"), and so is a changed row
+3. The levels list shows the chosen ladder's 15 levels: the rate with the mod, the shipped rate, what an enchant to
+   that level adds, the stats, the row id. The bonus is for one item level (the **Item level** box when the ladder
+   holds it, else the ladder's lowest), by the rows the server uses: where an earlier row of another ladder comes
+   first, the column names that row and the level is orange. A level with no row is orange ("no row: this level adds nothing"), and so is a changed row
    with a problem (its tooltip says which). Pick a level, type a
    rate and **Set rate**; **Remove / restore row** deletes or puts back one row; **Add grade** adds a row for a level
    the ladder lacks.

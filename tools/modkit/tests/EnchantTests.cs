@@ -122,6 +122,28 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void TheBonusFollowsTheRowsTheServerUses()
+        {
+            using (var f = new FakeEnchant())
+            {
+                var ed = new EnchantEditor(f.Data, Empty());
+                EnchantLadder low = Find(ed, 30, 50), high = Find(ed, 30, 60);
+                ed.SetLadders(new[] { high }, "minLv", 55);
+                ed.SetRate(low, 1, 0.9);
+                Assert.That(high.MinLv, Is.EqualTo(55));
+                EnchantLookup look = ed.Lookup();
+                Assert.That(ed.Total(high, 1), Is.EqualTo(0.01).Within(1e-6), "the ladder's own row");
+                Assert.That(look.Used(30, 4, 1, 55), Is.SameAs(ed.Row(low, 1)), "the earlier row comes first for level 55");
+                Assert.That(look.Total(30, 4, 1, 55), Is.EqualTo(0.9).Within(1e-6));
+                Assert.That(look.Total(30, 4, 2, 55), Is.EqualTo(0.92).Within(1e-6));
+                Assert.That(look.Used(30, 4, 1, 60), Is.SameAs(ed.Row(high, 1)));
+                Assert.That(look.Total(30, 4, 15, 60), Is.EqualTo(ed.Total(high, 15)).Within(1e-6));
+                Assert.That(look.Used(30, 4, 1, 71), Is.Null);
+                Assert.That(ed.Check(high), Has.Some.Contains("is not used for level 55-59"));
+            }
+        }
+
+        [Test]
         public void ScaleAndRatePlanClean()
         {
             using (var f = new FakeEnchant())
