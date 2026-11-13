@@ -249,6 +249,11 @@ namespace MS2.ModKit
                 foreach (string a in new[] { "client:Xml.m2d", "server:Xml.m2d", "gms-client:Xml.m2d" })
                     l.Add(new IdPlace { Archive = a, Entry = RecipeRules.Entry, Rows = RecipeRules.Rows, Key = "id" });
             }
+            else if (space == GachaRules.Space)
+            {
+                foreach (string a in new[] { "client:Xml.m2d", "server:Xml.m2d", "gms-client:Xml.m2d" })
+                    l.Add(new IdPlace { Archive = a, Entry = GachaRules.Entry, Rows = GachaRules.Rows, Key = GachaRules.Key });
+            }
             else if (space == ItemOptionRules.Space)
             {
                 // a code is a constant code, a static code or both, and KMS ships no static table: the places are
@@ -287,6 +292,7 @@ namespace MS2.ModKit
             else if (space == SkillSpace) { from = SkillFrom; to = SkillTo; }
             else if (space == EffectSpace) { from = EffectFrom; to = EffectTo; }
             else if (space == RecipeRules.Space) { from = RecipeRules.From; to = RecipeRules.To; }
+            else if (space == GachaRules.Space) { from = GachaRules.From; to = GachaRules.To; }
             else if (space == ItemOptionRules.Space) { from = ItemOptionRules.From; to = ItemOptionRules.To; }
             else if (space == ItemSetRules.Space) { from = ItemSetRules.From; to = ItemSetRules.To; }
             else if (space == DungeonRules.Space) { from = DungeonRules.From; to = DungeonRules.To; }
