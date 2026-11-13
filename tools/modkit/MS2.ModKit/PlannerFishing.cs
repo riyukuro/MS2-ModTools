@@ -93,9 +93,12 @@ namespace MS2.ModKit
                     var errors = new List<string>();
                     var warnings = new List<string>();
                     XmlElem el = e;
-                    FishingRules.Check(tab.Table, f => { string v = el.Attr(f); return string.IsNullOrEmpty(v) ? null : v; }, errors, warnings);
                     XmlElem kept;
                     bool isKept = key >= 0 && tab.Kept.TryGetValue(key, out kept) && kept == e;
+                    // the parser reads every row; the ingest's splits and indexes and the catch see only the kept one
+                    Func<string, string> get = f => { string v = el.Attr(f); return string.IsNullOrEmpty(v) ? null : v; };
+                    if (isKept) FishingRules.Check(tab.Table, get, errors, warnings);
+                    else FishingRules.CheckRead(tab.Table, get, errors);
                     if (key >= 0 && !isKept)
                     {
                         string f = e.Attr(FishingRules.Feature) ?? "", l = e.Attr(FishingRules.Locale) ?? "";
@@ -128,7 +131,9 @@ namespace MS2.ModKit
                             XmlElem cl = c;
                             var le = new List<string>();
                             var lw = new List<string>();
-                            FishingRules.CheckLine(f => { string v = cl.Attr(f); return string.IsNullOrEmpty(v) ? null : v; }, le, lw);
+                            Func<string, string> lget = f => { string v = cl.Attr(f); return string.IsNullOrEmpty(v) ? null : v; };
+                            if (isKept) FishingRules.CheckLine(lget, le, lw);
+                            else FishingRules.CheckLineRead(lget, le);
                             string code = (c.Attr(FishingRules.FishCode) ?? "").Trim();
                             foreach (string s in le) errors.Add("line " + n + " (fish " + code + "): " + s);
                             foreach (string s in lw) warnings.Add("line " + n + " (fish " + code + "): " + s);
@@ -245,20 +250,19 @@ namespace MS2.ModKit
             return l;
         }
 
-        // the liquids of the tiles where a spot gives fish: a water tile counts as seawater when the spot lists seawater
-        static List<int> FishTiles(XmlElem spot)
+        // does the spot turn the map's water tiles into seawater (it lists seawater)
+        static bool FishSeaSpot(XmlElem spot)
         {
-            List<int> l = FishingRules.LiquidsOf(spot.Attr(FishingRules.Liquid));
-            var tiles = new List<int>();
-            foreach (int n in l) tiles.Add(n == FishingRules.Water && l.Contains(FishingRules.Seawater) ? FishingRules.Seawater : n);
-            return tiles;
+            return FishingRules.LiquidsOf(spot.Attr(FishingRules.Liquid)).Contains(FishingRules.Seawater);
         }
 
-        // can the spot give the fish: on one of its tiles, at its masteries
+        // can the spot give the fish, as far as the tables tell: the tiles are the map's fluids near the player (the
+        // spot's list does not choose them), so its habitat only rules it out when it is all, or water on a spot that
+        // lists seawater (each water tile counts as seawater there); then its masteries
         static bool FishGives(XmlElem spot, XmlElem fish)
         {
             int h = FishingRules.HabitatOf(string.IsNullOrEmpty(fish.Attr(FishingRules.Habitat)) ? null : fish.Attr(FishingRules.Habitat));
-            if (!FishTiles(spot).Contains(h)) return false;
+            if (h == FishingRules.All || (h == FishingRules.Water && FishSeaSpot(spot))) return false;
             if (FishBool(fish, FishingRules.Ignore)) return true;
             int m = FishInt(fish, FishingRules.Mastery);
             return m >= FishInt(spot, FishingRules.MinMastery) && m <= FishInt(spot, FishingRules.MaxMastery);
@@ -285,7 +289,8 @@ namespace MS2.ModKit
                 foreach (XmlElem b in FishBoxesOf(s, tabs)) if (boxes.Contains(b)) names = true;
                 if (names && FishGives(s, e)) return;
             }
-            warnings.Add("no fishing spot gives it: the spots that name its boxes have no tile of its habitat \"" + (e.Attr(FishingRules.Habitat) ?? "") + "\" or give other masteries than its " + FishInt(e, FishingRules.Mastery));
+            warnings.Add("no fishing spot gives it: the spots that name its boxes give other masteries than its " + FishInt(e, FishingRules.Mastery)
+                + (FishingRules.HabitatOf(string.IsNullOrEmpty(e.Attr(FishingRules.Habitat)) ? null : e.Attr(FishingRules.Habitat)) == FishingRules.Water ? ", or list seawater (their water tiles count as seawater, so a water fish does not bite)" : ""));
         }
 
         static void FishOfSpot(XmlElem e, Dictionary<FishTable, FishTab> tabs, List<string> warnings)
@@ -302,7 +307,8 @@ namespace MS2.ModKit
                     XmlElem f;
                     if (fish.TryGetValue(c, out f) && FishGives(e, f)) return;
                 }
-            if (FishBoxesOf(e, tabs).Count > 0) warnings.Add("nothing can be caught: no fish of its boxes lives in its liquids (" + (e.Attr(FishingRules.Liquid) ?? "") + ") at its masteries");
+            if (FishBoxesOf(e, tabs).Count > 0) warnings.Add("nothing can be caught: no fish of its boxes bites at its masteries"
+                + (FishSeaSpot(e) ? " (it lists seawater, so the map's water tiles count as seawater and a water fish does not bite)" : ""));
         }
 
         static void FishOfBox(XmlElem e, FishTable t, Dictionary<FishTable, FishTab> tabs, List<string> warnings)

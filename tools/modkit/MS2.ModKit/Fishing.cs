@@ -21,9 +21,10 @@
 // with the same fishCode the last weight counts.
 //
 // How the server fishes: the spot of the map gives its two boxes; each is used when its probability (in 10000) comes
-// up; a line gives its fish when the fish table has it, its habitat is the tile's liquid (a water tile counts as
-// seawater when the spot lists seawater) and its mastery is within the spot's min and max (unless ignoreSpotMastery).
-// The fish is picked by the weights of the lines. Its size comes from smallSize min..max, smallSize max..bigSize min
+// up; a line gives its fish when the fish table has it, its habitat is the liquid of the tile cast at (the tiles are
+// the map's fluids near the player, whatever the spot lists; a water tile counts as seawater when the spot lists
+// seawater) and its mastery is within the spot's min and max (unless ignoreSpotMastery). The fish is picked by the
+// weights of the lines (when they are all 0, the first). Its size comes from smallSize min..max, smallSize max..bigSize min
 // and bigSize max..twice bigSize max: a range whose min is above its max stops the catch. pointCount 0 stops it from
 // the second catch on. The lures are read but not used by the server.
 //
@@ -269,11 +270,7 @@ namespace MS2.ModKit
         public static void Check(FishTable t, Func<string, string> get, List<string> errors, List<string> warnings)
         {
             Func<string, string> g = f => { string v = get(f); return string.IsNullOrEmpty(v) ? null : v; };
-            foreach (string f in KindsOf(t).Keys)
-            {
-                string p = Problem(KindsOf(t), f, g(f));
-                if (p != null) errors.Add(p);
-            }
+            CheckRead(t, g, errors);
             int key;
             if (Int(g(Key(t)), out key) && key <= 0) warnings.Add(Key(t) + " is " + (g(Key(t)) == null ? "not set" : g(Key(t))) + ": the server reads it as " + key);
             switch (t)
@@ -282,6 +279,31 @@ namespace MS2.ModKit
                 case FishTable.Spot: CheckSpot(g, warnings); break;
                 case FishTable.Lure: CheckLure(g, errors); break;
                 default: CheckBox(g, warnings); break;
+            }
+        }
+
+        /// <summary>
+        /// The errors of a row the server reads but does not keep (feature/locale): the parser reads every row, so a
+        /// value it cannot read stops it; the ingest's own reads and the catch see only the row it keeps.
+        /// </summary>
+        public static void CheckRead(FishTable t, Func<string, string> get, List<string> errors)
+        {
+            foreach (string f in KindsOf(t).Keys)
+            {
+                string v = get(f);
+                string p = Problem(KindsOf(t), f, string.IsNullOrEmpty(v) ? null : v);
+                if (p != null) errors.Add(p);
+            }
+        }
+
+        /// <summary>The errors of a line of a box the server does not keep (as CheckRead).</summary>
+        public static void CheckLineRead(Func<string, string> get, List<string> errors)
+        {
+            foreach (string f in lineKinds.Keys)
+            {
+                string v = get(f);
+                string p = Problem(lineKinds, f, string.IsNullOrEmpty(v) ? null : v);
+                if (p != null) errors.Add(p);
             }
         }
 
@@ -343,14 +365,10 @@ namespace MS2.ModKit
         public static void CheckLine(Func<string, string> get, List<string> errors, List<string> warnings)
         {
             Func<string, string> g = f => { string v = get(f); return string.IsNullOrEmpty(v) ? null : v; };
-            foreach (string f in lineKinds.Keys)
-            {
-                string p = Problem(lineKinds, f, g(f));
-                if (p != null) errors.Add(p);
-            }
+            CheckLineRead(g, errors);
             int n;
             if (g(FishCode) == null) warnings.Add(FishCode + " is not set");
-            if (Int(g(Weight), out n) && n <= 0) warnings.Add(Weight + " is " + (g(Weight) == null ? "not set" : g(Weight)) + ": the fish is not picked");
+            if (Int(g(Weight), out n) && n <= 0) warnings.Add(Weight + " is " + (g(Weight) == null ? "not set" : g(Weight)) + ": the fish is picked only when no fish that can bite there has a weight (then the server takes the first of them)");
         }
 
         /// <summary>The fish codes of box lines that are there more than once (the server keeps the last weight).</summary>
@@ -517,7 +535,7 @@ namespace MS2.ModKit
             if (box.IsDeleted) return new List<FishLine>();
             if (open != box)
             {
-                var d = new TableDraft(Data, Mod, FishingRules.Archive, FishingRules.Entry(box.Table), box.Row.Selector);
+                var d = new TableDraft(Draft(box.Table), box.Row.Selector);
                 var l = new List<FishLine>();
                 foreach (TableRow r in d.Rows) if (r.Base != null && r.Base.Name == FishingRules.Line) l.Add(new FishLine(box) { Row = r });
                 closed.Remove(box);
@@ -544,7 +562,8 @@ namespace MS2.ModKit
 
         public bool IsEdited(FishLine line, string field) { return line.IsAdded || DraftOf(line).IsEdited(line.Row, field); }
 
-        // the fish codes of a shipped box the mod changes, read while it is not the open one
+        // the fish codes of a shipped box the mod changes, read while it is not the open one (its draft shares the
+        // box table's parsed entry, so a box costs a walk of the mod's edits, not a parse)
         readonly Dictionary<FishRow, List<string>> closed = new Dictionary<FishRow, List<string>>();
 
         /// <summary>The fish codes of a box's lines as the mod leaves them.</summary>
@@ -568,7 +587,7 @@ namespace MS2.ModKit
                 if (!closed.TryGetValue(box, out c))
                 {
                     c = new List<string>();
-                    var d = new TableDraft(Data, Mod, FishingRules.Archive, FishingRules.Entry(box.Table), box.Row.Selector);
+                    var d = new TableDraft(Draft(box.Table), box.Row.Selector);
                     foreach (TableRow r in d.Rows)
                         if (r.Base != null && r.Base.Name == FishingRules.Line && !r.IsDeleted) c.Add(d.Get(r, FishingRules.FishCode) ?? "");
                     closed[box] = c;

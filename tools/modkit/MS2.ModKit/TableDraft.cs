@@ -63,18 +63,30 @@ namespace MS2.ModKit
         /// <param name="archive">"client:Xml.m2d"</param>
         /// <param name="entry">"table/pet.xml"</param>
         /// <param name="parentSelector">the element whose children are the rows; null or "" for the root element</param>
-        public TableDraft(DataSet data, Mod mod, string archive, string entry, string parentSelector)
+        public TableDraft(DataSet data, Mod mod, string archive, string entry, string parentSelector) : this(data, mod, archive, entry, parentSelector, null) { }
+
+        /// <summary>
+        /// A draft of another parent of an entry another draft has read: it shares that draft's original document
+        /// (a draft never changes it) instead of parsing the entry again.
+        /// </summary>
+        public TableDraft(TableDraft of, string parentSelector) : this(null, of.Mod, of.Archive, of.Entry, parentSelector, of.Doc) { }
+
+        TableDraft(DataSet data, Mod mod, string archive, string entry, string parentSelector, XmlDoc doc)
         {
             if (mod == null) throw new ArgumentNullException("mod");
             Mod = mod;
             Archive = DataSet.NormalizeRef(archive);
             Entry = entry.Replace('\\', '/');
             ParentSelector = parentSelector ?? "";
-            M2dArchive arch = data.Open(Archive);
-            M2dEntry e = arch.Find(Entry);
-            if (e == null) throw new ModKitException(Archive + " has no entry " + Entry);
-            Entry = e.Name;
-            Doc = XmlDoc.Parse(arch.Read(e), Archive + " " + Entry);
+            if (doc != null) Doc = doc;
+            else
+            {
+                M2dArchive arch = data.Open(Archive);
+                M2dEntry e = arch.Find(Entry);
+                if (e == null) throw new ModKitException(Archive + " has no entry " + Entry);
+                Entry = e.Name;
+                Doc = XmlDoc.Parse(arch.Read(e), Archive + " " + Entry);
+            }
             if (Doc.Root == null) throw new ModKitException(Archive + " " + Entry + " holds no XML element");
             Parent = ParentSelector.Length == 0 ? Doc.Root : RowPath.Parse(ParentSelector).Resolve(Doc.Root);
 

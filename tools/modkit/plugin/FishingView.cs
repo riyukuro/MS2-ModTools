@@ -65,7 +65,7 @@ namespace MS2.Tables
             { FishingRules.BigSize, "The size range in cm of a big catch, as min-max" },
             { FishingRules.Ignore, "true/false (1/0): the fish bites at a spot whatever its mastery" },
             { "bait", "The bait item ids the fish takes, a comma list" },
-            { FishingRules.Liquid, "The liquids of the spot's tiles, a comma list of none, water, seawater, lava, poison, oil, devilwater, emeraldwater, all" },
+            { FishingRules.Liquid, "A comma list of none, water, seawater, lava, poison, oil, devilwater, emeraldwater, all. The tiles are the map's fluids near the player; seawater here turns its water tiles into seawater" },
             { FishingRules.MinMastery, "The lowest fishing mastery the spot gives" },
             { FishingRules.MaxMastery, "The highest fishing mastery the spot gives; a fish needs fishMastery at most this" },
             { FishingRules.GlobalBox, "The global fish box (globalFishBox.xml) whose fish bite at the spot" },

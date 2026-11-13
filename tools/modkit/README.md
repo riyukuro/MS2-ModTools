@@ -2161,9 +2161,10 @@ the server's `Server.m2d`:
 
 Every row may also have `feature` and `locale`. The server fishes like this. The map's spot gives its two boxes, and
 each box is used when its probability comes up. A line gives its fish when the fish table has the fish, its habitat
-is the tile's liquid (a water tile counts as seawater when the spot lists seawater) and its `fishMastery` is within
-the spot's `minMastery` and `maxMastery` (unless `ignoreSpotMastery`). The weights of the lines pick the fish, and
-the sizes give its size. The server reads the lures but does not use them. The clients have a `table/fish.xml` and
+is the liquid of the tile cast at and its `fishMastery` is within the spot's `minMastery` and `maxMastery` (unless
+`ignoreSpotMastery`). The tiles are the map's fluids near the player, whatever the spot lists: `liquidType` only
+turns water tiles into seawater when it lists seawater. The weights of the lines pick the fish (when all are 0, the
+first), and the sizes give its size. The server reads the lures but does not use them. The clients have a `table/fish.xml` and
 a `table/fishingspot.xml` in `Xml.m2d`, with the fish's book, habitat, mastery, rank and sizes.
 
 1. Choose the **Table** and type in **Find** (a key, or for a box a fish id of its lines). The list shows the rows
@@ -2184,20 +2185,25 @@ or a catch):
 
 - a value it cannot read as written. A number may have spaces around it, and a boolean is 1, 0, true or false. A
   comma list is read part by part. A size and a lure's drop mastery are lists split at `-`.
-- a fish without `smallSize` or `bigSize`, a size whose min is above its max, a `smallSize` max above the `bigSize`
-  min, a `bigSize` max too big to double, and `pointCount` 0.
+- a fish without `smallSize` or `bigSize`, a `smallSize` whose min is above its max, a `smallSize` max above the
+  `bigSize` min, a `bigSize` max too big to double, and `pointCount` 0.
 - a lure whose `catchProp` or `spawnProp` has fewer numbers than its ranks.
+
+Of a row the server reads but leaves out (by feature and locale, below), only a value it cannot read is an error:
+the ingest's sizes and lure chances and the catch see only the row it keeps.
 
 Warnings:
 
-- a fish of a habitat the server does not know (it reads as all), or of all (no tile has it), and `baitProp` 0.
-- a fish that no box has a line for, or that no spot gives (by liquid and mastery). A fish that the Korean or the
-  global client's `table/fish.xml` has no row for, or whose client row has another value of a field the server has
-  (the client shows its own values: change the client table too).
+- a fish of a habitat the server does not know (it reads as all), or of all (no tile has it), a `bigSize` whose min
+  is above its max, and `baitProp` 0.
+- a fish that no box has a line for, or that no spot gives: by mastery, and a water fish does not bite on a spot
+  that lists seawater. The map's fluids are not in the tables, so a fish of another liquid counts as given. A fish
+  that the Korean or the global client's `table/fish.xml` has no row for, or whose client row has another value of
+  a field the server has (the client shows its own values: change the client table too).
 - a spot whose min is above its max, a liquid the server does not know, a spot that names no box or a box that is not
   there, and a spot where nothing can be caught.
 - a box that no spot names, a box with no fish, a fish with more than one line (the last weight counts), a line of a
-  fish the table does not have, a line with weight 0, `probability` 0, and a box the mod takes away that a spot still
+  fish the table does not have, a line with weight 0 (picked only when no fish that can bite there has a weight), `probability` 0, and a box the mod takes away that a spot still
   names.
 - a row the server does not keep. Rows with the same key are cut to one by their feature and locale, by the server's
   rule (a row with the server's locale wins, then a row with a feature, then the higher feature level). The key of a

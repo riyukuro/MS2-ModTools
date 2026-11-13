@@ -261,7 +261,8 @@ namespace MS2.ModKit.Tests
                 FishRow spot = ed.Find(FishTable.Spot, 9900001);
                 ed.Set(spot, "liquidType", "lava,mud");
                 Plan p = PlanOf(f, m);
-                Assert.That(With(p.Warnings, "fishing spot 9900001: nothing can be caught"), Has.Count.EqualTo(1));
+                // the tiles are the map's fluids, not the spot's list: its water fish still bite on the map's water
+                Assert.That(With(p.Warnings, "fishing spot 9900001: nothing can be caught"), Is.Empty);
                 Assert.That(With(p.Warnings, "fishing spot 9900001: liquidType \"mud\" is not a liquid the server knows"), Has.Count.EqualTo(1));
                 Assert.That(With(p.Warnings, "the Korean client's table/fishingspot.xml has liquidType \"water,seawater\""), Has.Count.EqualTo(1));
                 ed.Revert(spot);
@@ -270,6 +271,9 @@ namespace MS2.ModKit.Tests
                 ed.Set(fish, "lv", "2");
                 Assert.That(With(PlanOf(f, m).Warnings, "fish 9100001: no fishing spot gives it"), Has.Count.EqualTo(1));
                 ed.Set(spot, "liquidType", "water");
+                Assert.That(With(PlanOf(f, m).Warnings, "fish 9100001: no fishing spot gives it"), Is.Empty);
+                // a lava fish on a spot that lists only water is caught on the map's lava
+                ed.Set(fish, "habitat", "lava");
                 Assert.That(With(PlanOf(f, m).Warnings, "fish 9100001: no fishing spot gives it"), Is.Empty);
                 ed.Set(fish, "habitat", "Water");
                 p = PlanOf(f, m);
@@ -300,6 +304,12 @@ namespace MS2.ModKit.Tests
                 Plan p = PlanOf(f, m);
                 Assert.That(With(p.Warnings, "lure 9700001 level 2: another row with additionalEffectCode 9700001 wins"), Has.Count.EqualTo(1));
                 Assert.That(With(p.Warnings, "lure 9700001 level 1: the server keeps this row"), Has.Count.EqualTo(1));
+                // the left-out level's chances are never read by the ingest: only a value the parser cannot read stops it
+                ed.Set(lure, "catchProp", "1000");
+                p = PlanOf(f, m);
+                Assert.That(p.Errors, Is.Empty);
+                ed.Set(lure, "catchProp", "x");
+                Assert.That(With(PlanOf(f, m).Errors, "lure 9700001 level 2: catchProp \"x\" is not a comma list"), Has.Count.EqualTo(1));
             }
         }
 
