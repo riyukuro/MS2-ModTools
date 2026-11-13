@@ -550,6 +550,7 @@ namespace MS2.ModKit
             MeretChecks(run);
             FishingChecks(run);
             GachaChecks(run);
+            EnchantChecks(run);
             TalkNameCheck(run);
             NpcTalkCheck(run);
 
