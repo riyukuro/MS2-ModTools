@@ -2220,13 +2220,15 @@ both (the global client gets the server's lines, see [One mod, both sides](#one-
 |---|---|
 | `randomBoxID` | the gacha id, the key. A capsule item opens it: a server item file with `<function name="OpenGachaBox" parameter="<gacha id>,<the item's own id>">` |
 | `individualDropBoxID` | the drop box the server rolls for each capsule opened (in `table/Server/individualItemDrop_Final.xml`: the **Shops and Drops** view edits its items and weights) |
-| `coinItemID`, `coinItemAmount` | the refund: dismantling an item won from the capsule gives this many of this item. The server looks the capsule up at the time of the dismantle |
+| `coinItemID`, `coinItemAmount` | the refund: dismantling an item won from the capsule gives this many of this item, when the item has no `item_break` entry (the server pays an item's break ingredients first, and the coin only when there are none). The server looks the capsule up at the time of the dismantle |
 | `shopID` | the capsule shop the gacha window opens |
 | `randomBoxGroup`, `ui`, `randomBoxSeason*`, `seasonNumberOnIcon`, `saleEndDate` | what the gacha window shows: the group, layout, season and end of sale (`yyyy-MM-dd-HH-mm-ss`) |
-| `paymentIconTag`, `randomBoxGroupDesc` | client only: the item whose icon shows the price, and the group's text |
+| `paymentIconTag` | client only: the item whose icon shows the price |
+| `randomBoxGroupDesc` | on the client rows, but never read: the client's loader skips it and the server has no such field |
 | `feature`, `locale` | the row is for this feature or locale only |
 
-The server reads the byte fields (group, ui, seasons) as 0 to 255 and the ids and amount as int; an empty value is 0.
+The server reads the byte fields (group, ui, seasons) as 0 to 255 with no sign, and the ids and amount as int; an
+empty value (`=""`) is 0, but a value of blanks only is not read.
 A missing `coinItemAmount` reads as 1 on the client and 0 on the server: the client shows one coin and the server
 gives none.
 
@@ -2239,7 +2241,8 @@ gives none.
    clients only.
 3. Under the fields: the capsule items that open it (the scan reads every server item file once, as the mod leaves
    them), the odds of its drop box per group (each row's weight over the group's total; a group with job weights or
-   by gender shifts per player), and the capsule's checks. **Open drop box** shows the box in the Shops and Drops view.
+   by gender shifts per player; a smart group whose rows have no weight at all gives one of the rows for the player's
+   job, each as likely; a group with a `dropGroupMinLevel` gives nothing below it), and the capsule's checks. **Open drop box** shows the box in the Shops and Drops view.
 4. **New** adds a capsule under the **New id** (empty: the next free one of 99100000-99109999, reserved in the mod's
    `<ids space="gacha">`) with the **Drop box** and the **Coin** x amount. **Copy** adds a copy of the chosen capsule
    with the mod, client-only fields on the client. A new capsule needs a capsule item: add a server item file (an entry of
@@ -2250,7 +2253,8 @@ gives none.
 Plan checks the capsules the mods add or change, and the capsule items the mods change, as they end up. Errors
 (they stop the server's ingest or an open):
 
-- a value the server cannot read: a byte field that is not 0 to 255, an id or amount that is not an int.
+- a value the server cannot read: a byte field that is not 0 to 255 (or has a sign, as `+1`), an id or amount that
+  is not an int, a value of blanks only.
 - a changed capsule item whose `OpenGachaBox` parameter has a part that is not a number (the server reads every
   comma part).
 
@@ -2259,13 +2263,13 @@ Warnings:
 - an id of 0 or less; `individualDropBoxID` 0, a drop box the server does not have, or one with no group with rows
   (opening fails and the capsule is not used up).
 - a coin with an amount of 0 or empty (no refund), an amount with no coin, and a coin that is not an item of the
-  server. A `saleEndDate` that is not `yyyy-MM-dd-HH-mm-ss`.
+  server (each for won items without an `item_break` entry: the others give their break ingredients). A `saleEndDate` that is not `yyyy-MM-dd-HH-mm-ss`.
 - a new capsule that no capsule item opens: players cannot get it.
 - a row the server does not keep (by its feature and locale, as for the fishing tables).
 - a client whose row has another value of a field the server reads, or that has no row for it (its gacha window shows
   its own values: change the client table too), and a client row the mods change for a capsule the server does not
   have.
-- a shipped capsule the mods remove: items players won from it no longer refund their coin, and the capsule items
+- a shipped capsule the mods remove: items players won from it (without a break entry) no longer refund their coin, and the capsule items
   that still open it fail.
 - a changed capsule item that opens a capsule the server has no row for.
 

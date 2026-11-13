@@ -469,8 +469,10 @@ namespace MS2.Tables
                     else
                         foreach (GachaOddsGroup grp in odds)
                         {
-                            string note = "dropCount " + (grp.DropCount ?? "") + ", weight " + grp.TotalWeight
-                                + (grp.JobWeights ? "; job weights apply: the chances shift per job" : "") + (grp.SmartGender ? "; by gender" : "");
+                            string note = (grp.Uniform ? "no weights: one of the rows for the player's job, each as likely"
+                                    : "dropCount " + (grp.DropCount ?? "") + ", weight " + grp.TotalWeight)
+                                + (grp.JobWeights ? "; job weights apply: the chances shift per job" : "") + (grp.SmartGender ? "; by gender" : "")
+                                + (grp.MinLevel != null ? "; from level " + grp.MinLevel : "");
                             var gi = new ListViewItem(new[] { grp.Group ?? "", "", note, "", "", "" }) { Font = new Font(oddsList.Font, FontStyle.Bold) };
                             oddsList.Items.Add(gi);
                             foreach (GachaOddsRow r in grp.Rows)
@@ -481,7 +483,7 @@ namespace MS2.Tables
                                 it.SubItems.Add(r.Min == r.Max ? r.Min.ToString(CultureInfo.InvariantCulture) : r.Min + "-" + r.Max);
                                 it.SubItems.Add(r.Weight.ToString(CultureInfo.InvariantCulture));
                                 it.SubItems.Add(r.Percent.ToString("0.###", CultureInfo.InvariantCulture) + " %");
-                                if (r.Weight <= 0) it.ForeColor = SystemColors.GrayText;
+                                if (r.Weight <= 0 && !grp.Uniform) it.ForeColor = SystemColors.GrayText;
                                 oddsList.Items.Add(it);
                             }
                         }

@@ -49,6 +49,14 @@ namespace MS2.ModKit.Tests
             "    </group>\n" +
             "  </dropBox>\n" +
             "  <dropBox dropBoxID=\"7003\" />\n" +
+            "  <dropBox dropBoxID=\"7004\">\n" +
+            "    <group dropGroupID=\"1\" dropCount=\"1\" smartDropRate=\"100\" dropGroupMinLevel=\"20\">\n" +
+            "      <v itemID=\"5001\" weight=\"0\" />\n" +
+            "      <v itemID=\"5002\" />\n" +
+            "      <v itemID=\"5003\" weight=\"0\" />\n" +
+            "      <v itemID=\"5004\" weight=\"0\" />\n" +
+            "    </group>\n" +
+            "  </dropBox>\n" +
             "</ms2>\n";
 
         static string ItemFile(long id, string function)
@@ -204,6 +212,65 @@ namespace MS2.ModKit.Tests
         }
 
         [Test]
+        public void UntouchedBytesStayAsShipped()
+        {
+            using (var f = new FakeGacha())
+            {
+                Mod m = Empty();
+                var ed = new GachaEditor(f.Data, m);
+                ed.Set(Find(ed, 1000002), GachaRules.Amount, "4");
+                Plan p = PlanOf(f, m);
+                Assert.That(Texts(p.Errors), Is.Empty);
+                foreach (string a in new[] { K, G, S })
+                {
+                    string want = FakeGacha.Table(a == K);
+                    Assert.That(want.Split(new[] { "coinItemAmount=\"3\"" }, StringSplitOptions.None).Length, Is.EqualTo(2));
+                    want = want.Replace("coinItemAmount=\"3\"", "coinItemAmount=\"4\"");
+                    byte[] got = null;
+                    foreach (KeyValuePair<string, byte[]> kv in p.Find(a).Put) if (kv.Key == GachaRules.Entry) got = kv.Value;
+                    Assert.That(got, Is.EqualTo(Fake.Crlf(want)), a + ": only the one attribute changes, byte for byte");
+                }
+            }
+        }
+
+        [Test]
+        public void ServerReadsBytesAndIntsAsTheIngest()
+        {
+            long n;
+            Assert.That(GachaRules.ServerValue(GachaRules.Ui, "", out n) && n == 0, Is.True, "an empty value is dropped: 0");
+            Assert.That(GachaRules.ServerValue(GachaRules.Ui, " 3 ", out n) && n == 3, Is.True, "blanks around a byte");
+            Assert.That(GachaRules.ServerValue(GachaRules.Ui, "+1", out n), Is.False, "a byte takes no sign");
+            Assert.That(GachaRules.ServerValue(GachaRules.Ui, " ", out n), Is.False, "blanks only");
+            Assert.That(GachaRules.ServerValue(GachaRules.Ui, "256", out n), Is.False);
+            Assert.That(GachaRules.ServerValue(GachaRules.Amount, "+5", out n) && n == 5, Is.True, "an int takes a sign");
+            Assert.That(GachaRules.ServerValue(GachaRules.Amount, "  ", out n), Is.False, "blanks only");
+            var vals = new Dictionary<string, string> { { GachaRules.Key, "1" }, { GachaRules.DropBox, "7001" }, { GachaRules.Ui, "+1" }, { GachaRules.Amount, " " } };
+            List<string> errs = new List<string>(), warns = new List<string>();
+            GachaRules.Check(k => { string v; return vals.TryGetValue(k, out v) ? v : null; }, errs, warns);
+            Assert.That(errs, Has.Some.Contains("ui \"+1\" is not a number of 0 to 255"));
+            Assert.That(errs, Has.Some.Contains("coinItemAmount \" \" is not a whole number"));
+        }
+
+        [Test]
+        public void ASmartGroupWithNoWeightsIsAnEvenPick()
+        {
+            using (var f = new FakeGacha())
+            {
+                var ed = new GachaEditor(f.Data, Empty());
+                Gacha n = ed.Add(99100000, 7004, 5009, 1);
+                string why;
+                List<GachaOddsGroup> odds = ed.Odds(n, out why);
+                Assert.That(why, Is.Null);
+                Assert.That(odds.Count, Is.EqualTo(1));
+                Assert.That(odds[0].Uniform, Is.True);
+                Assert.That(odds[0].JobWeights, Is.False);
+                Assert.That(odds[0].MinLevel, Is.EqualTo("20"));
+                Assert.That(odds[0].Rows.Select(r => r.Percent), Is.EqualTo(new double[] { 25, 25, 25, 25 }));
+                Assert.That(ed.Odds(Find(ed, 1000001), out why).Any(g => g.Uniform), Is.False, "weights: no even pick");
+            }
+        }
+
+        [Test]
         public void ANewCapsuleNeedsAnItemThatOpensIt()
         {
             using (var f = new FakeGacha())
@@ -266,7 +333,7 @@ namespace MS2.ModKit.Tests
                 ed.Remove(Find(ed, 1000002));
                 Plan p = PlanOf(f, m);
                 List<string> w = Texts(p.Warnings);
-                Assert.That(w, Has.Some.Contains("capsule 1000002 is removed: items players won from it no longer give coin 5009"));
+                Assert.That(w, Has.Some.Contains("capsule 1000002 is removed: items players won from it that have no break entry no longer give coin 5009"));
                 Assert.That(w, Has.Some.Contains("capsule 1000002 is removed, and item 5102 still opens it"));
                 Assert.That(Texts(p.Errors), Is.Empty);
                 ed.Restore(Find(ed, 1000002));

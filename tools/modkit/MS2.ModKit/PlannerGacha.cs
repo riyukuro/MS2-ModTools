@@ -240,7 +240,7 @@ namespace MS2.ModKit
                         {
                             if (!itemsRead) { itemsRead = true; serverItems = Items(run, Profile.Server); }
                             if (serverItems != null && !serverItems.Contains(coin))
-                                warnings.Add(GachaRules.Coin + " " + coin + " is not an item of the " + Profile.Server.Title + ": dismantling a won item gives nothing");
+                                warnings.Add(GachaRules.Coin + " " + coin + " is not an item of the " + Profile.Server.Title + ": dismantling a won item without a break entry gives nothing");
                         }
                         if (opened != null && !main.Shipped.ContainsKey(GachaKeyOf(e)) && gid != long.MinValue && !opened.ContainsKey(gid))
                             warnings.Add("no capsule item opens it (no server item has the function " + GachaRules.Function + " with the parameter \"" + gid + ",...\"): players cannot get it");
@@ -267,7 +267,7 @@ namespace MS2.ModKit
                         long coin, amount;
                         if (GachaRules.ServerValue(GachaRules.Coin, kv.Value.Attr(GachaRules.Coin), out coin) && coin > 0
                             && GachaRules.ServerValue(GachaRules.Amount, kv.Value.Attr(GachaRules.Amount), out amount) && amount > 0)
-                            plan.Msg(plan.Warnings, mod, main.Archive, GachaRules.Entry, what + ": items players won from it no longer give coin " + coin + " when they are dismantled (the server looks the capsule up then)");
+                            plan.Msg(plan.Warnings, mod, main.Archive, GachaRules.Entry, what + ": items players won from it that have no break entry no longer give coin " + coin + " when they are dismantled (the server looks the capsule up then)");
                         List<GachaCapsule> by;
                         if (opened != null && opened.TryGetValue(gid, out by))
                             plan.Msg(plan.Warnings, mod, main.Archive, GachaRules.Entry, what + ", and item " + GachaItems(by) + " still opens it: opening fails");

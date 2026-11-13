@@ -9,11 +9,13 @@
 //   individualDropBoxID   the drop box the server rolls for each capsule opened (table/Server/individualItemDrop_Final.xml):
 //                         every group of the box gives its drop count of rows, picked by weight
 //   coinItemID, coinItemAmount  what dismantling an item won from the capsule gives (the server keeps the gacha id
-//                         on the item); amount 0 gives nothing. The client reads a missing amount as 1, the server as 0
+//                         on the item) when the item has no item_break entry: the server pays an item's break
+//                         ingredients first, and the coin only when there are none; amount 0 gives nothing. The client reads a missing amount as 1, the server as 0
 //   shopID                the capsule shop the client's gacha window opens
 //   randomBoxGroup, ui, seasonNumberOnIcon, randomBoxSeasonKR/CN/NA/JP, saleEndDate (yyyy-MM-dd-HH-mm-ss)
 //                         how the client's gacha window shows the capsule
-//   paymentIconTag, randomBoxGroupDesc  client rows only: the icon of the price and the group's text
+//   paymentIconTag        client rows only: the item whose icon shows the price
+//   randomBoxGroupDesc    on the client rows, but the client never reads it (nor does the server)
 //   feature, locale       rows with one id for other features or locales
 // The server's ingest reads randomBoxGroup, the seasons, seasonNumberOnIcon and ui as bytes and the ids and the amount
 // as ints (an empty value is 0); a value it cannot read stops the ingest.
@@ -69,15 +71,16 @@ namespace MS2.ModKit
                 case "paymentIconTag": return "client only: the item whose icon shows the price";
                 case DropBox: return "the drop box rolled for each capsule (Shops and Drops edits it)";
                 case Shop: return "the capsule shop the window opens";
-                case Coin: return "the item dismantling a won item gives";
+                case Coin: return "the item dismantling a won item gives (when the item has no break entry)";
                 case Amount: return "how many coins; 0 gives none (the client shows 1 when empty, the server reads 0)";
-                case "randomBoxGroupDesc": return "client only: the text of the group";
+                case "randomBoxGroupDesc": return "never read: neither the client nor the server reads it";
                 case "feature": return "the row is for this feature only";
                 case "locale": return "the row is for this locale only";
                 default: return "";
             }
         }
 
+        // a number as text to compare (sign and blanks allowed; empty is 0)
         static bool ReadInt(string v, out long n)
         {
             n = 0;
@@ -89,11 +92,24 @@ namespace MS2.ModKit
             return true;
         }
 
-        /// <summary>The value the server reads (an empty value is 0); false when it cannot read it.</summary>
+        /// <summary>The value the server reads; false when it cannot read it. Its ingest drops an attribute that is
+        /// exactly empty (0); any other text goes to XmlConvert: an int may have a sign and blanks around it, a byte
+        /// blanks only, and a value of blanks alone is not read.</summary>
         public static bool ServerValue(string field, string v, out long n)
         {
-            if (!ReadInt(v, out n)) return false;
-            if (Array.IndexOf(Bytes, field) >= 0 && (n < 0 || n > 255)) return false;
+            n = 0;
+            if (string.IsNullOrEmpty(v)) return true;
+            const NumberStyles blanks = NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite;
+            if (Array.IndexOf(Bytes, field) >= 0)
+            {
+                byte b;
+                if (!byte.TryParse(v, blanks, CultureInfo.InvariantCulture, out b)) return false;
+                n = b;
+                return true;
+            }
+            int i;
+            if (!int.TryParse(v, blanks | NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out i)) return false;
+            n = i;
             return true;
         }
 
@@ -123,13 +139,13 @@ namespace MS2.ModKit
             {
                 string v = get(f);
                 long n;
-                if (!ServerValue(f, v, out n)) errors.Add(f + " \"" + v + "\" is not a number of 0 to 255: the server's ingest stops on it");
+                if (!ServerValue(f, v, out n)) errors.Add(f + " \"" + v + "\" is not a number of 0 to 255 the server reads (no sign, not blank): its ingest stops on it");
             }
             foreach (string f in Ints)
             {
                 string v = get(f);
                 long n;
-                if (!ServerValue(f, v, out n)) errors.Add(f + " \"" + v + "\" is not a whole number the server reads (an int): its ingest stops on it");
+                if (!ServerValue(f, v, out n)) errors.Add(f + " \"" + v + "\" is not a whole number the server reads (an int, not blank): its ingest stops on it");
             }
             long box, coin, amount, id;
             if (ServerValue(Key, get(Key), out id) && id <= 0) warnings.Add(Key + " is " + id + ": no capsule can open it");
@@ -137,8 +153,8 @@ namespace MS2.ModKit
             bool hasCoin = ServerValue(Coin, get(Coin), out coin) && coin > 0;
             if (ServerValue(Amount, get(Amount), out amount))
             {
-                if (hasCoin && amount <= 0) warnings.Add(Amount + " is " + (string.IsNullOrEmpty((get(Amount) ?? "").Trim()) ? "empty (the server reads 0)" : amount.ToString(CultureInfo.InvariantCulture)) + ": dismantling a won item gives no coin " + coin);
-                if (!hasCoin && amount > 0) warnings.Add(Coin + " is 0: dismantling a won item gives nothing, whatever " + Amount + " says");
+                if (hasCoin && amount <= 0) warnings.Add(Amount + " is " + (string.IsNullOrEmpty((get(Amount) ?? "").Trim()) ? "empty (the server reads 0)" : amount.ToString(CultureInfo.InvariantCulture)) + ": dismantling a won item without a break entry gives no coin " + coin);
+                if (!hasCoin && amount > 0) warnings.Add(Coin + " is 0: dismantling a won item without a break entry gives nothing, whatever " + Amount + " says");
             }
             string d = (get(SaleEnd) ?? "").Trim();
             if (d.Length > 0 && !Date.IsMatch(d)) warnings.Add(SaleEnd + " \"" + d + "\" is not yyyy-MM-dd-HH-mm-ss");
@@ -283,6 +299,11 @@ namespace MS2.ModKit
         public bool JobWeights;
         /// <summary>isApplySmartGenderDrop: the other gender's items are left out of the roll.</summary>
         public bool SmartGender;
+        /// <summary>A smart group whose rows have no weight and no job weight: the server gives one of the rows for
+        /// the player's job, each as likely, once (whatever the drop count).</summary>
+        public bool Uniform;
+        /// <summary>dropGroupMinLevel: players below this level get nothing from the group (null when not set).</summary>
+        public string MinLevel;
         public readonly List<GachaOddsRow> Rows = new List<GachaOddsRow>();
     }
 
@@ -303,7 +324,9 @@ namespace MS2.ModKit
         /// <summary>
         /// The odds of a drop box on one side (as GroupEditor shows it): per group, each row's share of the group's
         /// weight. The server rolls each group's drop count, then picks that many rows by weight (a row can come up
-        /// again). A group with a smartDropRate and job weights is picked by the job weights instead.
+        /// again). A group with a smartDropRate and job weights is picked by the job weights instead; one with a
+        /// smartDropRate and no weight on any row gives one row for the player's job, each as likely (Uniform: the
+        /// percent is of all the rows, the server picks among those for the job).
         /// </summary>
         public static List<GachaOddsGroup> Of(GroupSideView side)
         {
@@ -316,12 +339,15 @@ namespace MS2.ModKit
                     Group = g.Key,
                     DropCount = Of(g.Value, "dropCount"),
                     SmartGender = (Of(g.Value, "isApplySmartGenderDrop") ?? "").Trim() == "1",
+                    MinLevel = Num(Of(g.Value, "dropGroupMinLevel")) > 0 ? Of(g.Value, "dropGroupMinLevel").Trim() : null,
                 };
                 og.JobWeights = Num(Of(g.Value, "smartDropRate")) > 0;
                 byGroup[g.Key] = og;
                 l.Add(og);
             }
             var any = new Dictionary<string, bool>(StringComparer.Ordinal);
+            var smart = new Dictionary<string, bool>(StringComparer.Ordinal);
+            foreach (GachaOddsGroup og in l) if (og.JobWeights) smart[og.Group] = true;
             foreach (GroupRowView r in side.Rows)
             {
                 GachaOddsGroup og;
@@ -337,8 +363,15 @@ namespace MS2.ModKit
             }
             foreach (GachaOddsGroup og in l)
             {
-                // a smart group whose rows have no job weight is rolled by the plain weight
+                // a smart group whose rows have no job weight is rolled by the plain weight, and one whose rows have no
+                // weight at all by one even pick of the rows for the player's job
                 if (og.JobWeights && !any.ContainsKey(og.Group)) og.JobWeights = false;
+                if (smart.ContainsKey(og.Group) && !og.JobWeights && og.Rows.Count > 0 && og.Rows.TrueForAll(r => r.Weight == 0))
+                {
+                    og.Uniform = true;
+                    foreach (GachaOddsRow r in og.Rows) r.Percent = 100.0 / og.Rows.Count;
+                    continue;
+                }
                 foreach (GachaOddsRow r in og.Rows) if (r.Weight > 0) og.TotalWeight += r.Weight;
                 foreach (GachaOddsRow r in og.Rows) r.Percent = og.TotalWeight > 0 && r.Weight > 0 ? 100.0 * r.Weight / og.TotalWeight : 0;
             }
